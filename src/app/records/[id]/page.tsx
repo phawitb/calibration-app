@@ -5,9 +5,12 @@ import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import CalibrationForm from '@/components/CalibrationForm'
+import IsoCalibrationForm from '@/components/IsoCalibrationForm'
 import RecordDetailTabs from '@/components/RecordDetailTabs'
 import RecordCalculationPanel from '@/components/RecordCalculationPanel'
 import RecordAmedHistoryPanel from '@/components/RecordAmedHistoryPanel'
+import RecordPreviewPanel from '@/components/RecordPreviewPanel'
+import RecordApprovalPanel from '@/components/RecordApprovalPanel'
 
 export default async function RecordDetailPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -24,15 +27,15 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
     redirect('/records')
   }
 
-  // Convert dates to ISO strings for form
   const data = JSON.parse(JSON.stringify(record))
+  const approvalStatus = String((record as any).approvalStatus || 'draft')
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/records" className="text-gray-400 hover:text-gray-600 transition-colors">
-            ← ข้อมูลสอบเทียบ
+            &larr; ข้อมูลสอบเทียบ
           </Link>
           <span className="text-gray-300">/</span>
           <h1 className="text-xl font-bold text-military-900">
@@ -41,7 +44,7 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
         </div>
         <Link href={`/records/${params.id}/pdf`}
           className="btn-secondary flex items-center gap-2 text-sm">
-          📄 Export PDF
+          Export PDF
         </Link>
       </div>
 
@@ -68,13 +71,26 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
           </p>
         </div>
         <div>
-          <p className="text-military-300 text-xs">แผนก</p>
-          <p className="font-semibold">{(record as any).section || '-'}</p>
+          <p className="text-military-300 text-xs">สถานะ</p>
+          <p className="font-semibold">
+            {approvalStatus === 'approved' ? '✅ อนุมัติแล้ว'
+              : approvalStatus === 'pending_approval' ? '⏳ รออนุมัติ'
+              : '📝 ฉบับร่าง'}
+          </p>
         </div>
       </div>
 
       <RecordDetailTabs
+        approvalStatus={approvalStatus}
         calcPanel={<RecordCalculationPanel recordId={params.id} />}
+        previewPanel={<RecordPreviewPanel recordId={params.id} />}
+        approvalPanel={
+          <RecordApprovalPanel
+            recordId={params.id}
+            approvalStatus={approvalStatus}
+            requestedApproverId={String((record as any).requestedApproverId || '')}
+          />
+        }
         historyPanel={
           <RecordAmedHistoryPanel
             amedNo={String((record as any).amedNo || '')}
@@ -83,7 +99,11 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
           />
         }
       >
-        <CalibrationForm mode="edit" id={params.id} initialData={data} />
+        {data.calibrationType === 'iso' ? (
+          <IsoCalibrationForm mode="edit" methodCode={data.isoMethodCode || ''} recordId={params.id} initialData={data} />
+        ) : (
+          <CalibrationForm mode="edit" id={params.id} initialData={data} />
+        )}
       </RecordDetailTabs>
     </div>
   )

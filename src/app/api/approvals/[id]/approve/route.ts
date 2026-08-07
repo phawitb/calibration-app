@@ -39,8 +39,10 @@ export async function POST(
   record.approvedById = approverId
   record.approvedByName = approverName
   record.approvedAt = new Date()
-  // Issued date must always follow approval timestamp.
-  record.issuedDate = new Date(record.approvedAt)
+  // Only set issuedDate from approval if user hasn't manually set it
+  if (!record.issuedDate) {
+    record.issuedDate = new Date(record.approvedAt)
+  }
   record.approve = approverName
   await record.save()
 

@@ -20,6 +20,7 @@ const ALLOWED_FIELDS = new Set([
   'location',
   'calibrate',
   'approve',
+  'receivedN',
   'std1.no',
   'std1.name',
   'std1.manufacture',

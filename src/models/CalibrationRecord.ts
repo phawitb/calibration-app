@@ -126,7 +126,57 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
   createdAt: Date
   updatedAt: Date
   createdBy: string
+
+  calibrationType: 'sbcal' | 'iso'
+  isoMethodCode?: string
+  isoData?: {
+    receivedNumber?: string
+    certificateNo?: string
+    idNumber?: string
+    uucResolution?: number
+    condition?: string
+    calibrationPlace?: string
+    referenceStandard?: string
+    startTime?: string
+    endTime?: string
+    sensorType?: string
+    probeCount?: number
+    calPoints: {
+      point: any
+      sensorReadings: number[][]  // [reading_index][sensor_index]
+      standardCorrection?: number
+    }[]
+    timeCheck?: {
+      uucTime: string[]
+      stdTime: string[]
+    }
+  }
 }
+
+const IsoCalPointSchema = new Schema({
+  point: mongoose.Schema.Types.Mixed,
+  sensorReadings: [[Number]],
+  standardCorrection: Number,
+}, { _id: false })
+
+const IsoDataSchema = new Schema({
+  receivedNumber: String,
+  certificateNo: String,
+  idNumber: String,
+  uucResolution: Number,
+  condition: String,
+  calibrationPlace: String,
+  referenceStandard: String,
+  startTime: String,
+  endTime: String,
+  sensorType: String,
+  probeCount: Number,
+  calPoints: [IsoCalPointSchema],
+  timeCheck: {
+    uucTime: [String],
+    stdTime: [String],
+  },
+}, { _id: false })
 
 const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   recordNo:     { type: Number },
@@ -198,6 +248,10 @@ const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   remarks:   [String],
   images:    [String],
   createdBy: { type: String },
+
+  calibrationType: { type: String, enum: ['sbcal', 'iso'], default: 'sbcal', index: true },
+  isoMethodCode: { type: String, index: true },
+  isoData: IsoDataSchema,
 }, {
   timestamps: true,
 })

@@ -177,6 +177,12 @@ function CalibrationPDF({
             <Text style={styles.label}>Received date:</Text>
             <Text style={styles.value}>{formatDate(r.receivedDate)}</Text>
           </View>
+          {r.receivedN && (
+          <View style={styles.row}>
+            <Text style={styles.label}>Received by:</Text>
+            <Text style={styles.value}>{r.receivedN}</Text>
+          </View>
+          )}
           <View style={styles.row}>
             <Text style={styles.label}>Calibration date:</Text>
             <Text style={styles.value}>{formatDate(r.calDate)}</Text>

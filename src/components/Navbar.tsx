@@ -85,9 +85,11 @@ export default function Navbar() {
             {links.map(link => (
               <Link key={link.href} href={link.href}
                 className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-                  pathname.startsWith(link.href) && link.href !== '/dashboard'
-                    ? 'bg-military-600 text-white'
-                    : pathname === link.href
+                  (link.href === '/records/new'
+                    ? pathname === '/records/new'
+                    : link.href === '/records'
+                    ? pathname.startsWith('/records') && pathname !== '/records/new'
+                    : pathname.startsWith(link.href))
                     ? 'bg-military-600 text-white'
                     : 'text-military-200 hover:bg-military-700 hover:text-white'
                 }`}>

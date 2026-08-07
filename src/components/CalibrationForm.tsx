@@ -1,9 +1,10 @@
 'use client'
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
+import { useStepNav } from '@/lib/stepNavContext'
 
 interface Props {
   initialData?: any
@@ -547,11 +548,13 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: session } = useSession()
+  const { goToNext } = useStepNav()
   const role = (session?.user as any)?.role as string | undefined
   const canSubmitForApproval = role === 'admin' || role === 'technician'
   const isReadOnly = role === 'hospital_user'
   const [canRequestApprovalNow, setCanRequestApprovalNow] = useState(false)
   const [saving, setSaving] = useState(false)
+  const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
   const [stdInstruments, setStdInstruments] = useState<StdRef[]>([])
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
@@ -790,7 +793,22 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     e.preventDefault()
   }
 
-  const buildPayload = (saveAction: 'draft' | 'request_approval' | 'save_new') => {
+  const REQUIRED_FIELDS = [
+    { key: 'deviceName', label: 'ชื่อเครื่องมือ' },
+    { key: 'unitName', label: 'โรงพยาบาล / หน่วยงาน' },
+    { key: 'calDate', label: 'วันที่สอบเทียบ' },
+  ]
+
+  const validateRequired = () => {
+    const missing = REQUIRED_FIELDS.filter(f => !String(data[f.key] || '').trim())
+    if (missing.length > 0) {
+      toast.error(`กรุณากรอก: ${missing.map(f => f.label).join(', ')}`)
+      return false
+    }
+    return true
+  }
+
+  const buildPayload = (saveAction: 'draft' | 'request_approval') => {
     const selectedApprover = approvers.find((a) => String(a._id) === String(data.requestedApproverId || ''))
     return {
       ...data,
@@ -802,9 +820,13 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     }
   }
 
-  const submit = async (saveAction: 'draft' | 'request_approval' | 'save_new') => {
+  const submit = async (saveAction: 'draft' | 'request_approval') => {
     if (isReadOnly) {
       toast.error('สิทธิ์ผู้ใช้ รพ. ดูข้อมูลได้อย่างเดียว')
+      return
+    }
+    if (!validateRequired()) {
+      pendingContinueRef.current = false
       return
     }
     if (saveAction === 'request_approval' && canSubmitForApproval && !data.requestedApproverId) {
@@ -812,30 +834,13 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       return
     }
     if (saveAction === 'request_approval' && mode === 'edit' && !canRequestApprovalNow) {
-      toast.error('กรุณากดอัพเดทค่า หรือบันทึกเป็นรายการใหม่ก่อน')
+      toast.error('กรุณากดอัพเดทค่า ก่อน')
       return
     }
     setSaving(true)
     const payload = buildPayload(saveAction)
-    const isSaveNew = saveAction === 'save_new'
-    if (isSaveNew) {
-      payload._id = undefined
-      payload.id = undefined
-      payload.createdAt = undefined
-      payload.updatedAt = undefined
-      payload.recordNo = undefined
-      payload.certNo = ''
-      payload.amedCertKey = ''
-      payload.approvalStatus = 'draft'
-      payload.approvedById = undefined
-      payload.approvedByName = undefined
-      payload.approvedAt = undefined
-      payload.approve = ''
-      payload.requestedApproverId = undefined
-      payload.requestedApproverName = ''
-    }
-    const url = mode === 'create' || isSaveNew ? '/api/records' : `/api/records/${id}`
-    const method = mode === 'create' || isSaveNew ? 'POST' : 'PUT'
+    const url = mode === 'create' ? '/api/records' : `/api/records/${id}`
+    const method = mode === 'create' ? 'POST' : 'PUT'
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
@@ -845,19 +850,22 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     if (res.ok) {
       if (saveAction === 'request_approval') {
         toast.success('ส่งขออนุมัติใบเซอร์แล้ว — รอผู้อนุมัติในแอป')
-      } else if (saveAction === 'save_new') {
-        toast.success('บันทึกเป็นรายการใหม่สำเร็จ')
       } else {
         toast.success(mode === 'create' ? 'บันทึกข้อมูลสำเร็จ' : 'อัพเดตข้อมูลสำเร็จ')
       }
       const json = await res.json()
-      if (mode === 'create' || isSaveNew) {
+      if (mode === 'create') {
         router.push(`/records/${json.record._id}?justSaved=1`)
       } else if (json.record) {
         setData((d: any) => ({ ...d, ...json.record }))
         if (saveAction === 'draft') setCanRequestApprovalNow(true)
       }
+      if (pendingContinueRef.current) {
+        pendingContinueRef.current = false
+        goToNext()
+      }
     } else {
+      pendingContinueRef.current = false
       const err = await res.json().catch(() => ({}))
       toast.error(err.error || 'เกิดข้อผิดพลาด กรุณาลองใหม่')
     }
@@ -905,6 +913,19 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             </div>
           ))}
 
+          <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
+            <input
+              type="checkbox"
+              id="select-checkbox"
+              checked={!!data.select}
+              onChange={(e) => set('select', e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+            />
+            <label htmlFor="select-checkbox" className="text-sm font-medium text-gray-700">
+              เลือกเพื่อยืนยันการดำเนินการ ให้ใช้งานเลข Amed นี้
+            </label>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">แผนก / ห้อง</label>
             <SuggestInput
@@ -939,6 +960,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
             { field: 'receivedDate', label: 'วันที่รับเครื่อง',   type: 'date' },
+            { field: 'receivedN',    label: 'ผู้รับเครื่อง',       type: 'text' },
             { field: 'calDate',      label: 'วันที่สอบเทียบ',     type: 'date' },
             { field: 'location',     label: 'สถานที่สอบเทียบ',    type: 'text' },
             { field: 'lapTemp',      label: 'อุณหภูมิห้อง (°C)',  type: 'number' },
@@ -968,12 +990,12 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">วันที่ออกใบเซอร์</label>
             <input
-              type="text"
-              className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
-              value={toThaiDate(data.issuedDate || data.approvedAt)}
-              readOnly
+              type="date"
+              className="input-field"
+              value={data.issuedDate || ''}
+              onChange={(e) => set('issuedDate', e.target.value)}
             />
-            <p className="text-xs text-gray-500 mt-1">ระบบกำหนดอัตโนมัติจากวันที่อนุมัติ</p>
+            <p className="text-xs text-gray-500 mt-1">ถ้าไม่ระบุ ระบบจะใช้วันที่อนุมัติแทน</p>
           </div>
 
         </div>
@@ -1122,61 +1144,38 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             ))}
           </select>
           <p className="text-xs text-gray-500">
-            ปุ่มขออนุมัติจะกดได้หลัง “อัพเดทค่า” หรือ “บันทึกเป็นรายการใหม่” เท่านั้น
+            ปุ่มขออนุมัติจะกดได้หลัง “บันทึก” เท่านั้น
           </p>
         </div>
       )}
       </fieldset>
 
-      <div className="flex flex-wrap gap-3 justify-end">
-        <button type="button" onClick={() => router.back()} className="btn-secondary">ยกเลิก</button>
-        {!isReadOnly && (
-          <>
-            {mode === 'create' ? (
+      <div className="card bg-gray-50 border border-gray-200">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button type="button" onClick={() => router.back()} className="btn-secondary text-sm">ยกเลิก</button>
+          {!isReadOnly && (
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => submit('draft')}
-                className="btn-primary px-6"
+                className="btn-secondary px-5"
               >
-                {saving ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
+                {saving && !pendingContinueRef.current ? 'กำลังบันทึก...' : 'บันทึก'}
               </button>
-            ) : (
-              <>
+              {mode === 'edit' && (
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => submit('draft')}
-                  className="btn-primary px-6"
+                  onClick={() => { pendingContinueRef.current = true; submit('draft') }}
+                  className="btn-primary px-6 flex items-center gap-1.5"
                 >
-                  {saving ? 'กำลังบันทึก...' : 'อัพเดทค่า'}
+                  {saving && pendingContinueRef.current ? 'กำลังบันทึก...' : <>บันทึกและไปต่อ <span>&rarr;</span></>}
                 </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => submit('save_new')}
-                  className="px-6 rounded-lg font-semibold bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  บันทึกเป็นรายการใหม่
-                </button>
-              </>
-            )}
-          </>
-        )}
-        {!isReadOnly && mode === 'edit' && canSubmitForApproval && (
-          <button
-            type="button"
-            disabled={saving || !canRequestApprovalNow}
-            onClick={() => submit('request_approval')}
-            className={`px-6 rounded-lg font-semibold text-gray-900 ${
-              saving || !canRequestApprovalNow
-                ? 'bg-amber-300 cursor-not-allowed'
-                : 'bg-amber-500 hover:bg-amber-600'
-            }`}
-          >
-            ขออนุมัติใบเซอร์
-          </button>
-        )}
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </form>
   )

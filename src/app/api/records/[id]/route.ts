@@ -61,14 +61,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   await connectDB()
   const body = await req.json()
-  const { saveAction, approve: _a0, issuedDate: _issuedDateClient, ...rawBody } = body as {
+  const { saveAction, approve: _a0, ...rawBody } = body as {
     saveAction?: string
     approve?: string
-    issuedDate?: string
     [k: string]: any
   }
   void _a0
-  void _issuedDateClient
 
   const existing = await CalibrationRecord.findById(params.id)
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -108,7 +106,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const patch: Record<string, any> = { ...rawBody }
   delete (patch as any).approve
-  delete (patch as any).issuedDate
 
   if (action === 'request_approval') {
     if (!approverId) {

@@ -48,10 +48,18 @@ export async function GET(req: NextRequest) {
   const limit   = parseInt(searchParams.get('limit') || '20')
   const section = searchParams.get('section') || ''
   const cardFilter = String(searchParams.get('cardFilter') || '').trim()
+  const calType = searchParams.get('calType') || ''
+  const status = searchParams.get('status') || ''
+  const unitName = searchParams.get('unitName') || ''
+  const calDateFrom = searchParams.get('calDateFrom') || ''
+  const calDateTo = searchParams.get('calDateTo') || ''
   const role = (session.user as any)?.role
   const hospitalUnit = (session.user as any)?.hospitalUnit
 
-  const query: any = {}
+  const query: any = {
+    // ซ่อน record ที่ยังไม่ได้กรอกข้อมูล (สร้างจากหน้าเลือกประเภทแต่ยังไม่บันทึก)
+    deviceName: { $exists: true, $ne: '' },
+  }
   if (role === 'hospital_user' && hospitalUnit) {
     const unitVariants = await getUnitVariants(hospitalUnit)
     query.unitName = { $in: unitVariants }
@@ -83,6 +91,14 @@ export async function GET(req: NextRequest) {
     ]
   }
   if (section) query.section = { $regex: section, $options: 'i' }
+  if (calType) query.calibrationType = calType
+  if (status) query.approvalStatus = status
+  if (unitName && !query.unitName) query.unitName = { $regex: unitName, $options: 'i' }
+  if (calDateFrom || calDateTo) {
+    query.calDate = query.calDate || {}
+    if (calDateFrom) query.calDate.$gte = new Date(calDateFrom)
+    if (calDateTo) query.calDate.$lte = new Date(calDateTo + 'T23:59:59.999Z')
+  }
   if (cardFilter) {
     const now = new Date()
     switch (cardFilter) {
@@ -128,7 +144,7 @@ export async function GET(req: NextRequest) {
   const effectiveLimit = search ? Math.max(limit, 200) : limit
   const total   = await CalibrationRecord.countDocuments(query)
   const records = await CalibrationRecord.find(query)
-    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calPrice approvalStatus requestedApproverName')
+    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calPrice approvalStatus requestedApproverName calibrationType isoMethodCode updatedAt')
     .sort({ calDate: -1, recordNo: -1 })
     .skip((page - 1) * effectiveLimit)
     .limit(effectiveLimit)
@@ -144,13 +160,11 @@ export async function POST(req: NextRequest) {
   await connectDB()
 
   const body = await req.json()
-  const { saveAction, approve: _apClient, issuedDate: _issuedDateClient, ...rawBody } = body as {
+  const { saveAction, approve: _apClient, ...rawBody } = body as {
     saveAction?: string
     approve?: string
-    issuedDate?: string
     [k: string]: any
   }
-  void _issuedDateClient
   const action = (saveAction === 'request_approval' ? 'request_approval' : 'draft') as
     | 'draft'
     | 'request_approval'

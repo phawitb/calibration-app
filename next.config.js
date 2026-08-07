@@ -3,7 +3,6 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['mongoose'],
   },
-  // Windows / Desktop + sync: ลด HMR/แคช .next ไม่สอดคล้อง (JS/CSS หน้าเละ สีหาย, chunk หาย)
   webpack: (config, { dev }) => {
     if (dev) {
       config.watchOptions = {

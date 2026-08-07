@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [loading,  setLoading]  = useState(false)
+  const [redirecting, setRedirecting] = useState(false)
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -17,17 +18,30 @@ export default function LoginPage() {
     const res = await signIn('credentials', {
       username, password, redirect: false,
     })
-    setLoading(false)
     if (res?.ok) {
+      setRedirecting(true)
       toast.success('เข้าสู่ระบบสำเร็จ')
       router.push('/dashboard')
     } else {
+      setLoading(false)
       toast.error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
     }
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-military-900 via-military-700 to-military-500">
+      {/* Redirect overlay */}
+      {redirecting && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-military-900/80 backdrop-blur-sm">
+          <svg className="animate-spin h-10 w-10 text-white mb-4" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          <p className="text-white text-lg font-medium">กำลังเข้าสู่ระบบ...</p>
+          <p className="text-military-300 text-sm mt-1">กรุณารอสักครู่</p>
+        </div>
+      )}
+
       {/* Background pattern */}
       <div className="absolute inset-0 opacity-10"
         style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '32px 32px' }} />
