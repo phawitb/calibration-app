@@ -1,0 +1,40 @@
+{
+  "name": "calibration-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:clean": "npm run clean && next dev",
+    "dev:turbo": "next dev --turbo",
+    "clean": "node -e \"const fs=require('fs'); for (const p of ['.next','node_modules/.cache']){ try{fs.rmSync(p,{recursive:true,force:true})}catch(e){} }\"",
+    "build": "next build",
+    "start": "next start",
+    "seed": "node scripts/seed.js",
+    "vercel:prod": "vercel --prod"
+  },
+  "dependencies": {
+    "@react-pdf/renderer": "^3.4.0",
+    "bcryptjs": "^2.4.3",
+    "date-fns": "^3.6.0",
+    "mongoose": "^8.3.0",
+    "next": "14.2.0",
+    "next-auth": "^4.24.7",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-hook-form": "^7.51.3",
+    "react-hot-toast": "^2.4.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10",
+    "dotenv": "^16.4.5",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.0",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}

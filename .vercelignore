@@ -1,0 +1,6 @@
+# ลดขนาดอัปโหลด (ไม่รวม public/ — โลโก้ต้องขึ้น)
+sbcal-backup
+uncertainty-update
+scripts/calibration_data.json
+{src
+*.xlsx

@@ -1,0 +1,12 @@
+.env.local
+.env
+node_modules/
+.next/
+.vercel/
+*.log
+.DS_Store
+sbcal-backup/
+uncertainty-update/
+{src/
+*.xlsx
+logo.jfif
