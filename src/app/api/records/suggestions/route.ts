@@ -102,8 +102,15 @@ export async function GET(req: NextRequest) {
       .limit(limit * 3)
       .toArray()
     for (const row of rows) {
-      if (row?.name) extraValues.push(String(row.name).trim())
-      if (row?.thaiName) extraValues.push(String(row.thaiName).trim())
+      const en = String(row?.name || '').trim()
+      const th = String(row?.thaiName || '').trim()
+      if (en && th) {
+        extraValues.push(`${en}(${th})`)
+      } else if (en) {
+        extraValues.push(en)
+      } else if (th) {
+        extraValues.push(th)
+      }
     }
   }
 

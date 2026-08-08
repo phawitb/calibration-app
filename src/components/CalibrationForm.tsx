@@ -876,13 +876,42 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     return true
   }
 
+  /** ตรวจสอบว่ามีข้อมูลเพียงพอสำหรับการคำนวณ */
+  const validateForCalculation = () => {
+    const errors: Record<string, string> = {}
+    const ucKeys = ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT'] as const
+    let hasAnyUc = false
+
+    for (const key of ucKeys) {
+      const uc = data[key]
+      if (!uc) continue
+      const stdNo = String(uc?.std?.no || '').trim()
+      const hasReadings = Array.isArray(uc?.calPoints) && uc.calPoints.some(
+        (p: any) => Array.isArray(p.readings) && p.readings.some((r: any) => r !== '' && r != null && !isNaN(Number(r)) && Number(r) !== 0)
+      )
+      if (stdNo || hasReadings) {
+        // This Uc section has data — validate it's complete
+        if (!stdNo) errors[`${key}.std`] = `${key.toUpperCase()}: กรุณาเลือกเครื่องมือมาตรฐาน`
+        if (!hasReadings) errors[`${key}.readings`] = `${key.toUpperCase()}: กรุณากรอกค่า Readings อย่างน้อย 1 จุด`
+        if (stdNo && hasReadings) hasAnyUc = true
+      }
+    }
+
+    if (!hasAnyUc && Object.keys(errors).length === 0) {
+      errors['uc_missing'] = 'กรุณากรอกข้อมูล Uc อย่างน้อย 1 ชุด (เลือกเครื่องมือมาตรฐาน + กรอก Readings)'
+    }
+
+    return errors
+  }
+
   // ล้าง error เมื่อกรอกข้อมูล
   useEffect(() => {
     if (Object.keys(fieldErrors).length === 0) return
     setFieldErrors((prev) => {
       const next = { ...prev }
       for (const key of Object.keys(next)) {
-        if (String(data[key] || '').trim()) delete next[key]
+        // Clear simple field errors when data filled
+        if (!key.includes('.') && key !== 'uc_missing' && String(data[key] || '').trim()) delete next[key]
       }
       return Object.keys(next).length === Object.keys(prev).length ? prev : next
     })
@@ -908,6 +937,17 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     if (!validateRequired()) {
       pendingContinueRef.current = false
       return
+    }
+    // When navigating to calc step, validate calculation data
+    if (pendingContinueRef.current) {
+      const calcErrors = validateForCalculation()
+      if (Object.keys(calcErrors).length > 0) {
+        setFieldErrors((prev) => ({ ...prev, ...calcErrors }))
+        const msgs = Object.values(calcErrors)
+        toast.error(msgs[0])
+        pendingContinueRef.current = false
+        return
+      }
     }
     if (saveAction === 'request_approval' && canSubmitForApproval && !data.requestedApproverId) {
       toast.error('กรุณาเลือกผู้อนุมัติ')
@@ -1303,6 +1343,18 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
 
       {/* การอนุมัติจัดการโดย admin / approver ในหน้ารายละเอียด */}
       </fieldset>
+
+      {/* Calculation validation errors */}
+      {(fieldErrors['uc_missing'] || Object.keys(fieldErrors).some(k => k.includes('.'))) && (
+        <div className="card border-2 border-red-300 bg-red-50 text-red-700 space-y-1">
+          <p className="font-semibold text-sm">ข้อมูลไม่เพียงพอสำหรับการคำนวณ:</p>
+          {Object.entries(fieldErrors)
+            .filter(([k]) => k === 'uc_missing' || k.includes('.'))
+            .map(([k, v]) => (
+              <p key={k} className="text-sm">• {v}</p>
+            ))}
+        </div>
+      )}
 
       <div className="card bg-gray-50 border border-gray-200">
         <div className="flex flex-wrap items-center justify-between gap-3">

@@ -29,6 +29,7 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
 
   const data = JSON.parse(JSON.stringify(record))
   const approvalStatus = String((record as any).approvalStatus || 'draft')
+  const lastStep = String((record as any).lastStep || 'edit')
 
   return (
     <div className="space-y-4">
@@ -82,6 +83,8 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
 
       <RecordDetailTabs
         approvalStatus={approvalStatus}
+        recordId={params.id}
+        initialStep={lastStep}
         calcPanel={<RecordCalculationPanel recordId={params.id} />}
         previewPanel={<RecordPreviewPanel recordId={params.id} />}
         approvalPanel={

@@ -315,6 +315,164 @@ export function buildSummaryTable(
   return rows
 }
 
+// ──── ISO Calibration Calculation ────
+
+export interface IsoSensorResult {
+  sensorIndex: number
+  calPointResults: CalPointResult[]
+}
+
+export interface IsoCalPointSummary {
+  point: number
+  sensorResults: {
+    sensorIndex: number
+    avgUUC: number
+    avgSTDRead: number
+    correction: number
+    uc: number
+    U: number
+    k: number
+  }[]
+}
+
+export interface IsoCalculationResult {
+  isoMethodCode: string
+  unit: string
+  stdNo: string
+  stdName: string
+  sensorResults: IsoSensorResult[]
+  calPointSummaries: IsoCalPointSummary[]
+  timeCheckResult?: {
+    avgUucTime: number
+    avgStdTime: number
+    timeDifference: number
+  }
+}
+
+/**
+ * Calculate uncertainty budget for an ISO calibration record.
+ *
+ * ISO records store data in isoData.calPoints[].sensorReadings[readingIdx][sensorIdx].
+ * For single-sensor methods (ELC-001, TEM-003), there's 1 sensor column.
+ * For multi-sensor methods (TEM-001, TEM-002, TEM-004), there are 5 sensor columns.
+ *
+ * STD readings = point + standardCorrection (constant for all readings within a cal point).
+ * Uncertainty params come from std1 on the record.
+ */
+export function calculateIsoRecord(
+  record: any,
+  formula: FormulaConfig = STANDARD_FORMULA,
+): IsoCalculationResult | null {
+  const isoData = record.isoData
+  if (!isoData?.calPoints?.length) return null
+
+  const isoMethodCode = String(record.isoMethodCode || '')
+  const std1 = record.std1 || {}
+  const stdParams: StdUncertaintyParams = {
+    stdCorrection: Number(std1.correction ?? 0),
+    uTStd: Number(std1.uTStd ?? 0),
+    uTDrif: Number(std1.uTDrif ?? 0),
+    uTResStd: Number(std1.uTResStd ?? 0),
+    uTUuc: Number(std1.uTUuc ?? 0),
+    uTInt: Number(std1.uTInt ?? 0),
+  }
+  const unit = String(std1.unit || '')
+  const stdNo = String(std1.no || '')
+  const stdName = String(std1.name || '')
+
+  // Determine sensor count from data
+  const firstPoint = isoData.calPoints[0]
+  const firstRow = Array.isArray(firstPoint?.sensorReadings?.[0]) ? firstPoint.sensorReadings[0] : []
+  const sensorCount = firstRow.length || 1
+
+  // For each sensor, collect cal point results
+  const sensorResults: IsoSensorResult[] = []
+
+  for (let sIdx = 0; sIdx < sensorCount; sIdx++) {
+    const calPointResults: CalPointResult[] = []
+
+    for (const cp of isoData.calPoints) {
+      const point = Number(cp.point ?? 0)
+      if (!point && point !== 0) continue
+
+      const sensorReadings = Array.isArray(cp.sensorReadings) ? cp.sensorReadings : []
+      const uucReadings: number[] = sensorReadings
+        .map((row: any[]) => Number(row?.[sIdx] ?? NaN))
+        .filter((v: number) => !isNaN(v) && v !== 0)
+
+      if (uucReadings.length === 0) continue
+
+      // STD readings: constant value = point + standardCorrection
+      const stdValue = point + Number(cp.standardCorrection ?? 0)
+      const stdReadings = uucReadings.map(() => stdValue)
+
+      const pointInput: CalPointInput = { point, uucReadings, stdReadings }
+      const result = calculateCalPointBudget(pointInput, stdParams, {
+        ...formula,
+        numReadings: uucReadings.length,
+      })
+      calPointResults.push(result)
+    }
+
+    if (calPointResults.length > 0) {
+      sensorResults.push({ sensorIndex: sIdx, calPointResults })
+    }
+  }
+
+  // Build cal point summaries
+  const calPointSummaries: IsoCalPointSummary[] = []
+  const uniquePoints: number[] = Array.from(new Set(isoData.calPoints.map((cp: any) => Number(cp.point ?? 0)) as number[]))
+  for (const point of uniquePoints) {
+    const sensorSummaries = sensorResults.map(sr => {
+      const ptResult = sr.calPointResults.find(r => r.point === point)
+      return ptResult ? {
+        sensorIndex: sr.sensorIndex,
+        avgUUC: ptResult.avgUUC,
+        avgSTDRead: ptResult.avgSTDRead,
+        correction: ptResult.correction,
+        uc: ptResult.uc,
+        U: ptResult.U,
+        k: ptResult.k,
+      } : null
+    }).filter(Boolean) as IsoCalPointSummary['sensorResults']
+
+    if (sensorSummaries.length > 0) {
+      calPointSummaries.push({ point, sensorResults: sensorSummaries })
+    }
+  }
+
+  // Time check calculation
+  let timeCheckResult: IsoCalculationResult['timeCheckResult']
+  if (isoData.timeCheck) {
+    const uucTimes = (isoData.timeCheck.uucTime || [])
+      .map((t: string) => Number(t))
+      .filter((v: number) => !isNaN(v) && v !== 0)
+    const stdTimes = (isoData.timeCheck.stdTime || [])
+      .map((t: string) => Number(t))
+      .filter((v: number) => !isNaN(v) && v !== 0)
+
+    if (uucTimes.length > 0 && stdTimes.length > 0) {
+      const avgUucTime = avg(uucTimes)
+      const avgStdTime = avg(stdTimes)
+      timeCheckResult = {
+        avgUucTime,
+        avgStdTime,
+        timeDifference: Math.abs(avgUucTime - avgStdTime),
+      }
+    }
+  }
+
+  return {
+    isoMethodCode,
+    unit,
+    stdNo,
+    stdName,
+    sensorResults,
+    calPointSummaries,
+    timeCheckResult,
+  }
+}
+
 export function fmt(value: number, decimals = 4): string {
   if (value == null || isNaN(value)) return '-'
   return value.toFixed(decimals)

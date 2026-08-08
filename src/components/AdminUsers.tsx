@@ -13,6 +13,7 @@ interface User {
   rankEn?: string
   role: string
   hospitalUnit?: string
+  amedNo?: string
   createdAt: string
   hasSignature?: boolean
 }
@@ -34,6 +35,7 @@ export default function AdminUsers() {
     fullNameEn: '',
     rankEn: '',
     hospitalUnit: '',
+    amedNo: '',
     role: 'hospital_user',
   })
   const [editForm, setEditForm] = useState({
@@ -45,6 +47,7 @@ export default function AdminUsers() {
     fullNameEn: '',
     rankEn: '',
     hospitalUnit: '',
+    amedNo: '',
     role: 'hospital_user',
     isActive: true,
   })
@@ -55,7 +58,7 @@ export default function AdminUsers() {
   const [editSignatureCleared, setEditSignatureCleared] = useState(false)
 
   const fetchUsers = async () => {
-    const res  = await fetch('/api/users')
+    const res  = await fetch('/api/users', { cache: 'no-store' })
     const data = await res.json()
     setUsers(data.users || [])
     setLoading(false)
@@ -147,9 +150,9 @@ export default function AdminUsers() {
     if (res.ok) {
       toast.success('เพิ่มผู้ใช้สำเร็จ')
       setShowForm(false)
-      setForm({ username: '', password: '', name: '', fullName: '', rank: '', fullNameEn: '', rankEn: '', hospitalUnit: '', role: 'hospital_user' })
+      setForm({ username: '', password: '', name: '', fullName: '', rank: '', fullNameEn: '', rankEn: '', hospitalUnit: '', amedNo: '', role: 'hospital_user' })
       setCreateSignaturePng(null)
-      fetchUsers()
+      await fetchUsers()
     } else {
       const data = await res.json()
       toast.error(data.error || 'เกิดข้อผิดพลาด')
@@ -167,6 +170,7 @@ export default function AdminUsers() {
       fullNameEn: u.fullNameEn || '',
       rankEn: u.rankEn || '',
       hospitalUnit: u.hospitalUnit || '',
+      amedNo: u.amedNo || '',
       role: u.role || 'hospital_user',
       isActive: true,
     })
@@ -210,7 +214,7 @@ export default function AdminUsers() {
     if (res.ok) {
       toast.success('อัปเดตผู้ใช้สำเร็จ')
       cancelEdit()
-      fetchUsers()
+      await fetchUsers()
     } else {
       const data = await res.json().catch(() => ({}))
       toast.error(data.error || 'อัปเดตไม่สำเร็จ')
@@ -222,7 +226,7 @@ export default function AdminUsers() {
     const res = await fetch(`/api/users?id=${encodeURIComponent(u._id)}`, { method: 'DELETE' })
     if (res.ok) {
       toast.success('ลบผู้ใช้สำเร็จ')
-      fetchUsers()
+      await fetchUsers()
       return
     }
     const data = await res.json().catch(() => ({}))
@@ -286,6 +290,11 @@ export default function AdminUsers() {
               <label className="block text-sm font-medium text-gray-700 mb-1">ยศ (English)</label>
               <input type="text" className="input-field"
                 value={form.rankEn} onChange={e => setForm(f => ({ ...f, rankEn: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">เลขที่อาร์เมด (AmedNo.)</label>
+              <input type="text" className="input-field"
+                value={form.amedNo} onChange={e => setForm(f => ({ ...f, amedNo: e.target.value }))} />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">โรงพยาบาล / หน่วย</label>
@@ -392,6 +401,11 @@ export default function AdminUsers() {
                 value={editForm.rankEn} onChange={e => setEditForm(f => ({ ...f, rankEn: e.target.value }))} />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">เลขที่อาร์เมด (AmedNo.)</label>
+              <input type="text" className="input-field"
+                value={editForm.amedNo} onChange={e => setEditForm(f => ({ ...f, amedNo: e.target.value }))} />
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">สิทธิ์</label>
               <select className="input-field" value={editForm.role} onChange={e => { setEditForm(f => ({ ...f, role: e.target.value })); if (!['technician','approver'].includes(e.target.value)) { setEditSignaturePng(null); setEditSignatureCleared(false) } }}>
                 <option value="hospital_user">ผู้ใช้ รพ.</option>
@@ -489,6 +503,7 @@ export default function AdminUsers() {
               <th className="text-left py-3 px-4 font-medium">ชื่อผู้ใช้</th>
               <th className="text-left py-3 px-4 font-medium">ชื่อ-นามสกุล</th>
               <th className="text-left py-3 px-4 font-medium">สิทธิ์</th>
+              <th className="text-left py-3 px-4 font-medium">AmedNo.</th>
               <th className="text-left py-3 px-4 font-medium">โรงพยาบาล</th>
               <th className="text-left py-3 px-4 font-medium hidden sm:table-cell">วันที่สร้าง</th>
               <th className="text-center py-3 px-4 font-medium">จัดการ</th>
@@ -496,7 +511,7 @@ export default function AdminUsers() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>
+              <tr><td colSpan={7} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>
             ) : users.map(u => (
               <tr key={u._id} className="border-b border-gray-50 hover:bg-military-50">
                 <td className="py-3 px-4 font-medium text-military-800">{u.username}</td>
@@ -521,6 +536,7 @@ export default function AdminUsers() {
                     )}
                   </div>
                 </td>
+                <td className="py-3 px-4 text-gray-600 font-mono text-xs">{u.amedNo || '-'}</td>
                 <td className="py-3 px-4 text-gray-600">{u.hospitalUnit || '-'}</td>
                 <td className="py-3 px-4 text-gray-500 hidden sm:table-cell">
                   {new Date(u.createdAt).toLocaleDateString('th-TH')}

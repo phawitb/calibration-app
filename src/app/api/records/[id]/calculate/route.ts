@@ -6,6 +6,7 @@ import CalibrationRecord from '@/models/CalibrationRecord'
 import CalculationFormula from '@/models/CalculationFormula'
 import {
   calculateAllUcComponents,
+  calculateIsoRecord,
   buildSummaryTable,
   STANDARD_FORMULA,
   FormulaConfig,
@@ -64,8 +65,15 @@ export async function GET(
       : STANDARD_FORMULA
   }
 
+  // ISO records: use ISO-specific calculation
+  if ((record as any).calibrationType === 'iso') {
+    const isoResult = calculateIsoRecord(record)
+    return NextResponse.json({ recordId: params.id, calibrationType: 'iso', isoResult })
+  }
+
+  // SbCal records: existing calculation
   const ucResults = calculateAllUcComponents(record, formulaMap)
   const summary = buildSummaryTable(ucResults)
 
-  return NextResponse.json({ recordId: params.id, ucResults, summary })
+  return NextResponse.json({ recordId: params.id, calibrationType: 'sbcal', ucResults, summary })
 }

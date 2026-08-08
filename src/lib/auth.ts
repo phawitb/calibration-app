@@ -34,6 +34,7 @@ export const authOptions: NextAuthOptions = {
           fullNameEn: user.fullNameEn || '',
           rankEn: user.rankEn || '',
           hospitalUnit: user.hospitalUnit || '',
+          amedNo: user.amedNo || '',
           role: normalizedRole,
         }
       },
@@ -50,6 +51,7 @@ export const authOptions: NextAuthOptions = {
         token.fullNameEn = (user as any).fullNameEn
         token.rankEn = (user as any).rankEn
         token.hospitalUnit = (user as any).hospitalUnit
+        token.amedNo = (user as any).amedNo
       }
       return token
     },
@@ -63,6 +65,7 @@ export const authOptions: NextAuthOptions = {
         ;(session.user as any).fullNameEn = token.fullNameEn
         ;(session.user as any).rankEn = token.rankEn
         ;(session.user as any).hospitalUnit = token.hospitalUnit
+        ;(session.user as any).amedNo = token.amedNo
         if (token.fullName) session.user.name = token.fullName as string
       }
       return session

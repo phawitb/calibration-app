@@ -202,6 +202,8 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
+  const [stdInstruments, setStdInstruments] = useState<Record<string, any>[]>([])
+  const [std1FromRef, setStd1FromRef] = useState(false)
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
 
   const [data, setData] = useState<any>(() => {
@@ -236,10 +238,17 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     let mounted = true
     const load = async () => {
       try {
-        const res = await fetch('/api/reference?type=units')
-        if (res.ok) {
-          const json = await res.json()
+        const [uRes, sRes] = await Promise.all([
+          fetch('/api/reference?type=units'),
+          fetch('/api/reference?type=stdinstruments'),
+        ])
+        if (uRes.ok) {
+          const json = await uRes.json()
           if (mounted) setUnitRefs(Array.isArray(json.data) ? json.data : [])
+        }
+        if (sRes.ok) {
+          const json = await sRes.json()
+          if (mounted) setStdInstruments(Array.isArray(json.data) ? json.data : [])
         }
       } catch { /* ignore */ }
     }
@@ -327,6 +336,61 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     set('location', normalizedLabel)
   }
 
+  // Std1 instrument helpers
+  const setStd1 = (field: string, value: any) =>
+    setData((d: any) => ({ ...d, std1: { ...(d.std1 || {}), [field]: value } }))
+
+  const std1FieldOptions = useMemo(() => {
+    const keys = ['no', 'name', 'manufacture', 'model', 'serialNo', 'certNo', 'measurement', 'unit', 'calDate'] as const
+    const m: Record<string, string[]> = {}
+    for (const k of keys) {
+      m[k] = Array.from(
+        new Set(stdInstruments.map((r) => String(r?.[k] ?? '').trim()).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b, 'th'))
+    }
+    return m
+  }, [stdInstruments])
+
+  const buildStdFromRef = (ref: Record<string, any>) => ({
+    no: ref?.no != null ? String(ref.no) : '',
+    name: ref?.name != null ? String(ref.name) : '',
+    manufacture: ref?.manufacture != null ? String(ref.manufacture) : '',
+    model: ref?.model != null ? String(ref.model) : '',
+    serialNo: ref?.serialNo != null ? String(ref.serialNo) : '',
+    certNo: ref?.certNo != null ? String(ref.certNo) : '',
+    measurement: ref?.measurement != null ? String(ref.measurement) : '',
+    unit: ref?.unit != null ? String(ref.unit) : '',
+    calDate: ref?.calDate != null ? String(ref.calDate) : '',
+    correction: ref?.correction != null && !Number.isNaN(Number(ref.correction)) ? Number(ref.correction) : undefined,
+    uTStd: ref?.uTStd != null && !Number.isNaN(Number(ref.uTStd)) ? Number(ref.uTStd) : undefined,
+    uTDrif: ref?.uTDrif != null && !Number.isNaN(Number(ref.uTDrif)) ? Number(ref.uTDrif) : undefined,
+    uTResStd: ref?.uTResStd != null && !Number.isNaN(Number(ref.uTResStd)) ? Number(ref.uTResStd) : undefined,
+    uTUuc: ref?.uTUuc != null && !Number.isNaN(Number(ref.uTUuc)) ? Number(ref.uTUuc) : undefined,
+    uTInt: ref?.uTInt != null && !Number.isNaN(Number(ref.uTInt)) ? Number(ref.uTInt) : undefined,
+  })
+
+  const tryApplyStd1FromRef = () => {
+    if (!stdInstruments.length) return
+    setData((d: any) => {
+      const s = d.std1 || {}
+      const n = String(s.no ?? '').trim()
+      const na = String(s.name ?? '').trim()
+      if (!n && !na) return d
+      const ref =
+        (n && stdInstruments.find((r) => String(r?.no ?? '').trim() === n)) ||
+        (na && stdInstruments.find((r) => String(r?.name ?? '').trim() === na)) ||
+        null
+      if (!ref) return d
+      setStd1FromRef(true)
+      return { ...d, std1: { ...buildStdFromRef(ref), tMin: s.tMin, tMax: s.tMax, hMin: s.hMin, hMax: s.hMax } }
+    })
+  }
+
+  const clearStd1Ref = () => {
+    setStd1FromRef(false)
+    setData((d: any) => ({ ...d, std1: {} }))
+  }
+
   const onFormKeyDown = (e: KeyboardEvent<HTMLFormElement>) => {
     if (e.key !== 'Enter') return
     const t = e.target
@@ -357,13 +421,47 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     return true
   }
 
+  /** ตรวจสอบว่ามีข้อมูลเพียงพอสำหรับการคำนวณ ISO */
+  const validateForCalculation = () => {
+    const errors: Record<string, string> = {}
+    const std1 = data.std1 || {}
+    const isoCalPoints = data.isoData?.calPoints || []
+
+    // ต้องมีเครื่องมือมาตรฐาน
+    if (!String(std1.no || '').trim()) {
+      errors['std1.no'] = 'กรุณาเลือกเครื่องมือมาตรฐาน (Standard Instrument)'
+    }
+
+    // ต้องมี calPoints อย่างน้อย 1 จุดที่มี readings
+    const hasReadings = isoCalPoints.some((cp: any) => {
+      if (!cp?.sensorReadings || !Array.isArray(cp.sensorReadings)) return false
+      return cp.sensorReadings.some((row: any[]) =>
+        Array.isArray(row) && row.some((v: any) => v !== '' && v != null && !isNaN(Number(v)) && Number(v) !== 0)
+      )
+    })
+    if (!hasReadings) {
+      errors['iso.readings'] = 'กรุณากรอกค่า Readings อย่างน้อย 1 จุดสอบเทียบ'
+    }
+
+    // ต้องมี calPoint value
+    const hasPoint = isoCalPoints.some((cp: any) => {
+      const p = Number(cp?.point ?? NaN)
+      return !isNaN(p) && p !== 0
+    })
+    if (!hasPoint) {
+      errors['iso.point'] = 'กรุณากรอกค่าจุดสอบเทียบ (Cal. Point) อย่างน้อย 1 จุด'
+    }
+
+    return errors
+  }
+
   // ล้าง error เมื่อกรอกข้อมูล
   useEffect(() => {
     if (Object.keys(fieldErrors).length === 0) return
     setFieldErrors((prev) => {
       const next = { ...prev }
       for (const key of Object.keys(next)) {
-        if (String(data[key] || '').trim()) delete next[key]
+        if (!key.includes('.') && String(data[key] || '').trim()) delete next[key]
       }
       return Object.keys(next).length === Object.keys(prev).length ? prev : next
     })
@@ -372,6 +470,17 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const submit = async (saveAction: 'draft' | 'request_approval') => {
     if (isReadOnly) { toast.error('สิทธิ์ผู้ใช้ รพ. ดูข้อมูลได้อย่างเดียว'); return }
     if (!validateRequired()) { pendingContinueRef.current = false; return }
+    // When navigating to calc step, validate calculation data
+    if (pendingContinueRef.current) {
+      const calcErrors = validateForCalculation()
+      if (Object.keys(calcErrors).length > 0) {
+        setFieldErrors((prev) => ({ ...prev, ...calcErrors }))
+        const msgs = Object.values(calcErrors)
+        toast.error(msgs[0])
+        pendingContinueRef.current = false
+        return
+      }
+    }
     if (saveAction === 'request_approval' && canSubmitForApproval && !data.requestedApproverId) {
       toast.error('กรุณาเลือกผู้อนุมัติ'); return
     }
@@ -992,6 +1101,119 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           </div>
         )}
 
+        {/* Standard instrument (Std1) - for uncertainty calculation */}
+        <div className="card space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="section-title">เครื่องมือมาตรฐาน (Standard Instrument)</h3>
+            {std1FromRef && (
+              <button type="button" onClick={clearStd1Ref}
+                className="text-xs text-red-500 hover:text-red-700">ล้างข้อมูลอ้างอิง</button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div>
+              <label className={`block text-xs mb-1 ${fieldErrors['std1.no'] ? 'text-red-600 font-medium' : 'text-gray-500'}`}>รหัส (No.)</label>
+              {std1FromRef ? (
+                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed text-sm"
+                  value={data.std1?.no || ''} readOnly />
+              ) : (
+                <SuggestInput field="std1.no"
+                  className={fieldErrors['std1.no'] ? 'input-field text-sm border-red-500 ring-1 ring-red-500' : 'input-field text-sm'}
+                  value={data.std1?.no || ''}
+                  onChange={(v) => { setStd1('no', v); if (v.trim()) setFieldErrors((p) => { const n = { ...p }; delete n['std1.no']; return n }) }}
+                  onBlur={tryApplyStd1FromRef}
+                  extraOptions={std1FieldOptions.no || []} />
+              )}
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">ชื่อ (Name)</label>
+              {std1FromRef ? (
+                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed text-sm"
+                  value={data.std1?.name || ''} readOnly />
+              ) : (
+                <SuggestInput field="std1.name"
+                  className="input-field text-sm"
+                  value={data.std1?.name || ''}
+                  onChange={(v) => setStd1('name', v)}
+                  onBlur={tryApplyStd1FromRef}
+                  extraOptions={std1FieldOptions.name || []} />
+              )}
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Cert No.</label>
+              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.certNo || ''}
+                onChange={(e) => setStd1('certNo', e.target.value)}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Measurement</label>
+              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.measurement || ''}
+                onChange={(e) => setStd1('measurement', e.target.value)}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Unit</label>
+              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.unit || ''}
+                onChange={(e) => setStd1('unit', e.target.value)}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Cal. Date</label>
+              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.calDate || ''}
+                onChange={(e) => setStd1('calDate', e.target.value)}
+                readOnly={std1FromRef} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Correction</label>
+              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.correction ?? ''}
+                onChange={(e) => setStd1('correction', e.target.value === '' ? '' : Number(e.target.value))}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">uT STD</label>
+              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.uTStd ?? ''}
+                onChange={(e) => setStd1('uTStd', e.target.value === '' ? '' : Number(e.target.value))}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">uT Drif</label>
+              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.uTDrif ?? ''}
+                onChange={(e) => setStd1('uTDrif', e.target.value === '' ? '' : Number(e.target.value))}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">uT Res.(STD)</label>
+              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.uTResStd ?? ''}
+                onChange={(e) => setStd1('uTResStd', e.target.value === '' ? '' : Number(e.target.value))}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">uT Res.(UUC)</label>
+              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.uTUuc ?? ''}
+                onChange={(e) => setStd1('uTUuc', e.target.value === '' ? '' : Number(e.target.value))}
+                readOnly={std1FromRef} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">uT Int.</label>
+              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                value={data.std1?.uTInt ?? ''}
+                onChange={(e) => setStd1('uTInt', e.target.value === '' ? '' : Number(e.target.value))}
+                readOnly={std1FromRef} />
+            </div>
+          </div>
+        </div>
+
         {/* Calibration readings */}
         <div className="card space-y-4">
           <h3 className="section-title">ข้อมูลจุดสอบเทียบ (Calibration Readings)</h3>
@@ -1027,6 +1249,18 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         </div>
 
       </fieldset>
+
+      {/* Calculation validation errors */}
+      {Object.keys(fieldErrors).some(k => k.includes('.') || k === 'iso.readings' || k === 'iso.point') && (
+        <div className="card border-2 border-red-300 bg-red-50 text-red-700 space-y-1">
+          <p className="font-semibold text-sm">ข้อมูลไม่เพียงพอสำหรับการคำนวณ:</p>
+          {Object.entries(fieldErrors)
+            .filter(([k]) => k.includes('.') || k === 'iso.readings' || k === 'iso.point')
+            .map(([k, v]) => (
+              <p key={k} className="text-sm">• {v}</p>
+            ))}
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="card bg-gray-50 border border-gray-200">

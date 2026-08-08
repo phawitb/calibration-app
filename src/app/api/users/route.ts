@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 
   await connectDB()
   const {
-    username, password, name, role, rank, fullName, hospitalUnit, signaturePng, fullNameEn, rankEn,
+    username, password, name, role, rank, fullName, hospitalUnit, signaturePng, fullNameEn, rankEn, amedNo,
   } = await req.json()
   if (!ALLOWED_ROLES.includes(role)) {
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
@@ -88,6 +88,7 @@ export async function POST(req: NextRequest) {
     fullNameEn: fullNameEn ? String(fullNameEn).trim() : '',
     rankEn: rankEn ? String(rankEn).trim() : '',
     hospitalUnit: normalizedHospitalUnit,
+    amedNo: amedNo ? String(amedNo).trim() : '',
     signaturePng: signaturePng ? String(signaturePng) : undefined,
     isActive: true,
   })
@@ -103,6 +104,7 @@ export async function POST(req: NextRequest) {
       fullNameEn: user.fullNameEn,
       rankEn: user.rankEn,
       hospitalUnit: user.hospitalUnit,
+      amedNo: user.amedNo,
       role,
     },
   }, { status: 201 })
@@ -126,6 +128,7 @@ export async function PATCH(req: NextRequest) {
   if (body.fullNameEn != null) update.fullNameEn = String(body.fullNameEn).trim()
   if (body.rankEn != null) update.rankEn = String(body.rankEn).trim()
   if (body.hospitalUnit != null) update.hospitalUnit = await normalizeHospitalUnit(body.hospitalUnit)
+  if (body.amedNo != null) update.amedNo = String(body.amedNo).trim()
   if (body.role != null) {
     if (!ALLOWED_ROLES.includes(body.role)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 })

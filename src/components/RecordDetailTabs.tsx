@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useState, useCallback, useRef, type ReactNode } from 'react'
 import { StepNavContext } from '@/lib/stepNavContext'
 
 type Tab = 'edit' | 'calc' | 'preview' | 'history'
@@ -16,6 +16,15 @@ const APPROVAL_STEPS = [
   { key: 'approved' as const, label: 'สำเร็จ', num: 5 },
 ]
 
+function persistStep(recordId: string | undefined, step: string) {
+  if (!recordId) return
+  fetch(`/api/records/${recordId}/step`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ step }),
+  }).catch(() => {})
+}
+
 export default function RecordDetailTabs({
   children,
   calcPanel,
@@ -23,6 +32,8 @@ export default function RecordDetailTabs({
   historyPanel,
   approvalPanel,
   approvalStatus,
+  recordId,
+  initialStep,
 }: {
   children: React.ReactNode
   calcPanel: ReactNode
@@ -30,14 +41,28 @@ export default function RecordDetailTabs({
   historyPanel?: ReactNode
   approvalPanel?: ReactNode
   approvalStatus?: string
+  recordId?: string
+  initialStep?: string
 }) {
-  const [tab, setTab] = useState<Tab>('edit')
-  const [calcMounted, setCalcMounted] = useState(false)
-  const [previewMounted, setPreviewMounted] = useState(false)
+  const validInitial = (['edit', 'calc', 'preview'] as Tab[]).includes(initialStep as Tab)
+    ? (initialStep as Tab)
+    : 'edit'
+  const [tab, setTab] = useState<Tab>(validInitial)
+  const [calcMounted, setCalcMounted] = useState(validInitial === 'calc' || validInitial === 'preview')
+  const [previewMounted, setPreviewMounted] = useState(validInitial === 'preview')
   const [historyMounted, setHistoryMounted] = useState(false)
 
   const isApproved = approvalStatus === 'approved'
   const isPending = approvalStatus === 'pending_approval'
+
+  const changeTab = useCallback((next: Tab) => {
+    if (next === 'calc') setCalcMounted(true)
+    if (next === 'preview') { setCalcMounted(true); setPreviewMounted(true) }
+    if (next === 'history') setHistoryMounted(true)
+    setTab(next)
+    // Persist step (only for main steps, not history)
+    if (next !== 'history') persistStep(recordId, next)
+  }, [recordId])
 
   return (
     <div className="space-y-4">
@@ -55,11 +80,7 @@ export default function RecordDetailTabs({
               <div key={step.key} className="flex items-center flex-1">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (step.key === 'calc') setCalcMounted(true)
-                    if (step.key === 'preview') setPreviewMounted(true)
-                    setTab(step.key)
-                  }}
+                  onClick={() => changeTab(step.key)}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
                     isActive
                       ? 'bg-military-700 text-white'
@@ -128,7 +149,7 @@ export default function RecordDetailTabs({
           <div className="ml-auto pl-2">
             <button
               type="button"
-              onClick={() => { setHistoryMounted(true); setTab('history') }}
+              onClick={() => changeTab('history')}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
                 tab === 'history'
                   ? 'bg-military-700 text-white'
@@ -158,7 +179,7 @@ export default function RecordDetailTabs({
 
       {/* Tab: Edit */}
       <div className={tab === 'edit' ? 'block space-y-4 min-w-0' : 'hidden'} aria-hidden={tab !== 'edit'}>
-        <StepNavContext.Provider value={{ goToNext: () => { setCalcMounted(true); setTab('calc') } }}>
+        <StepNavContext.Provider value={{ goToNext: () => changeTab('calc') }}>
           {children}
         </StepNavContext.Provider>
       </div>
@@ -169,10 +190,10 @@ export default function RecordDetailTabs({
           {calcPanel}
           <div className="card bg-gray-50 border border-gray-200">
             <div className="flex items-center justify-between">
-              <button type="button" onClick={() => setTab('edit')} className="btn-secondary text-sm flex items-center gap-1.5">
+              <button type="button" onClick={() => changeTab('edit')} className="btn-secondary text-sm flex items-center gap-1.5">
                 <span>&larr;</span> แก้ไขข้อมูล
               </button>
-              <button type="button" onClick={() => { setPreviewMounted(true); setTab('preview') }}
+              <button type="button" onClick={() => changeTab('preview')}
                 className="btn-primary text-sm flex items-center gap-1.5">
                 ตรวจสอบ / PDF <span>&rarr;</span>
               </button>
@@ -192,7 +213,7 @@ export default function RecordDetailTabs({
           )}
           <div className="card bg-gray-50 border border-gray-200">
             <div className="flex items-center justify-between">
-              <button type="button" onClick={() => setTab('calc')} className="btn-secondary text-sm flex items-center gap-1.5">
+              <button type="button" onClick={() => changeTab('calc')} className="btn-secondary text-sm flex items-center gap-1.5">
                 <span>&larr;</span> ผลคำนวณ
               </button>
               <div className="text-sm text-gray-500">

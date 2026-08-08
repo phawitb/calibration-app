@@ -10,6 +10,7 @@ export interface IUser extends Document {
   rankEn?: string
   role: 'admin' | 'hospital_user' | 'technician' | 'approver'
   hospitalUnit?: string
+  amedNo?: string
   /** data URL หรือ path รูปนามสกุล .png สำหรับ PDF */
   signaturePng?: string
   isActive: boolean
@@ -26,6 +27,7 @@ const UserSchema = new Schema<IUser>({
   rankEn:   { type: String },
   role:     { type: String, enum: ['admin', 'hospital_user', 'technician', 'approver'], default: 'hospital_user' },
   hospitalUnit: { type: String },
+  amedNo: { type: String },
   signaturePng: { type: String },
   isActive: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
