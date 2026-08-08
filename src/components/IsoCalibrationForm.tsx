@@ -56,6 +56,7 @@ function SuggestInput({
   placeholder,
   extraOptions = [],
   onBlur,
+  restrictToList = false,
 }: {
   field: string
   value: string
@@ -64,6 +65,8 @@ function SuggestInput({
   placeholder?: string
   extraOptions?: string[]
   onBlur?: () => void
+  /** จำกัดให้เลือกได้เฉพาะค่าใน list — blur แล้วค่าไม่ตรงจะล้าง */
+  restrictToList?: boolean
 }) {
   const [options, setOptions] = useState<string[]>([])
   const [open, setOpen] = useState(false)
@@ -104,7 +107,13 @@ function SuggestInput({
         value={safeValue}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setOpen(true)}
-        onBlur={() => { onBlur?.(); setTimeout(() => setOpen(false), 180) }}
+        onBlur={() => {
+          if (restrictToList && mergedOptions.length > 0) {
+            const match = mergedOptions.find((o) => o.toLowerCase() === safeValue.trim().toLowerCase())
+            if (safeValue.trim() && !match) onChange('')
+          }
+          onBlur?.(); setTimeout(() => setOpen(false), 180)
+        }}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && filtered.length) {
             e.preventDefault(); e.stopPropagation()
@@ -159,6 +168,7 @@ function buildInitialState(method: IsoMethodConfig, methodCode: string) {
   return {
     calibrationType: 'iso' as const,
     isoMethodCode: methodCode,
+    amedNo: '',
     unitName: '', address: '', section: '',
     deviceName: method.deviceType,
     brand: '', model: '', serialNo: '',
@@ -187,9 +197,11 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const method = getIsoMethod(methodCode)
 
   const [saving, setSaving] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [canRequestApprovalNow, setCanRequestApprovalNow] = useState(false)
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
+  const [addressFromRef, setAddressFromRef] = useState(false)
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
 
   const [data, setData] = useState<any>(() => {
@@ -257,17 +269,32 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     const user = session?.user as any
     if (!user) return
     setData((d: any) => {
-      if (String(d.calibrate || '').trim()) return d
-      const fullEn = String(user.fullNameEn || '').trim()
-      const rankEn = String(user.rankEn || '').trim()
-      const fullTh = String(user.fullName || user.name || '').trim()
-      const rankTh = String(user.rank || '').trim()
-      const display = fullEn
-        ? `${rankEn ? `${rankEn} ` : ''}${fullEn}`.trim()
-        : `${rankTh ? `${rankTh} ` : ''}${fullTh}`.trim()
-      return { ...d, calibrate: display }
+      const updates: any = {}
+      if (!String(d.calibrate || '').trim()) {
+        const fullEn = String(user.fullNameEn || '').trim()
+        const rankEn = String(user.rankEn || '').trim()
+        const fullTh = String(user.fullName || user.name || '').trim()
+        const rankTh = String(user.rank || '').trim()
+        updates.calibrate = fullEn
+          ? `${rankEn ? `${rankEn} ` : ''}${fullEn}`.trim()
+          : `${rankTh ? `${rankTh} ` : ''}${fullTh}`.trim()
+      }
+      if (user.amedNo && !String(d.amedNo || '').trim()) {
+        updates.amedNo = user.amedNo
+      }
+      return Object.keys(updates).length ? { ...d, ...updates } : d
     })
   }, [session, mode])
+
+  // Auto-fill amedNo from session in edit mode too (if blank)
+  useEffect(() => {
+    const user = session?.user as any
+    if (!user?.amedNo) return
+    setData((d: any) => {
+      if (String(d.amedNo || '').trim()) return d
+      return { ...d, amedNo: user.amedNo }
+    })
+  }, [session])
 
   // Allow requesting approval after saving
   useEffect(() => {
@@ -291,7 +318,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         (v) => String(v || '').trim().toLowerCase() === normalized
       )
     )
-    if (selected?.address) set('address', String(selected.address))
+    if (selected?.address) {
+      set('address', String(selected.address))
+      setAddressFromRef(true)
+    } else {
+      setAddressFromRef(false)
+    }
     set('location', normalizedLabel)
   }
 
@@ -311,13 +343,31 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   ]
 
   const validateRequired = () => {
-    const missing = REQUIRED_FIELDS.filter(f => !String(data[f.key] || '').trim())
-    if (missing.length > 0) {
-      toast.error(`กรุณากรอก: ${missing.map(f => f.label).join(', ')}`)
+    const errors: Record<string, string> = {}
+    for (const f of REQUIRED_FIELDS) {
+      if (!String(data[f.key] || '').trim()) {
+        errors[f.key] = `กรุณากรอก${f.label}`
+      }
+    }
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      toast.error(`กรุณากรอก: ${REQUIRED_FIELDS.filter(f => errors[f.key]).map(f => f.label).join(', ')}`)
       return false
     }
     return true
   }
+
+  // ล้าง error เมื่อกรอกข้อมูล
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length === 0) return
+    setFieldErrors((prev) => {
+      const next = { ...prev }
+      for (const key of Object.keys(next)) {
+        if (String(data[key] || '').trim()) delete next[key]
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next
+    })
+  }, [data, fieldErrors])
 
   const submit = async (saveAction: 'draft' | 'request_approval') => {
     if (isReadOnly) { toast.error('สิทธิ์ผู้ใช้ รพ. ดูข้อมูลได้อย่างเดียว'); return }
@@ -671,6 +721,46 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         </div>
       </div>
 
+      {/* ข้อมูลผู้สอบเทียบ */}
+      {session?.user && (
+        <div className="card border border-blue-200 bg-blue-50">
+          <h3 className="section-title text-blue-900 mb-3">ข้อมูลผู้สอบเทียบ</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-gray-500">ชื่อ-สกุล (ไทย)</p>
+              <p className="text-sm font-medium text-gray-900">
+                {`${(session.user as any).rank || ''} ${(session.user as any).fullName || (session.user as any).name || ''}`.trim() || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">ชื่อ-สกุล (English)</p>
+              <p className="text-sm font-medium text-gray-900">
+                {`${(session.user as any).rankEn || ''} ${(session.user as any).fullNameEn || ''}`.trim() || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">เลขที่อาร์เมด (AmedNo.)</p>
+              <p className="text-sm font-medium text-gray-900">{(session.user as any).amedNo || '-'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">สิทธิ์</p>
+              <p className="text-sm font-medium text-gray-900">
+                {(session.user as any).role === 'admin' ? 'ผู้ดูแลระบบ'
+                  : (session.user as any).role === 'technician' ? 'ช่างเทคนิค'
+                  : (session.user as any).role === 'approver' ? 'ผู้อนุมัติ'
+                  : 'ผู้ใช้ รพ.'}
+              </p>
+            </div>
+            {(session.user as any).hospitalUnit && (
+              <div>
+                <p className="text-xs text-gray-500">หน่วยงาน</p>
+                <p className="text-sm font-medium text-gray-900">{(session.user as any).hospitalUnit}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <fieldset disabled={isReadOnly} className="space-y-6">
 
         {/* Device info */}
@@ -694,10 +784,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 onChange={(e) => setIso('idNumber', e.target.value)} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อเครื่องมือ (Device)</label>
-              <input type="text" className="input-field bg-gray-50"
+              <label className={`block text-sm font-medium mb-1 ${fieldErrors.deviceName ? 'text-red-600' : 'text-gray-700'}`}>ชื่อเครื่องมือ (Device)</label>
+              <input type="text"
+                className={fieldErrors.deviceName ? 'input-field bg-gray-50 border-red-500 ring-1 ring-red-500' : 'input-field bg-gray-50'}
                 value={data.deviceName || method.deviceType}
                 onChange={(e) => set('deviceName', e.target.value)} />
+              {fieldErrors.deviceName && <p className="text-xs text-red-500 mt-1">{fieldErrors.deviceName}</p>}
             </div>
           </div>
         </div>
@@ -719,10 +811,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 onChange={(e) => setIso('certificateNo', e.target.value)} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">วันที่สอบเทียบ</label>
-              <input type="date" className="input-field"
+              <label className={`block text-sm font-medium mb-1 ${fieldErrors.calDate ? 'text-red-600' : 'text-gray-700'}`}>วันที่สอบเทียบ</label>
+              <input type="date"
+                className={fieldErrors.calDate ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
                 value={data.calDate || ''}
                 onChange={(e) => set('calDate', e.target.value)} />
+              {fieldErrors.calDate && <p className="text-xs text-red-500 mt-1">{fieldErrors.calDate}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">สถานที่สอบเทียบ</label>
@@ -776,11 +870,14 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           <h3 className="section-title">ข้อมูลหน่วยงาน / สภาพแวดล้อม</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="sm:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อหน่วยงาน</label>
+              <label className={`block text-sm font-medium mb-1 ${fieldErrors.unitName ? 'text-red-600' : 'text-gray-700'}`}>ชื่อหน่วยงาน</label>
               <SuggestInput field="unitName"
+                className={fieldErrors.unitName ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
                 value={data.unitName || ''}
                 onChange={handleUnitNameChange}
-                extraOptions={unitNameExtraOptions} />
+                extraOptions={unitNameExtraOptions}
+                restrictToList />
+              {fieldErrors.unitName && <p className="text-xs text-red-500 mt-1">{fieldErrors.unitName}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">แผนก / ห้อง</label>
@@ -788,20 +885,32 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 value={data.section || ''}
                 onChange={(v) => set('section', v)}
                 placeholder="พิมพ์เพื่อค้นหาแผนก"
-                extraOptions={SECTIONS} />
+                extraOptions={SECTIONS}
+                restrictToList />
             </div>
             <div className="lg:col-span-3">
               <label className="block text-sm font-medium text-gray-700 mb-1">ที่อยู่</label>
-              <SuggestInput field="address"
-                value={data.address || ''}
-                onChange={(v) => set('address', v)} />
+              {addressFromRef ? (
+                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
+                  value={data.address || ''} readOnly />
+              ) : (
+                <SuggestInput field="address"
+                  value={data.address || ''}
+                  onChange={(v) => set('address', v)} />
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">สถานที่ (Location)</label>
-              <SuggestInput field="location"
-                value={data.location || ''}
-                onChange={(v) => set('location', normalizeHospitalUnitFromRefs(v, unitRefs))}
-                extraOptions={unitNameExtraOptions} />
+              {data.unitName?.trim() ? (
+                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
+                  value={data.location || ''} readOnly />
+              ) : (
+                <SuggestInput field="location"
+                  value={data.location || ''}
+                  onChange={(v) => set('location', normalizeHospitalUnitFromRefs(v, unitRefs))}
+                  extraOptions={unitNameExtraOptions}
+                  restrictToList />
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">อุณหภูมิห้อง (deg C)</label>
@@ -817,9 +926,8 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">ผู้สอบเทียบ</label>
-              <SuggestInput field="calibrate"
-                value={data.calibrate || ''}
-                onChange={(v) => set('calibrate', v)} />
+              <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
+                value={data.calibrate || ''} readOnly />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">วันที่รับเครื่อง</label>

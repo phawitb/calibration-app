@@ -120,6 +120,9 @@ function UcSection({
   stdRefs = [],
   stdFieldOptions,
   formulaOptions = [],
+  lockedFromRef = false,
+  onAutoFill,
+  onClearRef,
 }: {
   label: string
   value: any
@@ -127,6 +130,10 @@ function UcSection({
   stdRefs?: StdRef[]
   stdFieldOptions?: StdFieldOptions
   formulaOptions?: FormulaOption[]
+  /** std fields ถูก auto-fill จากฐานอ้างอิงแล้ว — แสดง read-only */
+  lockedFromRef?: boolean
+  onAutoFill?: () => void
+  onClearRef?: () => void
 }) {
   const uc = value || {}
   const updateStd = (field: string, val: any) =>
@@ -172,12 +179,14 @@ function UcSection({
     const pointCount = std.no != null && String(std.no).trim() ? inferPointCountFromStdNo(std.no) : 4
     const calPoints = calPointsFromRef(pointCount)
     onChange({ ...uc, std, calPoints })
+    onAutoFill?.()
   }
 
   const applyUcFromRef = (ref: StdRef) => {
     const std = buildStdFromRef(ref)
     const pointCount = std.no != null && String(std.no).trim() ? inferPointCountFromStdNo(std.no) : 4
     onChange({ ...uc, std, calPoints: calPointsFromRef(pointCount) })
+    onAutoFill?.()
   }
 
   const localStdFieldOptions = useMemo(() => {
@@ -202,7 +211,16 @@ function UcSection({
 
   return (
     <div className="border border-gray-200 rounded-lg p-4 space-y-4">
-      <h4 className="font-medium text-military-700 text-sm">{label}</h4>
+      <div className="flex items-center justify-between">
+        <h4 className="font-medium text-military-700 text-sm">{label}</h4>
+        {lockedFromRef && onClearRef && (
+          <button type="button"
+            className="text-xs text-red-500 hover:text-red-700"
+            onClick={onClearRef}>
+            ล้างข้อมูลอ้างอิง
+          </button>
+        )}
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">สูตรการคำนวณ</label>
@@ -246,10 +264,15 @@ function UcSection({
         ].map((f) => (
           <div key={f.field}>
             <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
-            {f.num ? (
+            {lockedFromRef ? (
+              <input type="text"
+                className="input-field text-xs py-1.5 bg-gray-100 text-gray-500 cursor-not-allowed"
+                value={f.num ? (uc.std?.[f.field] ?? '') : (uc.std?.[f.field] ?? '')} readOnly />
+            ) : f.num ? (
               <FilteredOptionsInput
                 className="input-field text-xs py-1.5"
                 num
+                restrictToList
                 value={uc.std?.[f.field] != null && uc.std[f.field] !== '' ? uc.std[f.field] : ''}
                 onChange={(v) =>
                   updateStd(f.field, v !== '' && v != null ? Number(v) : undefined)
@@ -259,6 +282,7 @@ function UcSection({
             ) : (
               <FilteredOptionsInput
                 className="input-field text-xs py-1.5"
+                restrictToList
                 value={uc.std?.[f.field] ?? ''}
                 onChange={(v) => updateStd(f.field, v)}
                 options={resolvedStdFieldOptions[f.field] || []}
@@ -359,6 +383,7 @@ function FilteredOptionsInput({
   onBlur,
   maxVisible = 40,
   num = false,
+  restrictToList = false,
 }: {
   value: string | number | undefined
   onChange: (value: string) => void
@@ -372,6 +397,8 @@ function FilteredOptionsInput({
   onBlur?: () => void
   maxVisible?: number
   num?: boolean
+  /** จำกัดให้เลือกได้เฉพาะค่าใน options — blur แล้วค่าไม่ตรงจะล้าง */
+  restrictToList?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const strVal = value === null || value === undefined ? '' : String(value)
@@ -394,6 +421,10 @@ function FilteredOptionsInput({
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setOpen(true)}
         onBlur={() => {
+          if (restrictToList) {
+            const match = options.find((o) => o.toLowerCase() === strVal.trim().toLowerCase())
+            if (strVal.trim() && !match) onChange('')
+          }
           onBlur?.()
           setTimeout(() => setOpen(false), 180)
         }}
@@ -445,6 +476,7 @@ function SuggestInput({
   placeholder,
   extraOptions = [],
   onBlur,
+  restrictToList = false,
 }: {
   field: string
   value: string
@@ -453,6 +485,8 @@ function SuggestInput({
   placeholder?: string
   extraOptions?: string[]
   onBlur?: () => void
+  /** จำกัดให้เลือกได้เฉพาะค่าใน list — blur แล้วค่าไม่ตรงจะล้าง */
+  restrictToList?: boolean
 }) {
   const [options, setOptions] = useState<string[]>([])
   const [open, setOpen] = useState(false)
@@ -504,6 +538,10 @@ function SuggestInput({
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setOpen(true)}
         onBlur={() => {
+          if (restrictToList && mergedOptions.length > 0) {
+            const match = mergedOptions.find((o) => o.toLowerCase() === safeValue.trim().toLowerCase())
+            if (safeValue.trim() && !match) onChange('')
+          }
           onBlur?.()
           setTimeout(() => setOpen(false), 180)
         }}
@@ -554,8 +592,12 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   const isReadOnly = role === 'hospital_user'
   const [canRequestApprovalNow, setCanRequestApprovalNow] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
+  const [addressFromRef, setAddressFromRef] = useState(false)
+  const [std1FromRef, setStd1FromRef] = useState(false)
+  const [ucFromRef, setUcFromRef] = useState<Record<string, boolean>>({})
   const [stdInstruments, setStdInstruments] = useState<StdRef[]>([])
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
   const [formulaOptions, setFormulaOptions] = useState<FormulaOption[]>([])
@@ -660,15 +702,30 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     const user = session?.user as any
     if (!user) return
     setData((d: any) => {
-      if (String(d.calibrate || '').trim()) return d
-      const fullEn = String(user.fullNameEn || '').trim()
-      const rankEn = String(user.rankEn || '').trim()
-      const fullTh = String(user.fullName || user.name || '').trim()
-      const rankTh = String(user.rank || '').trim()
-      const display = fullEn ? `${rankEn ? `${rankEn} ` : ''}${fullEn}`.trim() : `${rankTh ? `${rankTh} ` : ''}${fullTh}`.trim()
-      return { ...d, calibrate: display }
+      const updates: any = {}
+      if (!String(d.calibrate || '').trim()) {
+        const fullEn = String(user.fullNameEn || '').trim()
+        const rankEn = String(user.rankEn || '').trim()
+        const fullTh = String(user.fullName || user.name || '').trim()
+        const rankTh = String(user.rank || '').trim()
+        updates.calibrate = fullEn ? `${rankEn ? `${rankEn} ` : ''}${fullEn}`.trim() : `${rankTh ? `${rankTh} ` : ''}${fullTh}`.trim()
+      }
+      if (user.amedNo && !String(d.amedNo || '').trim()) {
+        updates.amedNo = user.amedNo
+      }
+      return Object.keys(updates).length ? { ...d, ...updates } : d
     })
   }, [session, mode])
+
+  // Auto-fill amedNo from session in edit mode too (if blank)
+  useEffect(() => {
+    const user = session?.user as any
+    if (!user?.amedNo) return
+    setData((d: any) => {
+      if (String(d.amedNo || '').trim()) return d
+      return { ...d, amedNo: user.amedNo }
+    })
+  }, [session])
 
   useEffect(() => {
     if (mode !== 'edit') return
@@ -710,6 +767,9 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     )
     if (selected?.address) {
       set('address', String(selected.address))
+      setAddressFromRef(true)
+    } else {
+      setAddressFromRef(false)
     }
     set('location', normalizedLabel)
   }
@@ -752,6 +812,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         hMax: d.std1?.hMax,
       },
     }))
+    setStd1FromRef(true)
   }
 
   /** หลุดโฟกัสที่ รหัส/ชื่อ ของ std1: เติมค่าจาก StdInstrumentRef ถ้าแมตช์ (เก็บ tMin–hMax เดิม) */
@@ -767,6 +828,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         (na && stdInstruments.find((r) => (r?.name ?? '').toString().trim() === na)) ||
         null
       if (!ref) return d
+      setStd1FromRef(true)
       return {
         ...d,
         std1: {
@@ -800,13 +862,31 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   ]
 
   const validateRequired = () => {
-    const missing = REQUIRED_FIELDS.filter(f => !String(data[f.key] || '').trim())
-    if (missing.length > 0) {
-      toast.error(`กรุณากรอก: ${missing.map(f => f.label).join(', ')}`)
+    const errors: Record<string, string> = {}
+    for (const f of REQUIRED_FIELDS) {
+      if (!String(data[f.key] || '').trim()) {
+        errors[f.key] = `กรุณากรอก${f.label}`
+      }
+    }
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      toast.error(`กรุณากรอก: ${REQUIRED_FIELDS.filter(f => errors[f.key]).map(f => f.label).join(', ')}`)
       return false
     }
     return true
   }
+
+  // ล้าง error เมื่อกรอกข้อมูล
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length === 0) return
+    setFieldErrors((prev) => {
+      const next = { ...prev }
+      for (const key of Object.keys(next)) {
+        if (String(data[key] || '').trim()) delete next[key]
+      }
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next
+    })
+  }, [data, fieldErrors])
 
   const buildPayload = (saveAction: 'draft' | 'request_approval') => {
     const selectedApprover = approvers.find((a) => String(a._id) === String(data.requestedApproverId || ''))
@@ -878,6 +958,47 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
           สิทธิ์ผู้ใช้ รพ. เป็นโหมดดูอย่างเดียว สามารถ Export PDF ได้ แต่ไม่สามารถแก้ไขข้อมูลสอบเทียบ
         </div>
       )}
+
+      {/* ข้อมูลผู้สอบเทียบ */}
+      {session?.user && (
+        <div className="card border border-blue-200 bg-blue-50">
+          <h3 className="section-title text-blue-900 mb-3">ข้อมูลผู้สอบเทียบ</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-gray-500">ชื่อ-สกุล (ไทย)</p>
+              <p className="text-sm font-medium text-gray-900">
+                {`${(session.user as any).rank || ''} ${(session.user as any).fullName || (session.user as any).name || ''}`.trim() || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">ชื่อ-สกุล (English)</p>
+              <p className="text-sm font-medium text-gray-900">
+                {`${(session.user as any).rankEn || ''} ${(session.user as any).fullNameEn || ''}`.trim() || '-'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">เลขที่อาร์เมด (AmedNo.)</p>
+              <p className="text-sm font-medium text-gray-900">{(session.user as any).amedNo || '-'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">สิทธิ์</p>
+              <p className="text-sm font-medium text-gray-900">
+                {(session.user as any).role === 'admin' ? 'ผู้ดูแลระบบ'
+                  : (session.user as any).role === 'technician' ? 'ช่างเทคนิค'
+                  : (session.user as any).role === 'approver' ? 'ผู้อนุมัติ'
+                  : 'ผู้ใช้ รพ.'}
+              </p>
+            </div>
+            {(session.user as any).hospitalUnit && (
+              <div>
+                <p className="text-xs text-gray-500">หน่วยงาน</p>
+                <p className="text-sm font-medium text-gray-900">{(session.user as any).hospitalUnit}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <fieldset disabled={isReadOnly} className="space-y-6">
       {/* Device Information */}
       <div className="card space-y-4">
@@ -894,7 +1015,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             { field: 'hpNumber', label: 'HP Number' },
           ].map(f => (
             <div key={f.field}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+              <label className={`block text-sm font-medium mb-1 ${fieldErrors[f.field] ? 'text-red-600' : 'text-gray-700'}`}>{f.label}</label>
               {f.field === 'certNo' ? (
                 <>
                   <input
@@ -905,11 +1026,20 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                   />
                   <p className="text-xs text-gray-500 mt-1">ระบบรันเลขใบรับรองอัตโนมัติ ไม่ต้องกรอกเอง</p>
                 </>
+              ) : f.field === 'amedNo' && (session?.user as any)?.amedNo ? (
+                <input
+                  type="text"
+                  className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
+                  value={data[f.field] || ''}
+                  readOnly
+                />
               ) : (
                 <SuggestInput field={f.field}
+                  className={fieldErrors[f.field] ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
                   value={data[f.field] || ''}
                   onChange={v => set(f.field, v)} />
               )}
+              {fieldErrors[f.field] && <p className="text-xs text-red-500 mt-1">{fieldErrors[f.field]}</p>}
             </div>
           ))}
 
@@ -934,22 +1064,31 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
               onChange={v => set('section', v)}
               placeholder="พิมพ์เพื่อค้นหาแผนก"
               extraOptions={SECTIONS}
+              restrictToList
             />
           </div>
 
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">ชื่อหน่วยงาน</label>
+            <label className={`block text-sm font-medium mb-1 ${fieldErrors.unitName ? 'text-red-600' : 'text-gray-700'}`}>ชื่อหน่วยงาน</label>
             <SuggestInput field="unitName"
+              className={fieldErrors.unitName ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
               value={data.unitName || ''}
               onChange={handleUnitNameChange}
-              extraOptions={unitNameExtraOptions} />
+              extraOptions={unitNameExtraOptions}
+              restrictToList />
+            {fieldErrors.unitName && <p className="text-xs text-red-500 mt-1">{fieldErrors.unitName}</p>}
           </div>
 
           <div className="lg:col-span-3">
             <label className="block text-sm font-medium text-gray-700 mb-1">ที่อยู่</label>
-            <SuggestInput field="address"
-              value={data.address || ''}
-              onChange={v => set('address', v)} />
+            {addressFromRef ? (
+              <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
+                value={data.address || ''} readOnly />
+            ) : (
+              <SuggestInput field="address"
+                value={data.address || ''}
+                onChange={v => set('address', v)} />
+            )}
           </div>
         </div>
       </div>
@@ -970,21 +1109,30 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             { field: 'mainPrice',    label: 'ราคาปบ. (บาท)',      type: 'number' },
           ].map(f => (
             <div key={f.field}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-              {f.field === 'location' ? (
+              <label className={`block text-sm font-medium mb-1 ${fieldErrors[f.field] ? 'text-red-600' : 'text-gray-700'}`}>{f.label}</label>
+              {f.field === 'calibrate' ? (
+                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
+                  value={data[f.field] || ''} readOnly />
+              ) : f.field === 'location' && data.unitName?.trim() ? (
+                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
+                  value={data[f.field] || ''} readOnly />
+              ) : f.field === 'location' ? (
                 <SuggestInput field={f.field}
                   value={data[f.field] || ''}
                   onChange={v => set(f.field, normalizeHospitalUnitFromRefs(v, unitRefs))}
-                  extraOptions={unitNameExtraOptions} />
+                  extraOptions={unitNameExtraOptions}
+                  restrictToList />
               ) : f.type === 'text' ? (
                 <SuggestInput field={f.field}
                   value={data[f.field] || ''}
                   onChange={v => set(f.field, v)} />
               ) : (
-                <input type={f.type} className="input-field"
+                <input type={f.type}
+                  className={fieldErrors[f.field] ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
                   value={data[f.field] || ''}
                   onChange={e => set(f.field, e.target.value)} />
               )}
+              {fieldErrors[f.field] && <p className="text-xs text-red-500 mt-1">{fieldErrors[f.field]}</p>}
             </div>
           ))}
           <div>
@@ -1003,33 +1151,50 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
 
       {/* Environmental std instrument */}
       <div className="card space-y-4">
-        <h3 className="section-title">เครื่องมือมาตรฐานสภาพแวดล้อม (Std1)</h3>
-        <p className="text-xs text-gray-500 -mt-1">
-          พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (หรือออกจากช่องหลังพิมพ์)
-        </p>
+        <div className="flex items-center justify-between">
+          <h3 className="section-title">เครื่องมือมาตรฐานสภาพแวดล้อม (Std1)</h3>
+          {std1FromRef && (
+            <button type="button"
+              className="text-xs text-red-500 hover:text-red-700"
+              onClick={() => { set('std1', {}); setStd1FromRef(false) }}>
+              ล้างข้อมูลอ้างอิง
+            </button>
+          )}
+        </div>
+        {!std1FromRef && (
+          <p className="text-xs text-gray-500 -mt-1">
+            พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (หรือออกจากช่องหลังพิมพ์)
+          </p>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {['no','name','manufacture','model','serialNo','certNo','measurement','unit','calDate'].map(f => (
             <div key={f}>
               <label className="block text-xs text-gray-500 mb-1 capitalize">{f}</label>
-              <FilteredOptionsInput
-                className="input-field text-sm"
-                value={data.std1?.[f] || ''}
-                onChange={(v) => setNested('std1', f, v)}
-                options={std1TextFieldOptions[f] || []}
-                onSelect={
-                  f === 'no' || f === 'name'
-                    ? (v) => {
-                        const ref =
-                          f === 'no'
-                            ? stdInstruments.find((r) => (r?.no ?? '').toString().trim() === v.trim())
-                            : stdInstruments.find((r) => (r?.name ?? '').toString().trim() === v.trim())
-                        if (ref) applyStd1FromRef(ref)
-                        else setNested('std1', f, v)
-                      }
-                    : undefined
-                }
-                onBlur={f === 'no' || f === 'name' ? tryApplyStd1FromRef : undefined}
-              />
+              {std1FromRef ? (
+                <input type="text" className="input-field text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
+                  value={data.std1?.[f] || ''} readOnly />
+              ) : (
+                <FilteredOptionsInput
+                  className="input-field text-sm"
+                  value={data.std1?.[f] || ''}
+                  onChange={(v) => setNested('std1', f, v)}
+                  options={std1TextFieldOptions[f] || []}
+                  restrictToList
+                  onSelect={
+                    f === 'no' || f === 'name'
+                      ? (v) => {
+                          const ref =
+                            f === 'no'
+                              ? stdInstruments.find((r) => (r?.no ?? '').toString().trim() === v.trim())
+                              : stdInstruments.find((r) => (r?.name ?? '').toString().trim() === v.trim())
+                          if (ref) applyStd1FromRef(ref)
+                          else setNested('std1', f, v)
+                        }
+                      : undefined
+                  }
+                  onBlur={f === 'no' || f === 'name' ? tryApplyStd1FromRef : undefined}
+                />
+              )}
             </div>
           ))}
           {['tMin','tMax','hMin','hMax'].map(f => (
@@ -1060,6 +1225,9 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             label="เครื่องมือสอบเทียบ UC1"
             value={data.uc1}
             onChange={(v) => set('uc1', v)}
+            lockedFromRef={!!ucFromRef.uc1}
+            onAutoFill={() => setUcFromRef((p) => ({ ...p, uc1: true }))}
+            onClearRef={() => { set('uc1', {}); setUcFromRef((p) => ({ ...p, uc1: false })) }}
           />
           {(['uc2', 'uc3', 'uc4', 'uc5', 'uc6'] as const).map((uc) => (
             <div key={uc} className="border border-gray-200 rounded-lg">
@@ -1080,6 +1248,9 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                     label={`เครื่องมือสอบเทียบ ${uc.toUpperCase()}`}
                     value={data[uc]}
                     onChange={(v) => set(uc, v)}
+                    lockedFromRef={!!ucFromRef[uc]}
+                    onAutoFill={() => setUcFromRef((p) => ({ ...p, [uc]: true }))}
+                    onClearRef={() => { set(uc, {}); setUcFromRef((p) => ({ ...p, [uc]: false })) }}
                   />
                 </div>
               )}
@@ -1103,6 +1274,9 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                   label="เครื่องมือสอบเทียบเวลา (UcT)"
                   value={data.ucT}
                   onChange={(v) => set('ucT', v)}
+                  lockedFromRef={!!ucFromRef.ucT}
+                  onAutoFill={() => setUcFromRef((p) => ({ ...p, ucT: true }))}
+                  onClearRef={() => { set('ucT', {}); setUcFromRef((p) => ({ ...p, ucT: false })) }}
                 />
               </div>
             )}
@@ -1127,27 +1301,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         ))}
       </div>
 
-      {/* Approver (ส่งอนุมัติ) + actions */}
-      {mode === 'edit' && canSubmitForApproval && (
-        <div className="card space-y-2">
-          <label className="block text-sm font-medium text-gray-700">ผู้อนุมัติ (เลือกก่อนกด “ขออนุมัติใบเซอร์”)</label>
-          <select
-            className="input-field"
-            value={data.requestedApproverId || ''}
-            onChange={(e) => set('requestedApproverId', e.target.value)}
-          >
-            <option value="">-- ยังไม่ระบุ --</option>
-            {approvers.map((a) => (
-              <option key={a._id} value={a._id}>
-                {`${a.rankEn || a.rank || ''} ${a.fullNameEn || a.fullName || a.name || ''}`.trim()} ({a.role})
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-gray-500">
-            ปุ่มขออนุมัติจะกดได้หลัง “บันทึก” เท่านั้น
-          </p>
-        </div>
-      )}
+      {/* การอนุมัติจัดการโดย admin / approver ในหน้ารายละเอียด */}
       </fieldset>
 
       <div className="card bg-gray-50 border border-gray-200">

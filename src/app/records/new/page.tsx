@@ -77,29 +77,26 @@ export default function NewRecordPage() {
         <h1 className="text-xl font-bold text-military-900">เพิ่มข้อมูล</h1>
       </div>
 
-      <div className="card">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">เลือกประเภทการสอบเทียบ</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button
-            onClick={() => createRecord('sbcal')}
-            disabled={creating}
-            className="p-6 border-2 border-gray-200 rounded-xl hover:border-military-500 hover:bg-military-50 transition-all text-left group disabled:opacity-50"
-          >
-            <div className="text-lg font-bold text-military-800 group-hover:text-military-900">SbCal</div>
-            <div className="text-sm text-gray-500 mt-1">ระบบสอบเทียบทั่วไป (Hygrometer, Thermometer ฯลฯ)</div>
-            <div className="text-xs text-gray-400 mt-2">Uc1-Uc6 + UcT | 4 readings x 4-6 จุดสอบเทียบ</div>
-          </button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button
+          onClick={() => createRecord('sbcal')}
+          disabled={creating}
+          className="p-6 border-2 border-gray-200 rounded-xl hover:border-military-500 hover:bg-military-50 transition-all text-left group disabled:opacity-50"
+        >
+          <div className="text-lg font-bold text-military-800 group-hover:text-military-900">ระบบสอบเทียบทั่วไป</div>
+          <div className="text-sm text-gray-500 mt-1">Hygrometer, Thermometer ฯลฯ</div>
+          <div className="text-xs text-gray-400 mt-1">Uc1-Uc6 + UcT | 4 readings x 4-6 จุดสอบเทียบ</div>
+        </button>
 
-          <button
-            onClick={() => setStep('iso')}
-            disabled={creating}
-            className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left group disabled:opacity-50"
-          >
-            <div className="text-lg font-bold text-blue-800 group-hover:text-blue-900">ISO</div>
-            <div className="text-sm text-gray-500 mt-1">ระบบสอบเทียบตามมาตรฐาน ISO (Centrifuge, Enclosure, Autoclave ฯลฯ)</div>
-            <div className="text-xs text-gray-400 mt-2">หลายรูปแบบตามชนิดเครื่อง | Multi-sensor support</div>
-          </button>
-        </div>
+        <button
+          onClick={() => setStep('iso')}
+          disabled={creating}
+          className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left group disabled:opacity-50"
+        >
+          <div className="text-lg font-bold text-blue-800 group-hover:text-blue-900">ระบบสอบเทียบตามมาตรฐาน ISO</div>
+          <div className="text-sm text-gray-500 mt-1">Centrifuge, Enclosure, Autoclave ฯลฯ</div>
+          <div className="text-xs text-gray-400 mt-1">หลายรูปแบบตามชนิดเครื่อง | Multi-sensor support</div>
+        </button>
       </div>
 
       {creating && (
