@@ -15,7 +15,13 @@ const PdfViewer = dynamic(() => import('@/components/PdfViewer'), {
   ),
 })
 
-export default async function PdfPage({ params }: { params: { id: string } }) {
+export default async function PdfPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string }
+  searchParams: { embed?: string }
+}) {
   const session = await getServerSession(authOptions)
   if (!session) redirect('/login')
 
@@ -31,6 +37,12 @@ export default async function PdfPage({ params }: { params: { id: string } }) {
   }
 
   const data = JSON.parse(JSON.stringify(record))
+  const isEmbed = searchParams?.embed === '1'
+
+  // Embed mode: render only the PDF viewer without page chrome
+  if (isEmbed) {
+    return <PdfViewer record={data} recordId={params.id} />
+  }
 
   return (
     <div className="space-y-4">

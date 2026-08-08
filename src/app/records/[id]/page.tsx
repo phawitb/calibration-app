@@ -86,7 +86,7 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
         recordId={params.id}
         initialStep={lastStep}
         calcPanel={<RecordCalculationPanel recordId={params.id} />}
-        previewPanel={<RecordPreviewPanel recordId={params.id} />}
+        previewPanel={<RecordPreviewPanel recordId={params.id} record={data} />}
         approvalPanel={
           <RecordApprovalPanel
             recordId={params.id}

@@ -1,22 +1,22 @@
 'use client'
 
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 
-export default function RecordPreviewPanel({ recordId }: { recordId: string }) {
+const PdfViewer = dynamic(() => import('@/components/PdfViewer'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <p className="text-gray-500">กำลังโหลดตัวอย่าง PDF…</p>
+    </div>
+  ),
+})
+
+export default function RecordPreviewPanel({ recordId, record }: { recordId: string; record: any }) {
   return (
     <div className="card space-y-4">
       <h3 className="section-title">ตรวจสอบใบรับรอง (Preview)</h3>
-      <p className="text-sm text-gray-600">
-        ตรวจสอบข้อมูลใบรับรองก่อนขออนุมัติ คลิกปุ่มด้านล่างเพื่อดู PDF เต็มรูปแบบ
-      </p>
-      <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-        <iframe
-          src={`/records/${recordId}/pdf?embed=1`}
-          className="w-full border-0"
-          style={{ height: '80vh', minHeight: '600px' }}
-          title="Certificate Preview"
-        />
-      </div>
+      <PdfViewer record={record} recordId={recordId} />
       <div className="flex justify-center">
         <Link
           href={`/records/${recordId}/pdf`}
