@@ -158,6 +158,11 @@ function UcSection({
   formulaOptions?: FormulaOption[]
 }) {
   const uc = value || {}
+  // Track if std fields came from reference (lock non-key fields)
+  const [fromRef, setFromRef] = useState(() => {
+    const s = value?.std
+    return !!(s && (s.no || s.name) && (s.manufacture || s.model || s.serialNo))
+  })
   // Cal point config tables fetched from reference
   const [calPointConfigs, setCalPointConfigs] = useState<any[]>([])
   const [selectedConfigIdx, setSelectedConfigIdx] = useState(0)
@@ -223,6 +228,7 @@ function UcSection({
     const pointCount = std.no != null && String(std.no).trim() ? inferPointCountFromStdNo(std.no) : 4
     const correction = std.correction != null && !Number.isNaN(Number(std.correction)) ? Number(std.correction) : 0
 
+    setFromRef(true)
     // Apply std fields immediately with empty cal points
     const fallbackPoints = calPointsFromRef(pointCount)
     onChange({ ...uc, std, calPoints: fallbackPoints })
@@ -309,10 +315,16 @@ function UcSection({
           { field: 'unit', label: 'หน่วย', num: false },
           { field: 'calDate', label: 'วันที่สอบเทียบ', num: false },
           { field: 'correction', label: 'Correction (ใช้คำนวณ STD)', num: true },
-        ].map((f) => (
+        ].map((f) => {
+          const isKeyField = f.field === 'no' || f.field === 'name'
+          const isLocked = fromRef && !isKeyField
+          return (
           <div key={f.field}>
             <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
-            {f.num ? (
+            {isLocked ? (
+              <input type="text" className="input-field text-xs py-1.5 bg-gray-100 text-gray-500 cursor-not-allowed"
+                value={uc.std?.[f.field] ?? ''} readOnly />
+            ) : f.num ? (
               <FilteredOptionsInput
                 className="input-field text-xs py-1.5"
                 num
@@ -329,25 +341,22 @@ function UcSection({
                 onChange={(v) => updateStd(f.field, v)}
                 options={resolvedStdFieldOptions[f.field] || []}
                 onSelect={
-                  f.field === 'no'
+                  isKeyField
                     ? (v) => {
-                        const r = stdRefs.find((s) => (s?.no ?? '').toString().trim() === v.trim())
+                        const r = f.field === 'no'
+                          ? stdRefs.find((s) => (s?.no ?? '').toString().trim() === v.trim())
+                          : stdRefs.find((s) => (s?.name ?? '').toString().trim() === v.trim())
                         if (r) applyUcFromRef(r)
-                        else updateStd('no', v)
+                        else updateStd(f.field, v)
                       }
-                    : f.field === 'name'
-                      ? (v) => {
-                          const r = stdRefs.find((s) => (s?.name ?? '').toString().trim() === v.trim())
-                          if (r) applyUcFromRef(r)
-                          else updateStd('name', v)
-                        }
-                      : undefined
+                    : undefined
                 }
-                onBlur={f.field === 'no' || f.field === 'name' ? tryApplyFromReference : undefined}
+                onBlur={isKeyField ? tryApplyFromReference : undefined}
               />
             )}
           </div>
-        ))}
+          )
+        })}
       </div>
 
       {/* Cal points */}
@@ -392,7 +401,7 @@ function UcSection({
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: pointCount }).map((_, i) => {
+              {Array.from({ length: Math.max(pointCount, (uc.calPoints || []).length) }).map((_, i) => {
                 const pt = uc.calPoints?.[i] || {}
                 return (
                   <tr key={i}>
@@ -429,6 +438,17 @@ function UcSection({
             </tbody>
           </table>
         </div>
+        <button type="button"
+          className="mt-2 text-xs text-military-700 border border-military-300 rounded px-3 py-1 hover:bg-military-50"
+          onClick={() => {
+            const emptyRow = { point: '', readings: ['', '', '', ''], standards: ['', '', '', ''] as (number | string)[] }
+            const pts = [...(uc.calPoints || [])]
+            pts.push(emptyRow)
+            onChange({ ...uc, calPoints: pts })
+          }}
+        >
+          + เพิ่มแถว
+        </button>
       </div>
     </div>
   )
