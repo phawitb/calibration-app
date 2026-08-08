@@ -316,7 +316,6 @@ function UcSection({
               <FilteredOptionsInput
                 className="input-field text-xs py-1.5"
                 num
-                restrictToList
                 value={uc.std?.[f.field] != null && uc.std[f.field] !== '' ? uc.std[f.field] : ''}
                 onChange={(v) =>
                   updateStd(f.field, v !== '' && v != null ? Number(v) : undefined)
@@ -326,7 +325,6 @@ function UcSection({
             ) : (
               <FilteredOptionsInput
                 className="input-field text-xs py-1.5"
-                restrictToList
                 value={uc.std?.[f.field] ?? ''}
                 onChange={(v) => updateStd(f.field, v)}
                 options={resolvedStdFieldOptions[f.field] || []}
@@ -1339,7 +1337,6 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                 value={data.std1?.[f] || ''}
                 onChange={(v) => setNested('std1', f, v)}
                 options={std1TextFieldOptions[f] || []}
-                restrictToList
                 onSelect={
                   f === 'no' || f === 'name'
                     ? (v) => {
