@@ -694,6 +694,11 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   useEffect(() => {
     if (!initialData) return
     setData((prev: any) => ({ ...prev, ...normalizeInitialData(initialData) }))
+    // If std1 has data, mark as from ref so fields are locked
+    const s1 = initialData.std1
+    if (s1 && (s1.no || s1.name) && (s1.manufacture || s1.model || s1.serialNo)) {
+      setStd1FromRef(true)
+    }
   }, [initialData])
 
   useEffect(() => {
@@ -1329,16 +1334,27 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
           พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (สามารถเลือกใหม่ได้)
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {['no','name','manufacture','model','serialNo','certNo','measurement','unit','calDate'].map(f => (
+          {['no','name','manufacture','model','serialNo','certNo','measurement','unit','calDate'].map(f => {
+            const isKeyField = f === 'no' || f === 'name'
+            const isLocked = std1FromRef && !isKeyField
+            return (
             <div key={f}>
               <label className="block text-xs text-gray-500 mb-1 capitalize">{f}</label>
+              {isLocked ? (
+                <input
+                  type="text"
+                  className="input-field text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
+                  value={data.std1?.[f] || ''}
+                  readOnly
+                />
+              ) : (
               <FilteredOptionsInput
                 className="input-field text-sm"
                 value={data.std1?.[f] || ''}
                 onChange={(v) => setNested('std1', f, v)}
                 options={std1TextFieldOptions[f] || []}
                 onSelect={
-                  f === 'no' || f === 'name'
+                  isKeyField
                     ? (v) => {
                         const ref =
                           f === 'no'
@@ -1349,10 +1365,12 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                       }
                     : undefined
                 }
-                onBlur={f === 'no' || f === 'name' ? tryApplyStd1FromRef : undefined}
+                onBlur={isKeyField ? tryApplyStd1FromRef : undefined}
               />
+              )}
             </div>
-          ))}
+            )
+          })}
           {['tMin','tMax','hMin','hMax'].map(f => (
             <div key={f}>
               <label className="block text-xs text-gray-500 mb-1">{f}</label>
