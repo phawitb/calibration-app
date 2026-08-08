@@ -32,11 +32,13 @@ function toDateInputValue(value: unknown): string {
 
 function normalizeInitialData(initialData?: any) {
   if (!initialData) return initialData
+  const today = new Date().toISOString().slice(0, 10)
   return {
     ...initialData,
     issuedDate: toDateInputValue(initialData.issuedDate),
-    receivedDate: toDateInputValue(initialData.receivedDate),
-    calDate: toDateInputValue(initialData.calDate),
+    receivedDate: toDateInputValue(initialData.receivedDate) || today,
+    calDate: toDateInputValue(initialData.calDate) || today,
+    select: initialData.select ?? true,
   }
 }
 
@@ -677,7 +679,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   const [data, setData] = useState(
     () =>
       normalizeInitialData(initialData) || {
-    amedNo: '', certNo: '', sbNo: '', select: false,
+    amedNo: '', certNo: '', sbNo: '', select: true,
     unitName: '', address: '', section: '', deviceName: '', brand: '', model: '', serialNo: '', hpNumber: '',
     issuedDate: '', receivedN: '', receivedDate: new Date().toISOString().slice(0, 10), calDate: new Date().toISOString().slice(0, 10), location: 'outside',
     lapTemp: '', lapHumid: '', calibrate: '', approve: '', calPrice: '', mainPrice: '',

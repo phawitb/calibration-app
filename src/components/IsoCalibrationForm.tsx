@@ -34,11 +34,12 @@ function toDateInputValue(value: unknown): string {
 
 function normalizeInitialData(initialData?: any) {
   if (!initialData) return null
+  const today = new Date().toISOString().slice(0, 10)
   return {
     ...initialData,
     issuedDate: toDateInputValue(initialData.issuedDate),
-    receivedDate: toDateInputValue(initialData.receivedDate),
-    calDate: toDateInputValue(initialData.calDate),
+    receivedDate: toDateInputValue(initialData.receivedDate) || today,
+    calDate: toDateInputValue(initialData.calDate) || today,
   }
 }
 
