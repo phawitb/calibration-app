@@ -662,7 +662,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
-  const [calPriceRefs, setCalPriceRefs] = useState<Array<{ device?: string; calPrice?: number; mainPrice?: number }>>([])
+  const [deviceRefs, setDeviceRefs] = useState<Array<{ name?: string; thaiName?: string; calPrice?: number; mainPrice?: number }>>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
   const [std1FromRef, setStd1FromRef] = useState(false)
   const [stdInstruments, setStdInstruments] = useState<StdRef[]>([])
@@ -718,7 +718,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         const [uRes, sRes, pRes] = await Promise.all([
           fetch('/api/reference?type=units'),
           fetch('/api/reference?type=stdinstruments'),
-          fetch('/api/reference?type=calprices'),
+          fetch('/api/reference?type=devices'),
         ])
         if (uRes.ok) {
           const uJson = await uRes.json()
@@ -730,7 +730,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         }
         if (pRes.ok) {
           const pJson = await pRes.json()
-          if (mounted) setCalPriceRefs(Array.isArray(pJson.data) ? pJson.data : [])
+          if (mounted) setDeviceRefs(Array.isArray(pJson.data) ? pJson.data : [])
         }
       } catch {
         // Keep form usable when reference API fails
@@ -801,7 +801,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
 
   // Auto-fill address and prices from reference data when deviceFromRegistry
   useEffect(() => {
-    if (!unitRefs.length && !calPriceRefs.length) return
+    if (!unitRefs.length && !deviceRefs.length) return
     setData((d: any) => {
       const updates: Record<string, unknown> = {}
       // Auto-fill address from unit reference
@@ -817,12 +817,13 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
           setAddressFromRef(true)
         }
       }
-      // Auto-fill calPrice & mainPrice from calprices reference (match by device name)
-      if (calPriceRefs.length && d.deviceName) {
+      // Auto-fill calPrice & mainPrice from devices reference (match by device name)
+      if (deviceRefs.length && d.deviceName) {
         const devNorm = String(d.deviceName).trim().toLowerCase()
-        const priceMatch = calPriceRefs.find((p) => {
-          const devList = String(p.device || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-          return devList.some((dv) => dv === devNorm || devNorm.includes(dv) || dv.includes(devNorm))
+        const priceMatch = deviceRefs.find((p) => {
+          const en = String(p.name || '').trim().toLowerCase()
+          const th = String(p.thaiName || '').trim().toLowerCase()
+          return en === devNorm || th === devNorm || devNorm.includes(en) || en.includes(devNorm)
         })
         if (priceMatch) {
           if (priceMatch.calPrice != null && !d.calPrice) updates.calPrice = priceMatch.calPrice
@@ -831,7 +832,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       }
       return Object.keys(updates).length ? { ...d, ...updates } : d
     })
-  }, [unitRefs, calPriceRefs])
+  }, [unitRefs, deviceRefs])
 
   useEffect(() => {
     if (mode !== 'edit') return

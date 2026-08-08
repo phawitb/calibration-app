@@ -45,6 +45,8 @@ const SUBTABS: {
       { key: 'no', label: 'ลำดับ', input: 'number' as const },
       { key: 'name', label: 'ชื่อ (EN)' },
       { key: 'thaiName', label: 'ชื่อ (TH)' },
+      { key: 'calPrice', label: 'ราคาสอบเทียบ (บาท)', input: 'number' as const },
+      { key: 'mainPrice', label: 'ราคาปบ. (บาท)', input: 'number' as const },
     ],
   },
   {
