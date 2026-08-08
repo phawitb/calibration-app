@@ -4,6 +4,8 @@ export interface IStdCalPointConfig extends Document {
   instrumentRefId: string
   tableName: string
   points: { pointValue: number; unit: string }[]
+  stdValues: number[]
+  order: number
   createdAt: Date
   updatedAt: Date
 }
@@ -19,9 +21,16 @@ const StdCalPointConfigSchema = new Schema<IStdCalPointConfig>(
         _id: false,
       },
     ],
+    stdValues:       [{ type: Number }],
+    order:           { type: Number, default: 0 },
   },
   { timestamps: true }
 )
 
-export default mongoose.models.StdCalPointConfig ||
-  mongoose.model<IStdCalPointConfig>('StdCalPointConfig', StdCalPointConfigSchema)
+// Delete cached model to pick up schema changes during dev HMR
+if (mongoose.models.StdCalPointConfig) {
+  delete (mongoose.models as any).StdCalPointConfig
+  delete (mongoose.connection.models as any).StdCalPointConfig
+}
+
+export default mongoose.model<IStdCalPointConfig>('StdCalPointConfig', StdCalPointConfigSchema)

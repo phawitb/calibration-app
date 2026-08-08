@@ -21,26 +21,23 @@ interface AmedDevice {
   hpNumber?: string
 }
 
-type Step = 'hospital' | 'type' | 'device' | 'iso'
-
 export default function NewRecordPage() {
   const router = useRouter()
   const [creating, setCreating] = useState(false)
-  const [step, setStep] = useState<Step>('hospital')
 
-  // Step 1: Hospital selection
+  // Hospital selection
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
   const [selectedUnit, setSelectedUnit] = useState('')
   const [unitSearch, setUnitSearch] = useState('')
   const [unitOpen, setUnitOpen] = useState(false)
   const [userRole, setUserRole] = useState('')
-  const [userHospital, setUserHospital] = useState('')
 
-  // Step 2: Calibration type
+  // Calibration type
   const [calType, setCalType] = useState<'sbcal' | 'iso' | ''>('')
 
-  // Step 3: Device selection
-  const [selectedDevice, setSelectedDevice] = useState<AmedDevice | null>(null)
+  // ISO method selection (shown after clicking a device when calType=iso)
+  const [showIsoMethods, setShowIsoMethods] = useState(false)
+  const [pendingDevice, setPendingDevice] = useState<AmedDevice | null>(null)
 
   // Load user session and unit refs
   useEffect(() => {
@@ -59,11 +56,9 @@ export default function NewRecordPage() {
         const s = await sessionRes.json()
         const user = s?.user || {}
         setUserRole(user.role || '')
-        setUserHospital(user.hospitalUnit || '')
-        // hospital_user auto-select their hospital and skip to type
         if (user.role === 'hospital_user' && user.hospitalUnit) {
           setSelectedUnit(user.hospitalUnit)
-          setStep('type')
+          setUnitSearch(user.hospitalUnit)
         }
       }
     }
@@ -89,21 +84,23 @@ export default function NewRecordPage() {
     return Array.from(options).slice(0, 50)
   }, [unitRefs, unitSearch])
 
-  const createRecord = async (type: 'sbcal' | 'iso', isoMethodCode?: string) => {
-    if (creating || !selectedDevice) return
+  const showDeviceTable = selectedUnit && calType
+
+  const createRecord = async (device: AmedDevice, type: 'sbcal' | 'iso', isoMethodCode?: string) => {
+    if (creating) return
     setCreating(true)
     try {
       const payload: Record<string, unknown> = {
         calibrationType: type,
-        deviceName: selectedDevice.deviceName || '',
-        deviceNameTh: selectedDevice.deviceNameTh || '',
-        amedNo: selectedDevice.amedNo,
-        unitName: selectedDevice.unitName,
-        section: selectedDevice.section || '',
-        brand: selectedDevice.brand || '',
-        model: selectedDevice.model || '',
-        serialNo: selectedDevice.serialNo || '',
-        hpNumber: selectedDevice.hpNumber || '',
+        deviceName: device.deviceName || '',
+        deviceNameTh: device.deviceNameTh || '',
+        amedNo: device.amedNo,
+        unitName: device.unitName,
+        section: device.section || '',
+        brand: device.brand || '',
+        model: device.model || '',
+        serialNo: device.serialNo || '',
+        hpNumber: device.hpNumber || '',
         deviceFromRegistry: true,
       }
       if (type === 'iso' && isoMethodCode) payload.isoMethodCode = isoMethodCode
@@ -121,180 +118,52 @@ export default function NewRecordPage() {
     }
   }
 
-  const breadcrumbParts: { label: string; onClick?: () => void }[] = [
-    { label: 'ข้อมูลสอบเทียบ' },
-  ]
-  if (step !== 'hospital') {
-    breadcrumbParts.push({ label: 'เลือก รพ.', onClick: () => { setStep('hospital'); setCalType(''); setSelectedDevice(null) } })
-  }
-  if (step === 'device' || step === 'iso') {
-    breadcrumbParts.push({ label: 'เลือกประเภท', onClick: () => { setStep('type'); setSelectedDevice(null) } })
-  }
-  if (step === 'iso') {
-    breadcrumbParts.push({ label: 'เลือกเครื่องมือ', onClick: () => setStep('device') })
+  const handleDeviceClick = (device: AmedDevice) => {
+    if (creating) return
+    if (calType === 'iso') {
+      setPendingDevice(device)
+      setShowIsoMethods(true)
+    } else {
+      createRecord(device, 'sbcal')
+    }
   }
 
   return (
     <div className="space-y-4">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Header */}
+      <div className="flex items-center gap-2">
         <Link href="/records" className="text-gray-400 hover:text-gray-600 transition-colors">
           &larr; ข้อมูลสอบเทียบ
         </Link>
-        {breadcrumbParts.map((bp, i) => (
-          <span key={i} className="flex items-center gap-2">
-            <span className="text-gray-300">/</span>
-            {bp.onClick ? (
-              <button onClick={bp.onClick} className="text-gray-400 hover:text-gray-600 text-sm">
-                {bp.label}
-              </button>
-            ) : (
-              <span className="text-sm font-medium text-military-800">{bp.label}</span>
-            )}
-          </span>
-        ))}
+        <span className="text-gray-300">/</span>
+        <span className="text-sm font-medium text-military-800">เพิ่มข้อมูล</span>
       </div>
 
-      {/* Step 1: Select Hospital */}
-      {step === 'hospital' && (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-military-900">เลือกโรงพยาบาล / หน่วยงาน</h1>
-          <div className="card max-w-xl">
-            <div className="relative">
-              <input
-                type="text"
-                className="input-field"
-                placeholder="พิมพ์เพื่อค้นหาชื่อหน่วย/โรงพยาบาล"
-                value={unitSearch}
-                onChange={e => { setUnitSearch(e.target.value); setUnitOpen(true) }}
-                onFocus={() => setUnitOpen(true)}
-                onBlur={() => setTimeout(() => setUnitOpen(false), 200)}
-              />
-              {unitOpen && unitOptions.length > 0 && (
-                <ul className="absolute z-30 mt-0.5 max-h-60 w-full overflow-auto rounded border border-gray-200 bg-white py-0.5 text-sm shadow-md">
-                  {unitOptions.map(opt => (
-                    <li
-                      key={opt}
-                      className="cursor-pointer px-3 py-2 hover:bg-gray-100"
-                      onMouseDown={e => {
-                        e.preventDefault()
-                        setSelectedUnit(opt)
-                        setUnitSearch(opt)
-                        setUnitOpen(false)
-                      }}
-                    >
-                      {opt}
-                    </li>
-                  ))}
-                </ul>
-              )}
+      <h1 className="text-xl font-bold text-military-900">เพิ่มข้อมูลสอบเทียบ</h1>
+
+      {/* ISO Method Modal */}
+      {showIsoMethods && pendingDevice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-bold text-military-900">เลือกชนิดเครื่องมือ (ISO)</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {pendingDevice.deviceName || pendingDevice.amedNo}
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowIsoMethods(false); setPendingDevice(null) }}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2"
+              >
+                &times;
+              </button>
             </div>
-            {selectedUnit && (
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-gray-600">เลือกแล้ว: <strong>{selectedUnit}</strong></span>
-                <button
-                  onClick={() => { setStep('type'); setCalType(''); setSelectedDevice(null) }}
-                  className="btn-primary"
-                >
-                  ถัดไป
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Select Calibration Type */}
-      {step === 'type' && (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-military-900">เลือกระบบสอบเทียบ</h1>
-          <p className="text-sm text-gray-500">หน่วยงาน: <strong>{selectedUnit}</strong></p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              onClick={() => { setCalType('sbcal'); setStep('device') }}
-              className="p-6 border-2 border-gray-200 rounded-xl hover:border-military-500 hover:bg-military-50 transition-all text-left group"
-            >
-              <div className="text-lg font-bold text-military-800 group-hover:text-military-900">ระบบสอบเทียบทั่วไป</div>
-              <div className="text-sm text-gray-500 mt-1">Hygrometer, Thermometer ฯลฯ</div>
-              <div className="text-xs text-gray-400 mt-1">Uc1-Uc6 + UcT | 4 readings x 4-6 จุดสอบเทียบ</div>
-            </button>
-
-            <button
-              onClick={() => { setCalType('iso'); setStep('device') }}
-              className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left group"
-            >
-              <div className="text-lg font-bold text-blue-800 group-hover:text-blue-900">ระบบสอบเทียบตามมาตรฐาน ISO</div>
-              <div className="text-sm text-gray-500 mt-1">Centrifuge, Enclosure, Autoclave ฯลฯ</div>
-              <div className="text-xs text-gray-400 mt-1">หลายรูปแบบตามชนิดเครื่อง | Multi-sensor support</div>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 3: Select Device */}
-      {step === 'device' && (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-military-900">เลือกเครื่องมือแพทย์</h1>
-          <p className="text-sm text-gray-500">
-            หน่วยงาน: <strong>{selectedUnit}</strong> |{' '}
-            ระบบ: <strong>{calType === 'iso' ? 'ISO' : 'ทั่วไป'}</strong>
-          </p>
-
-          <DeviceSelector
-            unitName={selectedUnit}
-            onSelect={d => setSelectedDevice(d)}
-          />
-
-          {selectedDevice && (
-            <div className="card bg-blue-50 border-blue-200">
-              <h3 className="text-sm font-semibold text-blue-800 mb-2">ข้อมูลเครื่องมือที่เลือก</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                <div><span className="text-gray-500">AmedNo:</span> <strong>{selectedDevice.amedNo}</strong></div>
-                <div><span className="text-gray-500">ชื่อ:</span> {selectedDevice.deviceName || '-'}</div>
-                <div><span className="text-gray-500">ยี่ห้อ:</span> {selectedDevice.brand || '-'}</div>
-                <div><span className="text-gray-500">รุ่น:</span> {selectedDevice.model || '-'}</div>
-                <div><span className="text-gray-500">S/N:</span> {selectedDevice.serialNo || '-'}</div>
-                <div><span className="text-gray-500">แผนก:</span> {selectedDevice.section || '-'}</div>
-              </div>
-              <div className="mt-3 flex justify-end">
-                {calType === 'iso' ? (
-                  <button
-                    onClick={() => setStep('iso')}
-                    className="btn-primary"
-                  >
-                    เลือกชนิดเครื่องมือ ISO
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => createRecord('sbcal')}
-                    disabled={creating}
-                    className="btn-primary"
-                  >
-                    {creating ? 'กำลังสร้าง...' : 'สร้างรายการสอบเทียบ'}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 3b: ISO Method Selection */}
-      {step === 'iso' && (
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold text-military-900">เลือกชนิดเครื่องมือ (ISO)</h1>
-          <p className="text-sm text-gray-500">
-            หน่วยงาน: <strong>{selectedUnit}</strong> |{' '}
-            เครื่อง: <strong>{selectedDevice?.deviceName || selectedDevice?.amedNo}</strong>
-          </p>
-
-          <div className="card">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
               {ISO_METHODS.map(m => (
                 <button
                   key={m.code}
-                  onClick={() => createRecord('iso', m.code)}
+                  onClick={() => createRecord(pendingDevice, 'iso', m.code)}
                   disabled={creating}
                   className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left disabled:opacity-50"
                 >
@@ -306,12 +175,126 @@ export default function NewRecordPage() {
                 </button>
               ))}
             </div>
+            {creating && (
+              <div className="text-center text-gray-500 text-sm py-3 border-t border-gray-100">กำลังสร้างรายการ...</div>
+            )}
           </div>
+        </div>
+      )}
 
-          {creating && (
-            <div className="text-center text-gray-500 text-sm">กำลังสร้างรายการ...</div>
+      {/* Row: Hospital + Type */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Hospital Selection */}
+        <div className="card space-y-2">
+          <h2 className="text-sm font-semibold text-military-800">1. เลือกโรงพยาบาล / หน่วยงาน</h2>
+          <div className="relative">
+            <input
+              type="text"
+              className="input-field"
+              placeholder="พิมพ์เพื่อค้นหาชื่อหน่วย/โรงพยาบาล"
+              value={unitSearch}
+              onChange={e => {
+                setUnitSearch(e.target.value)
+                setUnitOpen(true)
+                // Clear selection when typing
+                if (selectedUnit && e.target.value !== selectedUnit) {
+                  setSelectedUnit('')
+                  setCalType('')
+                  setShowIsoMethods(false)
+                  setPendingDevice(null)
+                }
+              }}
+              onFocus={() => setUnitOpen(true)}
+              onBlur={() => setTimeout(() => setUnitOpen(false), 200)}
+              disabled={userRole === 'hospital_user'}
+            />
+            {unitOpen && unitOptions.length > 0 && (
+              <ul className="absolute z-30 mt-0.5 max-h-60 w-full overflow-auto rounded border border-gray-200 bg-white py-0.5 text-sm shadow-md">
+                {unitOptions.map(opt => (
+                  <li
+                    key={opt}
+                    className="cursor-pointer px-3 py-2 hover:bg-gray-100"
+                    onMouseDown={e => {
+                      e.preventDefault()
+                      setSelectedUnit(opt)
+                      setUnitSearch(opt)
+                      setUnitOpen(false)
+                    }}
+                  >
+                    {opt}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {selectedUnit && (
+            <p className="text-xs text-green-600 font-medium">
+              &#10003; {selectedUnit}
+            </p>
           )}
         </div>
+
+        {/* Calibration Type Selection */}
+        <div className="card space-y-2">
+          <h2 className="text-sm font-semibold text-military-800">2. เลือกระบบสอบเทียบ</h2>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => { setCalType('sbcal'); setShowIsoMethods(false); setPendingDevice(null) }}
+              disabled={!selectedUnit}
+              className={`p-3 border-2 rounded-lg text-left transition-all text-sm ${
+                calType === 'sbcal'
+                  ? 'border-military-500 bg-military-50 ring-1 ring-military-300'
+                  : selectedUnit
+                    ? 'border-gray-200 hover:border-military-300 hover:bg-military-50'
+                    : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <div className="font-semibold text-military-800">ระบบทั่วไป</div>
+              <div className="text-xs text-gray-500 mt-0.5">Uc1-Uc6 + UcT</div>
+            </button>
+
+            <button
+              onClick={() => { setCalType('iso'); setShowIsoMethods(false); setPendingDevice(null) }}
+              disabled={!selectedUnit}
+              className={`p-3 border-2 rounded-lg text-left transition-all text-sm ${
+                calType === 'iso'
+                  ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-300'
+                  : selectedUnit
+                    ? 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                    : 'border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <div className="font-semibold text-blue-800">ระบบ ISO</div>
+              <div className="text-xs text-gray-500 mt-0.5">Centrifuge, Autoclave ฯลฯ</div>
+            </button>
+          </div>
+          {calType && (
+            <p className="text-xs text-green-600 font-medium">
+              &#10003; {calType === 'iso' ? 'ระบบสอบเทียบตามมาตรฐาน ISO' : 'ระบบสอบเทียบทั่วไป'}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Device Table — only shows when both hospital and type are selected */}
+      {showDeviceTable && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold text-military-800">3. เลือกเครื่องมือแพทย์ <span className="font-normal text-gray-500">(คลิกเพื่อสร้างรายการ)</span></h2>
+          <DeviceSelector
+            unitName={selectedUnit}
+            onSelect={handleDeviceClick}
+          />
+          {creating && !showIsoMethods && (
+            <div className="text-center text-gray-500 text-sm py-2">กำลังสร้างรายการ...</div>
+          )}
+        </div>
+      )}
+
+      {!selectedUnit && (
+        <p className="text-sm text-gray-400 text-center py-8">กรุณาเลือกโรงพยาบาล / หน่วยงาน เพื่อเริ่มต้น</p>
+      )}
+      {selectedUnit && !calType && (
+        <p className="text-sm text-gray-400 text-center py-8">กรุณาเลือกระบบสอบเทียบ</p>
       )}
     </div>
   )

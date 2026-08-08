@@ -172,7 +172,7 @@ function buildInitialState(method: IsoMethodConfig, methodCode: string) {
     unitName: '', address: '', section: '',
     deviceName: method.deviceType,
     brand: '', model: '', serialNo: '',
-    receivedDate: '', calDate: new Date().toISOString().slice(0, 10), issuedDate: '',
+    receivedDate: new Date().toISOString().slice(0, 10), calDate: new Date().toISOString().slice(0, 10), issuedDate: '',
     location: 'outside', lapTemp: '', lapHumid: '',
     calibrate: '', calPrice: '', mainPrice: '',
     receivedN: '',

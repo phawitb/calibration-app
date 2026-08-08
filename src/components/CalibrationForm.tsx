@@ -109,6 +109,33 @@ function calPointsFromRef(pointCount: number) {
   }))
 }
 
+/** Build calPoints from a single StdCalPointConfig */
+function calPointsFromSingleConfig(
+  cfg: { points: Array<{ pointValue: number; unit?: string }>; stdValues?: number[] },
+  correction: number,
+) {
+  return cfg.points.map((p, i) => {
+    const stdVal = cfg.stdValues?.[i]
+    const std = stdVal != null ? stdVal : p.pointValue + correction
+    return {
+      point: String(p.pointValue),
+      readings: ['', '', '', ''] as (number | string)[],
+      standards: [std, std, std, std] as (number | string)[],
+    }
+  })
+}
+
+async function fetchCalPointConfigs(instrumentId: string) {
+  try {
+    const res = await fetch(`/api/reference/calpoints?instrumentId=${instrumentId}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return Array.isArray(json.data) ? json.data : []
+  } catch {
+    return []
+  }
+}
+
 const UC_STD_TEXT_FIELDS = [
   'no', 'name', 'manufacture', 'model', 'serialNo', 'certNo', 'measurement', 'unit', 'calDate',
 ] as const
@@ -120,9 +147,6 @@ function UcSection({
   stdRefs = [],
   stdFieldOptions,
   formulaOptions = [],
-  lockedFromRef = false,
-  onAutoFill,
-  onClearRef,
 }: {
   label: string
   value: any
@@ -130,12 +154,12 @@ function UcSection({
   stdRefs?: StdRef[]
   stdFieldOptions?: StdFieldOptions
   formulaOptions?: FormulaOption[]
-  /** std fields ถูก auto-fill จากฐานอ้างอิงแล้ว — แสดง read-only */
-  lockedFromRef?: boolean
-  onAutoFill?: () => void
-  onClearRef?: () => void
 }) {
   const uc = value || {}
+  // Cal point config tables fetched from reference
+  const [calPointConfigs, setCalPointConfigs] = useState<any[]>([])
+  const [selectedConfigIdx, setSelectedConfigIdx] = useState(0)
+
   const updateStd = (field: string, val: any) =>
     onChange({ ...uc, std: { ...(uc.std || {}), [field]: val } })
   const updatePoint = (idx: number, field: string, val: any) => {
@@ -175,18 +199,47 @@ function UcSection({
       (na && stdRefs.find((r) => (r?.name ?? '').toString().trim() === na)) ||
       null
     if (!ref) return
-    const std = buildStdFromRef(ref)
-    const pointCount = std.no != null && String(std.no).trim() ? inferPointCountFromStdNo(std.no) : 4
-    const calPoints = calPointsFromRef(pointCount)
-    onChange({ ...uc, std, calPoints })
-    onAutoFill?.()
+    applyUcFromRef(ref)
+  }
+
+  const applyConfigToCalPoints = (configs: any[], idx: number, std: any) => {
+    if (!configs[idx]) return
+    const correction = std?.correction != null && !Number.isNaN(Number(std.correction)) ? Number(std.correction) : 0
+    const defaultPoints = calPointsFromSingleConfig(configs[idx], correction)
+    if (defaultPoints.length > 0) {
+      onChange({ ...uc, std: std || uc.std, calPoints: defaultPoints })
+    }
+  }
+
+  const handleSelectConfig = (idx: number) => {
+    setSelectedConfigIdx(idx)
+    applyConfigToCalPoints(calPointConfigs, idx, uc.std)
   }
 
   const applyUcFromRef = (ref: StdRef) => {
     const std = buildStdFromRef(ref)
     const pointCount = std.no != null && String(std.no).trim() ? inferPointCountFromStdNo(std.no) : 4
-    onChange({ ...uc, std, calPoints: calPointsFromRef(pointCount) })
-    onAutoFill?.()
+    const correction = std.correction != null && !Number.isNaN(Number(std.correction)) ? Number(std.correction) : 0
+
+    // Apply std fields immediately with empty cal points
+    const fallbackPoints = calPointsFromRef(pointCount)
+    onChange({ ...uc, std, calPoints: fallbackPoints })
+    setCalPointConfigs([])
+    setSelectedConfigIdx(0)
+
+    // Fetch cal point configs and apply first table as default
+    if (ref._id) {
+      fetchCalPointConfigs(String(ref._id)).then((configs) => {
+        if (configs.length > 0) {
+          setCalPointConfigs(configs)
+          setSelectedConfigIdx(0)
+          const defaultPoints = calPointsFromSingleConfig(configs[0], correction)
+          if (defaultPoints.length > 0) {
+            onChange({ ...uc, std, calPoints: defaultPoints })
+          }
+        }
+      })
+    }
   }
 
   const localStdFieldOptions = useMemo(() => {
@@ -213,13 +266,6 @@ function UcSection({
     <div className="border border-gray-200 rounded-lg p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="font-medium text-military-700 text-sm">{label}</h4>
-        {lockedFromRef && onClearRef && (
-          <button type="button"
-            className="text-xs text-red-500 hover:text-red-700"
-            onClick={onClearRef}>
-            ล้างข้อมูลอ้างอิง
-          </button>
-        )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
@@ -264,11 +310,7 @@ function UcSection({
         ].map((f) => (
           <div key={f.field}>
             <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
-            {lockedFromRef ? (
-              <input type="text"
-                className="input-field text-xs py-1.5 bg-gray-100 text-gray-500 cursor-not-allowed"
-                value={f.num ? (uc.std?.[f.field] ?? '') : (uc.std?.[f.field] ?? '')} readOnly />
-            ) : f.num ? (
+            {f.num ? (
               <FilteredOptionsInput
                 className="input-field text-xs py-1.5"
                 num
@@ -310,7 +352,29 @@ function UcSection({
 
       {/* Cal points */}
       <div>
-        <p className="text-xs text-gray-500 mb-2">จุดสอบเทียบ (Cal Points)</p>
+        <div className="flex items-center gap-3 mb-2 flex-wrap">
+          <p className="text-xs text-gray-500">จุดสอบเทียบ (Cal Points)</p>
+          {calPointConfigs.length > 1 && (
+            <div className="flex items-center gap-2">
+              {calPointConfigs.map((cfg: any, i: number) => (
+                <label key={cfg._id || i} className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md border cursor-pointer transition-colors ${
+                  selectedConfigIdx === i
+                    ? 'bg-military-100 border-military-400 text-military-800 font-medium'
+                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}>
+                  <input
+                    type="radio"
+                    name={`calpoint-config-${label}`}
+                    checked={selectedConfigIdx === i}
+                    onChange={() => handleSelectConfig(i)}
+                    className="accent-military-600 w-3 h-3"
+                  />
+                  table{i + 1}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead>
@@ -599,7 +663,6 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   const [calPriceRefs, setCalPriceRefs] = useState<Array<{ device?: string; calPrice?: number; mainPrice?: number }>>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
   const [std1FromRef, setStd1FromRef] = useState(false)
-  const [ucFromRef, setUcFromRef] = useState<Record<string, boolean>>({})
   const [stdInstruments, setStdInstruments] = useState<StdRef[]>([])
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
   const [formulaOptions, setFormulaOptions] = useState<FormulaOption[]>([])
@@ -616,7 +679,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       normalizeInitialData(initialData) || {
     amedNo: '', certNo: '', sbNo: '', select: false,
     unitName: '', address: '', section: '', deviceName: '', brand: '', model: '', serialNo: '', hpNumber: '',
-    issuedDate: '', receivedN: '', receivedDate: '', calDate: new Date().toISOString().slice(0, 10), location: 'outside',
+    issuedDate: '', receivedN: '', receivedDate: new Date().toISOString().slice(0, 10), calDate: new Date().toISOString().slice(0, 10), location: 'outside',
     lapTemp: '', lapHumid: '', calibrate: '', approve: '', calPrice: '', mainPrice: '',
     approvalStatus: 'draft', requestedApproverId: '', requestedApproverName: '',
     std1: {}, uc1: {}, uc2: {}, uc3: {}, uc4: {}, uc5: {}, uc6: {}, ucT: {},
@@ -1318,9 +1381,6 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             label="เครื่องมือสอบเทียบ UC1"
             value={data.uc1}
             onChange={(v) => set('uc1', v)}
-            lockedFromRef={!!ucFromRef.uc1}
-            onAutoFill={() => setUcFromRef((p) => ({ ...p, uc1: true }))}
-            onClearRef={() => { set('uc1', {}); setUcFromRef((p) => ({ ...p, uc1: false })) }}
           />
           {(['uc2', 'uc3', 'uc4', 'uc5', 'uc6'] as const).map((uc) => (
             <div key={uc} className="border border-gray-200 rounded-lg">
@@ -1341,9 +1401,6 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                     label={`เครื่องมือสอบเทียบ ${uc.toUpperCase()}`}
                     value={data[uc]}
                     onChange={(v) => set(uc, v)}
-                    lockedFromRef={!!ucFromRef[uc]}
-                    onAutoFill={() => setUcFromRef((p) => ({ ...p, [uc]: true }))}
-                    onClearRef={() => { set(uc, {}); setUcFromRef((p) => ({ ...p, [uc]: false })) }}
                   />
                 </div>
               )}
@@ -1367,9 +1424,6 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                   label="เครื่องมือสอบเทียบเวลา (UcT)"
                   value={data.ucT}
                   onChange={(v) => set('ucT', v)}
-                  lockedFromRef={!!ucFromRef.ucT}
-                  onAutoFill={() => setUcFromRef((p) => ({ ...p, ucT: true }))}
-                  onClearRef={() => { set('ucT', {}); setUcFromRef((p) => ({ ...p, ucT: false })) }}
                 />
               </div>
             )}

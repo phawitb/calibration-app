@@ -3,6 +3,7 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { connectDB } from './mongodb'
 import User from '@/models/User'
+import { cookies } from 'next/headers'
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
@@ -56,8 +57,41 @@ export const authOptions: NextAuthOptions = {
       return token
     },
     async session({ session, token }) {
-      if (session.user) {
-        (session.user as any).role = token.role
+      if (!session.user) return session
+
+      // Check for impersonation cookie (admin only)
+      let impersonatedUser: any = null
+      if (token.role === 'admin') {
+        try {
+          const cookieStore = await cookies()
+          const impCookie = cookieStore.get('impersonate_user_id')
+          if (impCookie?.value) {
+            await connectDB()
+            const target = await User.findById(impCookie.value).lean()
+            if (target) impersonatedUser = target
+          }
+        } catch {
+          // cookies() may fail in some contexts, ignore
+        }
+      }
+
+      if (impersonatedUser) {
+        // Override session with impersonated user data
+        const role = impersonatedUser.role === 'user' ? 'hospital_user' : impersonatedUser.role
+        ;(session.user as any).id = impersonatedUser._id.toString()
+        ;(session.user as any).username = impersonatedUser.username
+        ;(session.user as any).fullName = impersonatedUser.fullName || impersonatedUser.name
+        ;(session.user as any).rank = impersonatedUser.rank || ''
+        ;(session.user as any).fullNameEn = impersonatedUser.fullNameEn || ''
+        ;(session.user as any).rankEn = impersonatedUser.rankEn || ''
+        ;(session.user as any).hospitalUnit = impersonatedUser.hospitalUnit || ''
+        ;(session.user as any).amedNo = impersonatedUser.amedNo || ''
+        ;(session.user as any).role = role
+        ;(session.user as any)._isImpersonating = true
+        ;(session.user as any)._realAdminId = token.id
+        session.user.name = impersonatedUser.fullName || impersonatedUser.name || ''
+      } else {
+        ;(session.user as any).role = token.role
         ;(session.user as any).id = token.id
         ;(session.user as any).username = token.username
         ;(session.user as any).fullName = token.fullName
@@ -68,6 +102,7 @@ export const authOptions: NextAuthOptions = {
         ;(session.user as any).amedNo = token.amedNo
         if (token.fullName) session.user.name = token.fullName as string
       }
+
       return session
     },
   },

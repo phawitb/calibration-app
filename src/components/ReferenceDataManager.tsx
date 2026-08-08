@@ -10,7 +10,6 @@ const SUBTABS: {
   label: string
   type: RefType
   desc: string
-  /** คอลัมน์แสดงในตาราง (และฟอร์มแก้ — รวมทุกฟิลด์ที่รองรับ) */
   fields: { key: string; label?: string; input?: 'number' }[]
 }[] = [
   {
@@ -129,7 +128,7 @@ const SUBTABS: {
       { key: 'unitName', label: 'หน่วยงาน (รพ.)' },
       { key: 'section', label: 'แผนก' },
       { key: 'deviceName', label: 'ชื่อเครื่อง (EN)' },
-{ key: 'brand', label: 'ยี่ห้อ' },
+      { key: 'brand', label: 'ยี่ห้อ' },
       { key: 'model', label: 'รุ่น' },
       { key: 'serialNo', label: 'Serial No.' },
       { key: 'hpNumber', label: 'HP Number' },
@@ -137,8 +136,42 @@ const SUBTABS: {
   },
 ]
 
+// Key columns shown in stdinstruments table (compact view)
+const STD_TABLE_COLUMNS = [
+  { key: 'no', label: 'รหัส' },
+  { key: 'name', label: 'ชื่อเครื่อง' },
+  { key: 'measurement', label: 'การวัด' },
+  { key: 'unit', label: 'หน่วย' },
+]
+
+// Detail fields shown when expanded (excluding table columns)
+const STD_DETAIL_FIELDS = [
+  { key: 'manufacture', label: 'ผู้ผลิต' },
+  { key: 'model', label: 'รุ่น' },
+  { key: 'serialNo', label: 'Serial No.' },
+  { key: 'certNo', label: 'Cert. / เลขที่ใบรับรอง' },
+  { key: 'calDate', label: 'วันที่สอบเทียบ' },
+  { key: 'correction', label: 'Correction' },
+  { key: 'uTStd', label: 'uTStd' },
+  { key: 'uTDrif', label: 'uTDrif' },
+  { key: 'uTResStd', label: 'uTResStd' },
+  { key: 'uTUuc', label: 'uTUuc' },
+  { key: 'uTInt', label: 'uTInt' },
+  { key: 'expandedU', label: 'expandedU' },
+]
+
 function fieldLabel(f: { key: string; label?: string }) {
   return f.label || f.key
+}
+
+function getCertStatus(expiryDate: string | Date | undefined) {
+  if (!expiryDate) return null
+  const exp = new Date(expiryDate)
+  const now = new Date()
+  const diffDays = (exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+  if (diffDays < 0) return { label: 'หมดอายุ', color: 'bg-red-100 text-red-700 border-red-300' }
+  if (diffDays <= 30) return { label: 'ใกล้หมดอายุ', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' }
+  return { label: 'ใช้ได้', color: 'bg-green-100 text-green-700 border-green-300' }
 }
 
 export default function ReferenceDataManager() {
@@ -148,6 +181,7 @@ export default function ReferenceDataManager() {
   const [modal, setModal] = useState<'add' | 'edit' | null>(null)
   const [editing, setEditing] = useState<Record<string, any>>({})
   const [editId, setEditId] = useState<string | null>(null)
+
   // Expandable detail for stdinstruments
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [stdCerts, setStdCerts] = useState<any[]>([])
@@ -155,7 +189,17 @@ export default function ReferenceDataManager() {
   const [stdDetailLoading, setStdDetailLoading] = useState(false)
   const [certUploading, setCertUploading] = useState(false)
   const [cpFormOpen, setCpFormOpen] = useState(false)
-  const [cpForm, setCpForm] = useState({ tableName: '', points: '' })
+  const [cpForm, setCpForm] = useState({ points: '', stdValues: '' })
+
+  // Inline editing for stdinstruments expanded detail
+  const [stdEditing, setStdEditing] = useState(false)
+  const [stdEditData, setStdEditData] = useState<Record<string, any>>({})
+  const [stdSaving, setStdSaving] = useState(false)
+  // Pending cal point changes (local only until save)
+  const [pendingCalPoints, setPendingCalPoints] = useState<any[]>([])
+  const [pendingCpAdded, setPendingCpAdded] = useState<any[]>([])   // new tables to create
+  const [pendingCpDeleted, setPendingCpDeleted] = useState<string[]>([]) // ids to delete
+
   // Reference options for ameddevices dropdowns
   const [refDevices, setRefDevices] = useState<string[]>([])
   const [refUnits, setRefUnits] = useState<string[]>([])
@@ -294,9 +338,8 @@ export default function ReferenceDataManager() {
     }
   }
 
-  const toggleExpand = async (id: string) => {
-    if (expandedId === id) { setExpandedId(null); return }
-    setExpandedId(id)
+  // --- Std Instruments expanded detail ---
+  const loadStdDetail = async (id: string) => {
     setStdDetailLoading(true)
     setStdCerts([])
     setStdCalPoints([])
@@ -318,18 +361,122 @@ export default function ReferenceDataManager() {
     setStdDetailLoading(false)
   }
 
-  const handleStdCertUpload = async (instId: string, file: File, year: number, expiryDate: string, isLatest: boolean) => {
+  const toggleExpand = async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); setStdEditing(false); return }
+    setExpandedId(id)
+    setStdEditing(false)
+    await loadStdDetail(id)
+  }
+
+  const startStdEdit = (r: any) => {
+    const data: Record<string, any> = {}
+    for (const f of sub.fields) {
+      const v = r[f.key]
+      data[f.key] = v != null && v !== '' ? v : ''
+    }
+    setStdEditData(data)
+    setPendingCalPoints([...stdCalPoints])
+    setPendingCpAdded([])
+    setPendingCpDeleted([])
+    setCpFormOpen(false)
+    setCpForm({ points: '', stdValues: '' })
+    setStdEditing(true)
+  }
+
+  const cancelStdEdit = () => {
+    setStdEditing(false)
+    setCpFormOpen(false)
+    setCpForm({ points: '', stdValues: '' })
+  }
+
+  const saveStdEdit = async (id: string) => {
+    if (stdSaving) return
+    setStdSaving(true)
+    // 1) Save instrument fields
+    const payload: Record<string, any> = { type: sub.type, _id: id }
+    for (const f of sub.fields) {
+      const v = stdEditData[f.key]
+      if (f.input === 'number') {
+        if (v === '' || v == null) continue
+        const n = Number(v)
+        if (!Number.isNaN(n)) payload[f.key] = n
+        else payload[f.key] = v
+      } else {
+        if (v !== undefined) payload[f.key] = v
+      }
+    }
+    try {
+      const res = await fetch('/api/admin/reference', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const e = await res.json()
+        throw new Error(e.error || 'อัปเดตไม่สำเร็จ')
+      }
+
+      // 2) Delete removed cal point tables
+      for (const cpId of pendingCpDeleted) {
+        await fetch(`/api/admin/stdinstruments/${id}/calpoints?configId=${cpId}`, { method: 'DELETE' })
+      }
+
+      // 3) Update existing cal point tables (points + stdValues may have been edited)
+      const existingCps = pendingCalPoints.filter((cp: any) => !cp._isNew && !pendingCpDeleted.includes(cp._id))
+      for (const cp of existingCps) {
+        const cleanPoints = (cp.points || []).filter((p: any) => p.pointValue !== '' && p.pointValue != null)
+        const stdArr = (cp.stdValues || []).map((v: any) => v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : 0)
+        await fetch(`/api/admin/stdinstruments/${id}/calpoints`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ _id: cp._id, points: cleanPoints, stdValues: stdArr }),
+        })
+      }
+
+      // 4) Create newly added cal point tables
+      for (const cp of pendingCpAdded) {
+        const cleanPoints = (cp.points || []).filter((p: any) => p.pointValue !== '' && p.pointValue != null)
+        const stdArr = (cp.stdValues || []).map((v: any) => v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : 0)
+        await fetch(`/api/admin/stdinstruments/${id}/calpoints`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ points: cleanPoints, stdValues: stdArr }),
+        })
+      }
+
+      // 5) Save reorder
+      const existingIds = existingCps.map((cp: any) => cp._id)
+      if (existingIds.length > 0) {
+        await fetch(`/api/admin/stdinstruments/${id}/calpoints`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orderedIds: existingIds }),
+        })
+      }
+
+      toast.success('บันทึกทั้งหมดสำเร็จ')
+      setStdSaving(false)
+      setStdEditing(false)
+      await load()
+      await loadStdDetail(id)
+    } catch (e: any) {
+      toast.error(e?.message || 'Error')
+      setStdSaving(false)
+    }
+  }
+
+  const handleStdCertUpload = async (instId: string, file: File, year: number, expiryDate: string) => {
     setCertUploading(true)
     const fd = new FormData()
     fd.append('file', file)
     fd.append('year', String(year))
     if (expiryDate) fd.append('expiryDate', expiryDate)
-    fd.append('isLatest', String(isLatest))
+    fd.append('isLatest', 'true')
     const res = await fetch(`/api/admin/stdinstruments/${instId}/certificates`, { method: 'POST', body: fd })
     setCertUploading(false)
     if (res.ok) {
       toast.success('อัปโหลดใบเซอร์สำเร็จ')
-      toggleExpand(instId) // reload
+      loadStdDetail(instId)
     } else {
       const d = await res.json().catch(() => ({}))
       toast.error(d.error || 'อัปโหลดไม่สำเร็จ')
@@ -339,12 +486,12 @@ export default function ReferenceDataManager() {
   const handleStdCertDelete = async (instId: string, certId: string) => {
     if (!confirm('ยืนยันลบใบเซอร์?')) return
     const res = await fetch(`/api/admin/stdinstruments/${instId}/certificates?certId=${certId}`, { method: 'DELETE' })
-    if (res.ok) { toast.success('ลบแล้ว'); toggleExpand(instId) }
+    if (res.ok) { toast.success('ลบแล้ว'); loadStdDetail(instId) }
     else toast.error('ลบไม่สำเร็จ')
   }
 
-  const handleSaveCalPoints = async (instId: string) => {
-    if (!cpForm.tableName.trim()) { toast.error('กรุณาระบุชื่อตาราง'); return }
+  // --- Pending cal point operations (local state, saved on main save) ---
+  const addPendingCalPoint = () => {
     const points = cpForm.points.split(',').map(s => s.trim()).filter(Boolean).map(s => ({
       pointValue: Number(s),
       unit: '',
@@ -353,40 +500,323 @@ export default function ReferenceDataManager() {
       toast.error('กรุณาระบุ cal points เป็นตัวเลขคั่นด้วยจุลภาค')
       return
     }
-    const res = await fetch(`/api/admin/stdinstruments/${instId}/calpoints`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tableName: cpForm.tableName, points }),
-    })
-    if (res.ok) {
-      toast.success('บันทึกตาราง cal points สำเร็จ')
-      setCpFormOpen(false)
-      setCpForm({ tableName: '', points: '' })
-      toggleExpand(instId)
+    const stdValues = cpForm.stdValues
+      ? cpForm.stdValues.split(',').map(s => s.trim()).filter(Boolean).map(Number).filter(n => !isNaN(n))
+      : []
+    const tempId = `_new_${Date.now()}`
+    const existingCount = pendingCalPoints.length
+    const newCp = {
+      _id: tempId,
+      _isNew: true,
+      tableName: `table${existingCount + 1}`,
+      points,
+      stdValues,
+    }
+    setPendingCalPoints(prev => [...prev, newCp])
+    setPendingCpAdded(prev => [...prev, { points, stdValues }])
+    setCpFormOpen(false)
+    setCpForm({ points: '', stdValues: '' })
+  }
+
+  const removePendingCalPoint = (cp: any) => {
+    setPendingCalPoints(prev => prev.filter(c => c._id !== cp._id))
+    if (cp._isNew) {
+      // Remove from added list by matching points
+      setPendingCpAdded(prev => {
+        const idx = prev.findIndex(a =>
+          JSON.stringify(a.points) === JSON.stringify(cp.points) &&
+          JSON.stringify(a.stdValues) === JSON.stringify(cp.stdValues)
+        )
+        if (idx >= 0) return prev.filter((_, i) => i !== idx)
+        return prev
+      })
     } else {
-      toast.error('บันทึกไม่สำเร็จ')
+      setPendingCpDeleted(prev => [...prev, cp._id])
     }
   }
 
-  const handleDeleteCalPoints = async (instId: string, configId: string) => {
-    if (!confirm('ยืนยันลบตาราง cal points?')) return
-    const res = await fetch(`/api/admin/stdinstruments/${instId}/calpoints?configId=${configId}`, { method: 'DELETE' })
-    if (res.ok) { toast.success('ลบแล้ว'); toggleExpand(instId) }
-    else toast.error('ลบไม่สำเร็จ')
-  }
-
-  const getCertStatus = (expiryDate: string | Date | undefined) => {
-    if (!expiryDate) return null
-    const exp = new Date(expiryDate)
-    const now = new Date()
-    const diffDays = (exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
-    if (diffDays < 0) return { label: 'หมดอายุ', color: 'bg-red-100 text-red-700 border-red-300' }
-    if (diffDays <= 30) return { label: 'ใกล้หมดอายุ', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' }
-    return { label: 'ใช้ได้', color: 'bg-green-100 text-green-700 border-green-300' }
+  const reorderPendingCalPoints = (fromIdx: number, toIdx: number) => {
+    setPendingCalPoints(prev => {
+      const reordered = [...prev]
+      const [moved] = reordered.splice(fromIdx, 1)
+      reordered.splice(toIdx, 0, moved)
+      return reordered
+    })
   }
 
   const isStdInstrumentsTab = sub.key === 'stdinstruments'
   const tableFields = sub.fields
+
+  // Render expanded detail for stdinstruments
+  const renderStdDetail = (r: any) => {
+    if (stdDetailLoading) return <p className="text-sm text-gray-500 py-4">กำลังโหลด...</p>
+
+    // Sort certs by year desc (latest first)
+    const sortedCerts = [...stdCerts].sort((a, b) => (b.year || 0) - (a.year || 0))
+    // Cal points already sorted by order from API
+    const sortedCalPoints = stdCalPoints
+
+    return (
+      <div className="space-y-5">
+        {/* Detail fields */}
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-military-800">ข้อมูลเครื่องมือ</h4>
+            <div className="flex gap-2">
+              {stdEditing ? (
+                <>
+                  <button type="button" onClick={cancelStdEdit} disabled={stdSaving}
+                    className="text-xs px-3 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                    ยกเลิก
+                  </button>
+                  <button type="button" onClick={() => saveStdEdit(r._id)} disabled={stdSaving}
+                    className="text-xs px-3 py-1 rounded bg-military-700 text-white hover:bg-military-800 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+                    {stdSaving && (
+                      <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                    )}
+                    {stdSaving ? 'กำลังบันทึก...' : 'บันทึกทั้งหมด'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => startStdEdit(r)}
+                    className="text-xs px-3 py-1 rounded border border-military-300 text-military-700 hover:bg-military-50">
+                    แก้ไข
+                  </button>
+                  <button type="button" onClick={() => del(r._id)}
+                    className="text-xs px-3 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50">
+                    ลบรายการ
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2">
+            {STD_DETAIL_FIELDS.map(f => (
+              <div key={f.key}>
+                <span className="text-[11px] text-gray-400">{f.label}</span>
+                {stdEditing ? (
+                  <input
+                    type={['correction','uTStd','uTDrif','uTResStd','uTUuc','uTInt','expandedU'].includes(f.key) ? 'number' : 'text'}
+                    step="any"
+                    className="input-field text-sm py-1"
+                    value={stdEditData[f.key] ?? ''}
+                    onChange={e => setStdEditData(d => ({ ...d, [f.key]: e.target.value }))}
+                  />
+                ) : (
+                  <p className="text-sm text-gray-800 font-medium">
+                    {r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—'}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <hr className="border-gray-200" />
+
+        {/* Certificates Section */}
+        <div>
+          <h4 className="text-sm font-semibold text-military-800 mb-2">ใบเซอร์ (Certificate PDF)</h4>
+
+          {/* Upload form */}
+          <div className="flex gap-3 mb-3 items-end flex-wrap bg-white p-3 rounded-lg border border-dashed border-gray-300">
+            <div>
+              <label className="text-[11px] text-gray-500 block mb-0.5">ปี พ.ศ.</label>
+              <input type="number" id={`cert-year-${r._id}`} className="input-field text-sm w-24 py-1" placeholder="2567" />
+            </div>
+            <div>
+              <label className="text-[11px] text-gray-500 block mb-0.5">วันหมดอายุ</label>
+              <input type="date" id={`cert-expiry-${r._id}`} className="input-field text-sm w-40 py-1" />
+            </div>
+            <div>
+              <label className="text-[11px] text-gray-500 block mb-0.5">ไฟล์ PDF</label>
+              <input
+                type="file"
+                accept="application/pdf"
+                id={`cert-file-${r._id}`}
+                className="text-xs"
+                disabled={certUploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  const yearEl = document.getElementById(`cert-year-${r._id}`) as HTMLInputElement
+                  const expiryEl = document.getElementById(`cert-expiry-${r._id}`) as HTMLInputElement
+                  const year = Number(yearEl?.value)
+                  if (!year) { toast.error('กรุณาระบุปี'); e.target.value = ''; return }
+                  handleStdCertUpload(r._id, file, year, expiryEl?.value || '')
+                  e.target.value = ''
+                }}
+              />
+            </div>
+            {certUploading && <span className="text-xs text-gray-500">กำลังอัปโหลด...</span>}
+          </div>
+
+          {/* Cert list */}
+          {sortedCerts.length > 0 ? (
+            <div className="space-y-1">
+              {sortedCerts.map((c: any, idx: number) => {
+                const status = getCertStatus(c.expiryDate)
+                const isActive = idx === 0 // latest year = active
+                return (
+                  <div key={c._id} className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg border ${
+                    isActive ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100'
+                  }`}>
+                    <span className="font-medium text-gray-700 w-16 shrink-0">ปี {c.year}</span>
+                    <span className="text-gray-500 truncate flex-1">{c.fileName}</span>
+                    {isActive && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-blue-600 text-white rounded font-medium shrink-0">
+                        ฉบับปัจจุบัน
+                      </span>
+                    )}
+                    {status && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${status.color}`}>
+                        {status.label}
+                        {c.expiryDate && ` (${new Date(c.expiryDate).toLocaleDateString('th-TH')})`}
+                      </span>
+                    )}
+                    <button type="button" onClick={() => handleStdCertDelete(r._id, c._id)}
+                      className="text-red-400 text-xs hover:text-red-600 shrink-0">ลบ</button>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400">ยังไม่มีใบเซอร์</p>
+          )}
+        </div>
+
+        <hr className="border-gray-200" />
+
+        {/* Cal Points Section */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-military-800">ตารางจุดสอบเทียบ (Cal Points)</h4>
+            {stdEditing && (
+              <button type="button" onClick={() => setCpFormOpen(!cpFormOpen)}
+                className="text-xs px-3 py-1 rounded border border-blue-200 text-blue-600 hover:bg-blue-50">
+                {cpFormOpen ? 'ยกเลิก' : '+ เพิ่มตาราง'}
+              </button>
+            )}
+          </div>
+          {cpFormOpen && stdEditing && (
+            <div className="flex gap-3 mb-3 items-end flex-wrap bg-white p-3 rounded-lg border border-dashed border-blue-300">
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-[11px] text-gray-500 block mb-0.5">Cal Points (คั่นด้วย ,)</label>
+                <input type="text" className="input-field text-sm py-1 w-full" value={cpForm.points}
+                  onChange={(e) => setCpForm(f => ({ ...f, points: e.target.value }))} placeholder="20, 25, 30, 35, 40" />
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-[11px] text-gray-500 block mb-0.5">Std Values (คั่นด้วย ,)</label>
+                <input type="text" className="input-field text-sm py-1 w-full" value={cpForm.stdValues}
+                  onChange={(e) => setCpForm(f => ({ ...f, stdValues: e.target.value }))} placeholder="20.1, 25.0, 30.2, 35.1, 40.0" />
+              </div>
+              <button type="button" onClick={addPendingCalPoint}
+                className="text-xs px-4 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700">
+                เพิ่ม
+              </button>
+            </div>
+          )}
+          {(() => {
+            const displayCps = stdEditing ? pendingCalPoints : stdCalPoints
+            if (displayCps.length === 0) return <p className="text-xs text-gray-400">ยังไม่มีตารางจุดสอบเทียบ</p>
+            return (
+              <div className="space-y-3">
+                {displayCps.map((cp: any, idx: number) => {
+                  const pts = cp.points || []
+                  const stds = cp.stdValues || []
+                  const maxLen = Math.max(pts.length, stds.length, 1)
+                  return (
+                    <div key={cp._id} className={`rounded-lg border overflow-hidden ${cp._isNew ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200 bg-white'}`}>
+                      {/* Table header row */}
+                      <div className="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-200">
+                        <span className="font-mono font-semibold text-military-700 text-sm">
+                          table{idx + 1}
+                          {cp._isNew && <span className="ml-2 text-[10px] text-blue-600 font-normal">(ใหม่)</span>}
+                        </span>
+                        {stdEditing && (
+                          <div className="flex items-center gap-1">
+                            <button type="button" disabled={idx === 0}
+                              onClick={() => reorderPendingCalPoints(idx, idx - 1)}
+                              className="text-gray-400 hover:text-gray-700 text-xs px-1.5 py-0.5 rounded border border-gray-200 disabled:opacity-30">&#9650;</button>
+                            <button type="button" disabled={idx === displayCps.length - 1}
+                              onClick={() => reorderPendingCalPoints(idx, idx + 1)}
+                              className="text-gray-400 hover:text-gray-700 text-xs px-1.5 py-0.5 rounded border border-gray-200 disabled:opacity-30">&#9660;</button>
+                            <button type="button" onClick={() => removePendingCalPoint(cp)}
+                              className="text-red-400 text-xs hover:text-red-600 ml-1 px-1.5 py-0.5 rounded border border-red-200">ลบ</button>
+                          </div>
+                        )}
+                      </div>
+                      {/* Data table */}
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-500">
+                            <th className="px-3 py-1 text-left w-16">จุดที่</th>
+                            <th className="px-3 py-1 text-right">Cal Point</th>
+                            <th className="px-3 py-1 text-right">Std</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: maxLen }).map((_, i) => (
+                            <tr key={i} className="border-t border-gray-100">
+                              <td className="px-3 py-1 text-gray-400">{i + 1}</td>
+                              <td className="px-3 py-1 text-right font-mono text-gray-800">
+                                {stdEditing ? (
+                                  <input type="number" step="any"
+                                    className="w-20 text-right text-xs font-mono px-1 py-0.5 border border-gray-200 rounded ml-auto block"
+                                    value={pts[i]?.pointValue ?? ''}
+                                    onChange={e => {
+                                      const val = e.target.value === '' ? '' : Number(e.target.value)
+                                      setPendingCalPoints(prev => prev.map((c, ci) => {
+                                        if (ci !== idx) return c
+                                        const newPts = [...(c.points || [])]
+                                        while (newPts.length <= i) newPts.push({ pointValue: '', unit: '' })
+                                        newPts[i] = { ...newPts[i], pointValue: val }
+                                        return { ...c, points: newPts }
+                                      }))
+                                    }}
+                                  />
+                                ) : (
+                                  pts[i]?.pointValue != null && pts[i]?.pointValue !== '' ? pts[i].pointValue : '—'
+                                )}
+                              </td>
+                              <td className="px-3 py-1 text-right font-mono text-blue-700">
+                                {stdEditing ? (
+                                  <input type="number" step="any"
+                                    className="w-20 text-right text-xs font-mono px-1 py-0.5 border border-blue-200 rounded ml-auto block text-blue-700"
+                                    value={stds[i] ?? ''}
+                                    onChange={e => {
+                                      const val = e.target.value === '' ? undefined : Number(e.target.value)
+                                      setPendingCalPoints(prev => prev.map((c, ci) => {
+                                        if (ci !== idx) return c
+                                        const newStds = [...(c.stdValues || [])]
+                                        while (newStds.length <= i) newStds.push(undefined as any)
+                                        newStds[i] = val as any
+                                        return { ...c, stdValues: newStds }
+                                      }))
+                                    }}
+                                  />
+                                ) : (
+                                  stds[i] != null ? stds[i] : '—'
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -401,7 +831,7 @@ export default function ReferenceDataManager() {
             type="button"
             role="tab"
             aria-selected={sub.key === t.key}
-            onClick={() => setSub(t)}
+            onClick={() => { setSub(t); setExpandedId(null); setStdEditing(false) }}
             className={`px-3 py-1.5 text-xs sm:text-sm rounded-t-lg ${
               sub.key === t.key
                 ? 'bg-military-800 text-white'
@@ -423,7 +853,60 @@ export default function ReferenceDataManager() {
       <div className="card p-0 overflow-hidden">
         {loading ? (
           <p className="p-6 text-gray-500 text-sm">กำลังโหลด…</p>
+        ) : isStdInstrumentsTab ? (
+          /* ===== Std Instruments: compact table + expand ===== */
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-military-800 text-white text-left">
+                  {STD_TABLE_COLUMNS.map((f) => (
+                    <th key={f.key} className="px-3 py-2 font-medium whitespace-nowrap">{f.label}</th>
+                  ))}
+                  <th className="px-3 py-2 w-24 text-center font-medium">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={STD_TABLE_COLUMNS.length + 1} className="px-4 py-8 text-center text-gray-500">
+                      ยังไม่มีข้อมูล
+                    </td>
+                  </tr>
+                ) : (
+                  rows.map((r) => (
+                    <Fragment key={r._id}>
+                      <tr
+                        className={`border-b border-gray-100 cursor-pointer transition-colors ${
+                          expandedId === r._id ? 'bg-military-50' : 'hover:bg-military-50/40'
+                        }`}
+                        onClick={() => toggleExpand(r._id)}
+                      >
+                        {STD_TABLE_COLUMNS.map((f) => (
+                          <td key={f.key} className="px-3 py-2 text-gray-800 max-w-[200px] truncate" title={String(r[f.key] ?? '')}>
+                            {r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—'}
+                          </td>
+                        ))}
+                        <td className="px-3 py-2 text-center">
+                          <span className={`inline-flex items-center text-xs text-military-600 ${expandedId === r._id ? 'rotate-180' : ''} transition-transform`}>
+                            &#9660;
+                          </span>
+                        </td>
+                      </tr>
+                      {expandedId === r._id && (
+                        <tr>
+                          <td colSpan={STD_TABLE_COLUMNS.length + 1} className="bg-gray-50/80 px-4 py-4 border-b border-gray-200">
+                            {renderStdDetail(r)}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         ) : (
+          /* ===== Other tabs: standard table ===== */
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -445,23 +928,13 @@ export default function ReferenceDataManager() {
                   </tr>
                 ) : (
                   rows.map((r) => (
-                    <Fragment key={r._id}>
-                    <tr className="border-b border-gray-100 hover:bg-military-50/40">
+                    <tr key={r._id} className="border-b border-gray-100 hover:bg-military-50/40">
                       {tableFields.map((f) => (
                         <td key={f.key} className="px-2 py-1.5 text-gray-800 max-w-[200px] truncate" title={String(r[f.key] ?? '')}>
                           {r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—'}
                         </td>
                       ))}
                       <td className="px-2 py-1.5 text-center whitespace-nowrap">
-                        {isStdInstrumentsTab && (
-                          <button
-                            type="button"
-                            className="text-blue-600 text-xs mr-1 px-2 py-0.5 rounded border border-blue-200"
-                            onClick={() => toggleExpand(r._id)}
-                          >
-                            {expandedId === r._id ? 'ย่อ' : 'รายละเอียด'}
-                          </button>
-                        )}
                         <button
                           type="button"
                           className="text-military-700 text-xs font-medium px-2 py-0.5 rounded border border-military-200"
@@ -478,124 +951,6 @@ export default function ReferenceDataManager() {
                         </button>
                       </td>
                     </tr>
-                    {/* Expanded detail row for stdinstruments */}
-                    {isStdInstrumentsTab && expandedId === r._id && (
-                      <tr>
-                        <td colSpan={tableFields.length + 1} className="bg-gray-50 px-4 py-4">
-                          {stdDetailLoading ? (
-                            <p className="text-sm text-gray-500">กำลังโหลด...</p>
-                          ) : (
-                            <div className="space-y-4">
-                              {/* Certificates Section */}
-                              <div>
-                                <h4 className="text-sm font-semibold text-gray-700 mb-2">ใบเซอร์ (Certificate PDF)</h4>
-                                <div className="flex gap-2 mb-2 items-end flex-wrap">
-                                  <div>
-                                    <label className="text-xs text-gray-500">ปี พ.ศ.</label>
-                                    <input type="number" id={`cert-year-${r._id}`} className="input-field text-sm w-24" placeholder="2567" />
-                                  </div>
-                                  <div>
-                                    <label className="text-xs text-gray-500">วันหมดอายุ</label>
-                                    <input type="date" id={`cert-expiry-${r._id}`} className="input-field text-sm w-40" />
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <input type="checkbox" id={`cert-latest-${r._id}`} defaultChecked />
-                                    <label htmlFor={`cert-latest-${r._id}`} className="text-xs text-gray-600">ฉบับล่าสุด</label>
-                                  </div>
-                                  <div>
-                                    <input
-                                      type="file"
-                                      accept="application/pdf"
-                                      id={`cert-file-${r._id}`}
-                                      className="text-xs w-48"
-                                      disabled={certUploading}
-                                      onChange={(e) => {
-                                        const file = e.target.files?.[0]
-                                        if (!file) return
-                                        const yearEl = document.getElementById(`cert-year-${r._id}`) as HTMLInputElement
-                                        const expiryEl = document.getElementById(`cert-expiry-${r._id}`) as HTMLInputElement
-                                        const latestEl = document.getElementById(`cert-latest-${r._id}`) as HTMLInputElement
-                                        const year = Number(yearEl?.value)
-                                        if (!year) { toast.error('กรุณาระบุปี'); e.target.value = ''; return }
-                                        handleStdCertUpload(r._id, file, year, expiryEl?.value || '', latestEl?.checked ?? true)
-                                        e.target.value = ''
-                                      }}
-                                    />
-                                  </div>
-                                </div>
-                                {stdCerts.length > 0 ? (
-                                  <div className="space-y-1">
-                                    {stdCerts.map((c: any) => {
-                                      const status = getCertStatus(c.expiryDate)
-                                      return (
-                                        <div key={c._id} className="flex items-center gap-2 text-sm bg-white px-3 py-1.5 rounded border border-gray-100">
-                                          <span className="font-medium text-gray-700 w-16">ปี {c.year}</span>
-                                          <span className="text-gray-500 truncate flex-1">{c.fileName}</span>
-                                          {c.isLatest && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">ล่าสุด</span>}
-                                          {status && (
-                                            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${status.color}`}>
-                                              {status.label}
-                                              {c.expiryDate && ` (${new Date(c.expiryDate).toLocaleDateString('th-TH')})`}
-                                            </span>
-                                          )}
-                                          <button type="button" onClick={() => handleStdCertDelete(r._id, c._id)} className="text-red-500 text-xs hover:text-red-700">ลบ</button>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-gray-400">ยังไม่มีใบเซอร์</p>
-                                )}
-                              </div>
-
-                              {/* Cal Points Section */}
-                              <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                  <h4 className="text-sm font-semibold text-gray-700">ตารางจุดสอบเทียบ (Cal Points)</h4>
-                                  <button type="button" onClick={() => setCpFormOpen(!cpFormOpen)}
-                                    className="text-xs px-2 py-0.5 rounded border border-blue-200 text-blue-600">
-                                    {cpFormOpen ? 'ยกเลิก' : '+ เพิ่มตาราง'}
-                                  </button>
-                                </div>
-                                {cpFormOpen && (
-                                  <div className="flex gap-2 mb-2 items-end flex-wrap bg-white p-2 rounded border">
-                                    <div>
-                                      <label className="text-xs text-gray-500">ชื่อตาราง</label>
-                                      <input type="text" className="input-field text-sm w-40" value={cpForm.tableName}
-                                        onChange={(e) => setCpForm(f => ({ ...f, tableName: e.target.value }))} placeholder="เช่น Temperature" />
-                                    </div>
-                                    <div>
-                                      <label className="text-xs text-gray-500">จุดสอบเทียบ (คั่นด้วย ,)</label>
-                                      <input type="text" className="input-field text-sm w-56" value={cpForm.points}
-                                        onChange={(e) => setCpForm(f => ({ ...f, points: e.target.value }))} placeholder="20, 25, 30, 35, 40" />
-                                    </div>
-                                    <button type="button" onClick={() => handleSaveCalPoints(r._id)}
-                                      className="btn-primary text-xs px-3 py-1.5">บันทึก</button>
-                                  </div>
-                                )}
-                                {stdCalPoints.length > 0 ? (
-                                  <div className="space-y-1">
-                                    {stdCalPoints.map((cp: any) => (
-                                      <div key={cp._id} className="flex items-center gap-2 text-sm bg-white px-3 py-1.5 rounded border border-gray-100">
-                                        <span className="font-medium text-gray-700">{cp.tableName}</span>
-                                        <span className="text-gray-500 flex-1">
-                                          [{cp.points?.map((p: any) => p.pointValue).join(', ')}]
-                                        </span>
-                                        <button type="button" onClick={() => handleDeleteCalPoints(r._id, cp._id)}
-                                          className="text-red-500 text-xs hover:text-red-700">ลบ</button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-gray-400">ยังไม่มีตารางจุดสอบเทียบ</p>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                    </Fragment>
                   ))
                 )}
               </tbody>
@@ -604,6 +959,7 @@ export default function ReferenceDataManager() {
         )}
       </div>
 
+      {/* Add/Edit Modal (for non-stdinstruments or adding new stdinstruments) */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-3">
@@ -637,19 +993,15 @@ export default function ReferenceDataManager() {
                     )
                   }
 
-                  // deviceName → devices reference
                   const devDrop = amedDropdownField('deviceName', refDevices, 'ชื่อเครื่องมือ')
                   if (devDrop) return devDrop
 
-                  // unitName → units reference
                   const unitDrop = amedDropdownField('unitName', refUnits, 'หน่วยงาน')
                   if (unitDrop) return unitDrop
 
-                  // section → sections reference
                   const secDrop = amedDropdownField('section', refSections, 'แผนก / ห้อง')
                   if (secDrop) return secDrop
 
-                  // brand → brands reference (unique brand names)
                   if (f.key === 'brand') {
                     const uniqueBrands = Array.from(new Set(refBrands.map(b => b.name))).sort()
                     return (
@@ -670,7 +1022,6 @@ export default function ReferenceDataManager() {
                     )
                   }
 
-                  // model → filtered by selected brand
                   if (f.key === 'model') {
                     const selectedBrand = editing['brand'] || ''
                     const models = selectedBrand

@@ -24,13 +24,11 @@ export default function DeviceSelector({ unitName, onSelect }: Props) {
   const [devices, setDevices] = useState<AmedDevice[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!unitName) { setDevices([]); return }
     let mounted = true
     setLoading(true)
-    setSelectedId(null)
     fetch(`/api/ameddevices?unitName=${encodeURIComponent(unitName)}`)
       .then(r => r.json())
       .then(j => { if (mounted) setDevices(Array.isArray(j.data) ? j.data : []) })
@@ -86,17 +84,14 @@ export default function DeviceSelector({ unitName, onSelect }: Props) {
                 <th className="py-2 px-3 text-left font-medium hidden md:table-cell">รุ่น</th>
                 <th className="py-2 px-3 text-left font-medium hidden lg:table-cell">Serial No.</th>
                 <th className="py-2 px-3 text-left font-medium hidden lg:table-cell">แผนก</th>
-                <th className="py-2 px-3 text-center font-medium">เลือก</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map(d => (
                 <tr
                   key={d._id}
-                  className={`border-b border-gray-50 cursor-pointer transition-colors ${
-                    selectedId === d._id ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : 'hover:bg-military-50'
-                  }`}
-                  onClick={() => { setSelectedId(d._id); onSelect(d) }}
+                  className="border-b border-gray-50 cursor-pointer hover:bg-military-50 transition-colors"
+                  onClick={() => onSelect(d)}
                 >
                   <td className="py-2.5 px-3 font-mono font-medium text-military-800">{d.amedNo}</td>
                   <td className="py-2.5 px-3 text-gray-700">
@@ -109,17 +104,6 @@ export default function DeviceSelector({ unitName, onSelect }: Props) {
                   <td className="py-2.5 px-3 text-gray-600 hidden md:table-cell">{d.model || '-'}</td>
                   <td className="py-2.5 px-3 text-gray-500 hidden lg:table-cell font-mono text-xs">{d.serialNo || '-'}</td>
                   <td className="py-2.5 px-3 text-gray-500 hidden lg:table-cell">{d.section || '-'}</td>
-                  <td className="py-2.5 px-3 text-center">
-                    <div className={`w-5 h-5 rounded-full border-2 mx-auto flex items-center justify-center ${
-                      selectedId === d._id ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
-                    }`}>
-                      {selectedId === d._id && (
-                        <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                        </svg>
-                      )}
-                    </div>
-                  </td>
                 </tr>
               ))}
             </tbody>

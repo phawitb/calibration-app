@@ -4,14 +4,16 @@ import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
 import { SiteLogoHeader } from '@/components/SiteLogo'
 import { useEffect, useMemo, useState } from 'react'
+import { useImpersonation } from '@/components/ImpersonationProvider'
 
 export default function Navbar() {
   const { data: session } = useSession()
+  const { isImpersonating, isRealAdmin } = useImpersonation()
   const pathname = usePathname()
   const role = (session?.user as any)?.role as string | undefined
   const canApprove = role === 'admin' || role === 'approver'
   const canSeeRecalibrationAlerts = role === 'admin' || role === 'approver' || role === 'technician'
-  const canManageUsers = role === 'admin'
+  const canManageUsers = role === 'admin' || isRealAdmin
   const canAddRecord = role === 'admin' || role === 'technician'
   const [pendingCount, setPendingCount] = useState<number | null>(null)
   const [recalibrationAlertCount, setRecalibrationAlertCount] = useState<number | null>(null)

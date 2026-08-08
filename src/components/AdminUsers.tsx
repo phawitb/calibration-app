@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
 import { removeWhiteBackground } from '@/lib/signatureUtils'
 import SignaturePad from '@/components/SignaturePad'
+import { useImpersonation } from '@/components/ImpersonationProvider'
 
 interface User {
   _id: string
@@ -26,6 +27,7 @@ interface UserCertMeta {
 }
 
 export default function AdminUsers() {
+  const { startImpersonation } = useImpersonation()
   const [users,    setUsers]    = useState<User[]>([])
   const [unitRefs, setUnitRefs] = useState<Array<{ name?: string; thaiName?: string }>>([])
   const [loading,  setLoading]  = useState(true)
@@ -687,6 +689,7 @@ export default function AdminUsers() {
                 </td>
                 <td className="py-3 px-4">
                   <div className="flex items-center justify-center gap-2">
+                    <button type="button" onClick={() => startImpersonation(u._id)} className="text-amber-600 hover:text-amber-800 text-xs px-2 py-1 rounded border border-amber-200 hover:bg-amber-50">สวมบทบาท</button>
                     <button type="button" onClick={() => startEdit(u)} className="btn-secondary text-xs px-2 py-1">แก้ไข</button>
                     <button type="button" onClick={() => handleQuickResetPassword(u)} className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded border border-blue-200 hover:bg-blue-50">รีเซ็ตรหัส</button>
                     <button type="button" onClick={() => handleDelete(u)} className="text-red-600 hover:text-red-800 text-xs px-2 py-1 rounded border border-red-200 hover:bg-red-50">ลบ</button>
