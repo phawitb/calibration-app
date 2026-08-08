@@ -437,8 +437,9 @@ export default function ReferenceDataManager() {
         })
       }
 
-      // 4) Create newly added cal point tables
-      for (const cp of pendingCpAdded) {
+      // 4) Create newly added cal point tables (use pendingCalPoints with _isNew to capture inline edits)
+      const newCps = pendingCalPoints.filter((cp: any) => cp._isNew && !pendingCpDeleted.includes(cp._id))
+      for (const cp of newCps) {
         const cleanPoints = (cp.points || []).filter((p: any) => p.pointValue !== '' && p.pointValue != null)
         const stdArr = (cp.stdValues || []).map((v: any) => v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : 0)
         await fetch(`/api/admin/stdinstruments/${id}/calpoints`, {
