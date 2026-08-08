@@ -38,7 +38,7 @@ function normalizeInitialData(initialData?: any) {
     issuedDate: toDateInputValue(initialData.issuedDate),
     receivedDate: toDateInputValue(initialData.receivedDate) || today,
     calDate: toDateInputValue(initialData.calDate) || today,
-    select: initialData.select ?? true,
+    select: true,
   }
 }
 
