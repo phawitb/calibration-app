@@ -24,7 +24,6 @@ export async function GET(req: NextRequest) {
     units:     'UnitName',
     sections:  'SectionName',
     calnames:  'CalName',
-    calprices: 'CalPrice',
     stdinstruments: 'StdInstrumentRef',
     brands:    'BrandName',
     ameddevices: 'AmedDevice',

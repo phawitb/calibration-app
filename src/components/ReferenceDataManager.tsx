@@ -109,18 +109,6 @@ const SUBTABS: {
     ],
   },
   {
-    key: 'calprices',
-    label: 'ราคาอ้างอิง',
-    type: 'calprices',
-    desc: 'calPrice, mainPrice ต่อเครื่อง',
-    fields: [
-      { key: 'no', input: 'number' as const },
-      { key: 'calPrice', input: 'number' as const },
-      { key: 'mainPrice', input: 'number' as const },
-      { key: 'device' },
-    ],
-  },
-  {
     key: 'ameddevices',
     label: 'ทะเบียน AmedNo',
     type: 'ameddevices',

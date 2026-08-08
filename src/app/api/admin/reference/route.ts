@@ -9,7 +9,6 @@ const modelMap: Record<string, string> = {
   units: 'UnitName',
   sections: 'SectionName',
   calnames: 'CalName',
-  calprices: 'CalPrice',
   stdinstruments: 'StdInstrumentRef',
   brands: 'BrandName',
   ameddevices: 'AmedDevice',
