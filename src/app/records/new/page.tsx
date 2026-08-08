@@ -24,6 +24,7 @@ interface AmedDevice {
 export default function NewRecordPage() {
   const router = useRouter()
   const [creating, setCreating] = useState(false)
+  const [selectedIsoCode, setSelectedIsoCode] = useState<string | null>(null)
 
   // Hospital selection
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
@@ -118,6 +119,7 @@ export default function NewRecordPage() {
   const createIsoRecord = async (isoMethodCode: string) => {
     if (creating) return
     setCreating(true)
+    setSelectedIsoCode(isoMethodCode)
     try {
       const payload: Record<string, unknown> = {
         calibrationType: 'iso',
@@ -269,20 +271,34 @@ export default function NewRecordPage() {
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-military-800">3. เลือกชนิดเครื่องมือ <span className="font-normal text-gray-500">(คลิกเพื่อสร้างรายการ)</span></h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {ISO_METHODS.map(m => (
+            {ISO_METHODS.map(m => {
+              const isSelected = selectedIsoCode === m.code
+              return (
               <button
                 key={m.code}
                 onClick={() => createIsoRecord(m.code)}
                 disabled={creating}
-                className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left disabled:opacity-50"
+                className={`p-4 border-2 rounded-xl transition-all text-left ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-300'
+                    : creating
+                      ? 'border-gray-100 opacity-50 cursor-not-allowed'
+                      : 'border-gray-200 hover:border-blue-500 hover:bg-blue-50'
+                }`}
               >
-                <div className="font-semibold text-gray-800">{m.nameTh}</div>
+                <div className="font-semibold text-gray-800 flex items-center gap-2">
+                  {isSelected && (
+                    <span className="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  )}
+                  {m.nameTh}
+                </div>
                 <div className="text-sm text-gray-500">{m.name}</div>
                 <div className="text-xs text-gray-400 mt-1">
                   {m.code} | {m.unit} | {m.sensorCount} sensor{m.sensorCount > 1 ? 's' : ''} | {m.readingsPerPoint} readings
                 </div>
               </button>
-            ))}
+              )
+            })}
           </div>
           {creating && (
             <div className="text-center text-gray-500 text-sm py-2">กำลังสร้างรายการ...</div>
