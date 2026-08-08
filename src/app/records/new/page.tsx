@@ -256,6 +256,7 @@ export default function NewRecordPage() {
           <DeviceSelector
             unitName={selectedUnit}
             onSelect={handleDeviceClick}
+            disabled={creating}
           />
           {creating && (
             <div className="text-center text-gray-500 text-sm py-2">กำลังสร้างรายการ...</div>
