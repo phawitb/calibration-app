@@ -66,9 +66,11 @@ export default function Navbar() {
     }
   }, [canSeeRecalibrationAlerts, pathname])
 
+  const isHospitalUser = role === 'hospital_user'
   const links = [
     { href: '/dashboard', label: 'หน้าหลัก', icon: '🏠' },
     { href: '/records', label: 'ข้อมูลสอบเทียบ', icon: '📋' },
+    ...(isHospitalUser ? [{ href: '/hospital', label: 'เครื่องมือของหน่วย', icon: '🏥' }] : []),
     ...(canAddRecord ? [{ href: '/records/new', label: 'เพิ่มข้อมูล', icon: '➕' }] : []),
     ...(canApprove ? [{ href: '/approvals', label: 'งานรออนุมัติ', icon: '✅' }] : []),
     ...(canManageUsers ? [{ href: '/admin', label: 'จัดการระบบ', icon: '⚙️' }] : []),

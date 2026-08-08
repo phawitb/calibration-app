@@ -590,11 +590,13 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   const role = (session?.user as any)?.role as string | undefined
   const canSubmitForApproval = role === 'admin' || role === 'technician'
   const isReadOnly = role === 'hospital_user'
+  const isDeviceFromRegistry = !!(initialData?.deviceFromRegistry)
   const [canRequestApprovalNow, setCanRequestApprovalNow] = useState(false)
   const [saving, setSaving] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
+  const [calPriceRefs, setCalPriceRefs] = useState<Array<{ device?: string; calPrice?: number; mainPrice?: number }>>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
   const [std1FromRef, setStd1FromRef] = useState(false)
   const [ucFromRef, setUcFromRef] = useState<Record<string, boolean>>({})
@@ -614,7 +616,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       normalizeInitialData(initialData) || {
     amedNo: '', certNo: '', sbNo: '', select: false,
     unitName: '', address: '', section: '', deviceName: '', brand: '', model: '', serialNo: '', hpNumber: '',
-    issuedDate: '', receivedN: '', receivedDate: '', calDate: '', location: '',
+    issuedDate: '', receivedN: '', receivedDate: '', calDate: new Date().toISOString().slice(0, 10), location: 'outside',
     lapTemp: '', lapHumid: '', calibrate: '', approve: '', calPrice: '', mainPrice: '',
     approvalStatus: 'draft', requestedApproverId: '', requestedApproverName: '',
     std1: {}, uc1: {}, uc2: {}, uc3: {}, uc4: {}, uc5: {}, uc6: {}, ucT: {},
@@ -648,9 +650,10 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     let mounted = true
     const loadRef = async () => {
       try {
-        const [uRes, sRes] = await Promise.all([
+        const [uRes, sRes, pRes] = await Promise.all([
           fetch('/api/reference?type=units'),
           fetch('/api/reference?type=stdinstruments'),
+          fetch('/api/reference?type=calprices'),
         ])
         if (uRes.ok) {
           const uJson = await uRes.json()
@@ -659,6 +662,10 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         if (sRes.ok) {
           const sJson = await sRes.json()
           if (mounted) setStdInstruments(Array.isArray(sJson.data) ? sJson.data : [])
+        }
+        if (pRes.ok) {
+          const pJson = await pRes.json()
+          if (mounted) setCalPriceRefs(Array.isArray(pJson.data) ? pJson.data : [])
         }
       } catch {
         // Keep form usable when reference API fails
@@ -726,6 +733,40 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       return { ...d, amedNo: user.amedNo }
     })
   }, [session])
+
+  // Auto-fill address and prices from reference data when deviceFromRegistry
+  useEffect(() => {
+    if (!unitRefs.length && !calPriceRefs.length) return
+    setData((d: any) => {
+      const updates: Record<string, unknown> = {}
+      // Auto-fill address from unit reference
+      if (unitRefs.length && d.unitName && !String(d.address || '').trim()) {
+        const norm = String(d.unitName).trim().toLowerCase()
+        const match = unitRefs.find((u) =>
+          [u?.name, u?.thaiName, `${u?.name || ''}(${u?.thaiName || ''})`].some(
+            (v) => String(v || '').trim().toLowerCase() === norm
+          )
+        )
+        if (match?.address) {
+          updates.address = String(match.address)
+          setAddressFromRef(true)
+        }
+      }
+      // Auto-fill calPrice & mainPrice from calprices reference (match by device name)
+      if (calPriceRefs.length && d.deviceName) {
+        const devNorm = String(d.deviceName).trim().toLowerCase()
+        const priceMatch = calPriceRefs.find((p) => {
+          const devList = String(p.device || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+          return devList.some((dv) => dv === devNorm || devNorm.includes(dv) || dv.includes(devNorm))
+        })
+        if (priceMatch) {
+          if (priceMatch.calPrice != null && !d.calPrice) updates.calPrice = priceMatch.calPrice
+          if (priceMatch.mainPrice != null && !d.mainPrice) updates.mainPrice = priceMatch.mainPrice
+        }
+      }
+      return Object.keys(updates).length ? { ...d, ...updates } : d
+    })
+  }, [unitRefs, calPriceRefs])
 
   useEffect(() => {
     if (mode !== 'edit') return
@@ -990,6 +1031,10 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       const json = await res.json()
       if (mode === 'create') {
         router.push(`/records/${json.record._id}?justSaved=1`)
+      } else if (saveAction === 'request_approval') {
+        // After submit for approval, go to preview then return to new
+        router.push(`/records/${id}?tab=preview`)
+        return
       } else if (json.record) {
         setData((d: any) => ({ ...d, ...json.record }))
         if (saveAction === 'draft') setCanRequestApprovalNow(true)
@@ -1067,7 +1112,9 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             { field: 'model', label: 'รุ่น' },
             { field: 'serialNo', label: 'Serial No.' },
             { field: 'hpNumber', label: 'HP Number' },
-          ].map(f => (
+          ].map(f => {
+            const registryLocked = isDeviceFromRegistry && ['amedNo', 'deviceName', 'brand', 'model', 'serialNo', 'hpNumber'].includes(f.field)
+            return (
             <div key={f.field}>
               <label className={`block text-sm font-medium mb-1 ${fieldErrors[f.field] ? 'text-red-600' : 'text-gray-700'}`}>{f.label}</label>
               {f.field === 'certNo' ? (
@@ -1080,12 +1127,13 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                   />
                   <p className="text-xs text-gray-500 mt-1">ระบบรันเลขใบรับรองอัตโนมัติ ไม่ต้องกรอกเอง</p>
                 </>
-              ) : f.field === 'amedNo' && (session?.user as any)?.amedNo ? (
+              ) : registryLocked || (f.field === 'amedNo' && (session?.user as any)?.amedNo) ? (
                 <input
                   type="text"
                   className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
                   value={data[f.field] || ''}
                   readOnly
+                  title={registryLocked ? 'ดึงจากทะเบียน AmedNo อัตโนมัติ' : undefined}
                 />
               ) : (
                 <SuggestInput field={f.field}
@@ -1095,7 +1143,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
               )}
               {fieldErrors[f.field] && <p className="text-xs text-red-500 mt-1">{fieldErrors[f.field]}</p>}
             </div>
-          ))}
+          )})}
 
           <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-3">
             <input
@@ -1112,24 +1160,32 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">แผนก / ห้อง</label>
-            <SuggestInput
-              field="section"
-              value={data.section || ''}
-              onChange={v => set('section', v)}
-              placeholder="พิมพ์เพื่อค้นหาแผนก"
-              extraOptions={SECTIONS}
-              restrictToList
-            />
+            {isDeviceFromRegistry ? (
+              <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed" value={data.section || ''} readOnly title="ดึงจากทะเบียน AmedNo อัตโนมัติ" />
+            ) : (
+              <SuggestInput
+                field="section"
+                value={data.section || ''}
+                onChange={v => set('section', v)}
+                placeholder="พิมพ์เพื่อค้นหาแผนก"
+                extraOptions={SECTIONS}
+                restrictToList
+              />
+            )}
           </div>
 
           <div className="sm:col-span-2">
             <label className={`block text-sm font-medium mb-1 ${fieldErrors.unitName ? 'text-red-600' : 'text-gray-700'}`}>ชื่อหน่วยงาน</label>
-            <SuggestInput field="unitName"
-              className={fieldErrors.unitName ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
-              value={data.unitName || ''}
-              onChange={handleUnitNameChange}
-              extraOptions={unitNameExtraOptions}
-              restrictToList />
+            {isDeviceFromRegistry ? (
+              <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed" value={data.unitName || ''} readOnly title="ดึงจากทะเบียน AmedNo อัตโนมัติ" />
+            ) : (
+              <SuggestInput field="unitName"
+                className={fieldErrors.unitName ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
+                value={data.unitName || ''}
+                onChange={handleUnitNameChange}
+                extraOptions={unitNameExtraOptions}
+                restrictToList />
+            )}
             {fieldErrors.unitName && <p className="text-xs text-red-500 mt-1">{fieldErrors.unitName}</p>}
           </div>
 
@@ -1167,15 +1223,12 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
               {f.field === 'calibrate' ? (
                 <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
                   value={data[f.field] || ''} readOnly />
-              ) : f.field === 'location' && data.unitName?.trim() ? (
-                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
-                  value={data[f.field] || ''} readOnly />
               ) : f.field === 'location' ? (
-                <SuggestInput field={f.field}
-                  value={data[f.field] || ''}
-                  onChange={v => set(f.field, normalizeHospitalUnitFromRefs(v, unitRefs))}
-                  extraOptions={unitNameExtraOptions}
-                  restrictToList />
+                <select className="input-field" value={data[f.field] || 'outside'}
+                  onChange={e => set(f.field, e.target.value)}>
+                  <option value="outside">Outside (นอกสถานที่)</option>
+                  <option value="lab">Lab (ห้องปฏิบัติการ)</option>
+                </select>
               ) : f.type === 'text' ? (
                 <SuggestInput field={f.field}
                   value={data[f.field] || ''}
@@ -1207,48 +1260,34 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="section-title">เครื่องมือมาตรฐานสภาพแวดล้อม (Std1)</h3>
-          {std1FromRef && (
-            <button type="button"
-              className="text-xs text-red-500 hover:text-red-700"
-              onClick={() => { set('std1', {}); setStd1FromRef(false) }}>
-              ล้างข้อมูลอ้างอิง
-            </button>
-          )}
         </div>
-        {!std1FromRef && (
-          <p className="text-xs text-gray-500 -mt-1">
-            พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (หรือออกจากช่องหลังพิมพ์)
-          </p>
-        )}
+        <p className="text-xs text-gray-500 -mt-1">
+          พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (สามารถเลือกใหม่ได้)
+        </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {['no','name','manufacture','model','serialNo','certNo','measurement','unit','calDate'].map(f => (
             <div key={f}>
               <label className="block text-xs text-gray-500 mb-1 capitalize">{f}</label>
-              {std1FromRef ? (
-                <input type="text" className="input-field text-sm bg-gray-100 text-gray-500 cursor-not-allowed"
-                  value={data.std1?.[f] || ''} readOnly />
-              ) : (
-                <FilteredOptionsInput
-                  className="input-field text-sm"
-                  value={data.std1?.[f] || ''}
-                  onChange={(v) => setNested('std1', f, v)}
-                  options={std1TextFieldOptions[f] || []}
-                  restrictToList
-                  onSelect={
-                    f === 'no' || f === 'name'
-                      ? (v) => {
-                          const ref =
-                            f === 'no'
-                              ? stdInstruments.find((r) => (r?.no ?? '').toString().trim() === v.trim())
-                              : stdInstruments.find((r) => (r?.name ?? '').toString().trim() === v.trim())
-                          if (ref) applyStd1FromRef(ref)
-                          else setNested('std1', f, v)
-                        }
-                      : undefined
-                  }
-                  onBlur={f === 'no' || f === 'name' ? tryApplyStd1FromRef : undefined}
-                />
-              )}
+              <FilteredOptionsInput
+                className="input-field text-sm"
+                value={data.std1?.[f] || ''}
+                onChange={(v) => setNested('std1', f, v)}
+                options={std1TextFieldOptions[f] || []}
+                restrictToList
+                onSelect={
+                  f === 'no' || f === 'name'
+                    ? (v) => {
+                        const ref =
+                          f === 'no'
+                            ? stdInstruments.find((r) => (r?.no ?? '').toString().trim() === v.trim())
+                            : stdInstruments.find((r) => (r?.name ?? '').toString().trim() === v.trim())
+                        if (ref) applyStd1FromRef(ref)
+                        else setNested('std1', f, v)
+                      }
+                    : undefined
+                }
+                onBlur={f === 'no' || f === 'name' ? tryApplyStd1FromRef : undefined}
+              />
             </div>
           ))}
           {['tMin','tMax','hMin','hMax'].map(f => (
@@ -1391,6 +1430,17 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                   className="btn-primary px-6 flex items-center gap-1.5"
                 >
                   {saving && pendingContinueRef.current ? 'กำลังบันทึก...' : <>บันทึกและไปต่อ <span>&rarr;</span></>}
+                </button>
+              )}
+              {mode === 'edit' && canSubmitForApproval && (
+                <button
+                  type="button"
+                  disabled={saving || !canRequestApprovalNow}
+                  onClick={() => submit('request_approval')}
+                  className="px-6 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5"
+                  title={!canRequestApprovalNow ? 'กรุณาบันทึกข้อมูลก่อน' : ''}
+                >
+                  บันทึกและส่งอนุมัติ
                 </button>
               )}
             </div>

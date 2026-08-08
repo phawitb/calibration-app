@@ -12,6 +12,7 @@ const modelMap: Record<string, string> = {
   calprices: 'CalPrice',
   stdinstruments: 'StdInstrumentRef',
   brands: 'BrandName',
+  ameddevices: 'AmedDevice',
 }
 
 const baseSchema = new mongoose.Schema({}, { strict: false, collection: undefined })

@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     calprices: 'CalPrice',
     stdinstruments: 'StdInstrumentRef',
     brands:    'BrandName',
+    ameddevices: 'AmedDevice',
   }
 
   const modelName = modelMap[type]

@@ -172,8 +172,8 @@ function buildInitialState(method: IsoMethodConfig, methodCode: string) {
     unitName: '', address: '', section: '',
     deviceName: method.deviceType,
     brand: '', model: '', serialNo: '',
-    receivedDate: '', calDate: '', issuedDate: '',
-    location: '', lapTemp: '', lapHumid: '',
+    receivedDate: '', calDate: new Date().toISOString().slice(0, 10), issuedDate: '',
+    location: 'outside', lapTemp: '', lapHumid: '',
     calibrate: '', calPrice: '', mainPrice: '',
     receivedN: '',
     isoData: buildInitialIsoData(method),
@@ -193,6 +193,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const role = (session?.user as any)?.role as string | undefined
   const canSubmitForApproval = role === 'admin' || role === 'technician'
   const isReadOnly = role === 'hospital_user'
+  const isDeviceFromRegistry = !!(initialData?.deviceFromRegistry)
 
   const method = getIsoMethod(methodCode)
 
@@ -201,6 +202,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const [canRequestApprovalNow, setCanRequestApprovalNow] = useState(false)
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
+  const [calPriceRefs, setCalPriceRefs] = useState<Array<{ device?: string; calPrice?: number; mainPrice?: number }>>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
   const [stdInstruments, setStdInstruments] = useState<Record<string, any>[]>([])
   const [std1FromRef, setStd1FromRef] = useState(false)
@@ -244,9 +246,10 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     let mounted = true
     const load = async () => {
       try {
-        const [uRes, sRes] = await Promise.all([
+        const [uRes, sRes, pRes] = await Promise.all([
           fetch('/api/reference?type=units'),
           fetch('/api/reference?type=stdinstruments'),
+          fetch('/api/reference?type=calprices'),
         ])
         if (uRes.ok) {
           const json = await uRes.json()
@@ -255,6 +258,10 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         if (sRes.ok) {
           const json = await sRes.json()
           if (mounted) setStdInstruments(Array.isArray(json.data) ? json.data : [])
+        }
+        if (pRes.ok) {
+          const json = await pRes.json()
+          if (mounted) setCalPriceRefs(Array.isArray(json.data) ? json.data : [])
         }
       } catch { /* ignore */ }
     }
@@ -300,6 +307,40 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
       return Object.keys(updates).length ? { ...d, ...updates } : d
     })
   }, [session, mode])
+
+  // Auto-fill address and prices from reference data
+  useEffect(() => {
+    if (!unitRefs.length && !calPriceRefs.length) return
+    setData((d: any) => {
+      const updates: Record<string, unknown> = {}
+      // Auto-fill address from unit reference
+      if (unitRefs.length && d.unitName && !String(d.address || '').trim()) {
+        const norm = String(d.unitName).trim().toLowerCase()
+        const match = unitRefs.find((u) =>
+          [u?.name, u?.thaiName, `${u?.name || ''}(${u?.thaiName || ''})`].some(
+            (v) => String(v || '').trim().toLowerCase() === norm
+          )
+        )
+        if (match?.address) {
+          updates.address = String(match.address)
+          setAddressFromRef(true)
+        }
+      }
+      // Auto-fill calPrice & mainPrice from calprices reference (match by device name)
+      if (calPriceRefs.length && d.deviceName) {
+        const devNorm = String(d.deviceName).trim().toLowerCase()
+        const priceMatch = calPriceRefs.find((p) => {
+          const devList = String(p.device || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+          return devList.some((dv) => dv === devNorm || devNorm.includes(dv) || dv.includes(devNorm))
+        })
+        if (priceMatch) {
+          if (priceMatch.calPrice != null && !d.calPrice) updates.calPrice = priceMatch.calPrice
+          if (priceMatch.mainPrice != null && !d.mainPrice) updates.mainPrice = priceMatch.mainPrice
+        }
+      }
+      return Object.keys(updates).length ? { ...d, ...updates } : d
+    })
+  }, [unitRefs, calPriceRefs])
 
   // Auto-fill amedNo from session in edit mode too (if blank)
   useEffect(() => {
@@ -536,6 +577,9 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
       const json = await res.json()
       if (mode === 'create') {
         router.push(`/records/${json.record._id}?justSaved=1`)
+      } else if (saveAction === 'request_approval') {
+        router.push(`/records/${recordId}?tab=preview`)
+        return
       } else if (json.record) {
         setData((d: any) => ({ ...d, ...json.record }))
         if (saveAction === 'draft') setCanRequestApprovalNow(true)
@@ -903,7 +947,11 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
             ].map((f) => (
               <div key={f.field}>
                 <label className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                <SuggestInput field={f.field} value={data[f.field] || ''} onChange={(v) => set(f.field, v)} />
+                {isDeviceFromRegistry ? (
+                  <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed" value={data[f.field] || ''} readOnly title="ดึงจากทะเบียน AmedNo อัตโนมัติ" />
+                ) : (
+                  <SuggestInput field={f.field} value={data[f.field] || ''} onChange={(v) => set(f.field, v)} />
+                )}
               </div>
             ))}
             <div>
@@ -1030,16 +1078,11 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">สถานที่ (Location)</label>
-              {data.unitName?.trim() ? (
-                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
-                  value={data.location || ''} readOnly />
-              ) : (
-                <SuggestInput field="location"
-                  value={data.location || ''}
-                  onChange={(v) => set('location', normalizeHospitalUnitFromRefs(v, unitRefs))}
-                  extraOptions={unitNameExtraOptions}
-                  restrictToList />
-              )}
+              <select className="input-field" value={data.location || 'outside'}
+                onChange={e => set('location', e.target.value)}>
+                <option value="outside">Outside (นอกสถานที่)</option>
+                <option value="lab">Lab (ห้องปฏิบัติการ)</option>
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">อุณหภูมิห้อง (deg C)</label>
@@ -1123,113 +1166,90 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
         {/* Standard instrument (Std1) - for uncertainty calculation */}
         <div className="card space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="section-title">เครื่องมือมาตรฐาน (Standard Instrument)</h3>
-            {std1FromRef && (
-              <button type="button" onClick={clearStd1Ref}
-                className="text-xs text-red-500 hover:text-red-700">ล้างข้อมูลอ้างอิง</button>
-            )}
-          </div>
+          <h3 className="section-title">เครื่องมือมาตรฐาน (Standard Instrument)</h3>
+          <p className="text-xs text-gray-500 -mt-1">
+            พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (สามารถเลือกใหม่ได้)
+          </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className={`block text-xs mb-1 ${fieldErrors['std1.no'] ? 'text-red-600 font-medium' : 'text-gray-500'}`}>รหัส (No.)</label>
-              {std1FromRef ? (
-                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed text-sm"
-                  value={data.std1?.no || ''} readOnly />
-              ) : (
-                <SuggestInput field="std1.no"
-                  className={fieldErrors['std1.no'] ? 'input-field text-sm border-red-500 ring-1 ring-red-500' : 'input-field text-sm'}
-                  value={data.std1?.no || ''}
-                  onChange={(v) => { setStd1('no', v); if (v.trim()) setFieldErrors((p) => { const n = { ...p }; delete n['std1.no']; return n }) }}
-                  onBlur={tryApplyStd1FromRef}
-                  extraOptions={std1FieldOptions.no || []} />
-              )}
+              <SuggestInput field="std1.no"
+                className={fieldErrors['std1.no'] ? 'input-field text-sm border-red-500 ring-1 ring-red-500' : 'input-field text-sm'}
+                value={data.std1?.no || ''}
+                onChange={(v) => { setStd1('no', v); if (v.trim()) setFieldErrors((p) => { const n = { ...p }; delete n['std1.no']; return n }) }}
+                onBlur={tryApplyStd1FromRef}
+                extraOptions={std1FieldOptions.no || []} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">ชื่อ (Name)</label>
-              {std1FromRef ? (
-                <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed text-sm"
-                  value={data.std1?.name || ''} readOnly />
-              ) : (
-                <SuggestInput field="std1.name"
-                  className="input-field text-sm"
-                  value={data.std1?.name || ''}
-                  onChange={(v) => setStd1('name', v)}
-                  onBlur={tryApplyStd1FromRef}
-                  extraOptions={std1FieldOptions.name || []} />
-              )}
+              <SuggestInput field="std1.name"
+                className="input-field text-sm"
+                value={data.std1?.name || ''}
+                onChange={(v) => setStd1('name', v)}
+                onBlur={tryApplyStd1FromRef}
+                extraOptions={std1FieldOptions.name || []} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Cert No.</label>
-              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="text" className="input-field text-sm"
                 value={data.std1?.certNo || ''}
-                onChange={(e) => setStd1('certNo', e.target.value)}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('certNo', e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Measurement</label>
-              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="text" className="input-field text-sm"
                 value={data.std1?.measurement || ''}
-                onChange={(e) => setStd1('measurement', e.target.value)}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('measurement', e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Unit</label>
-              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="text" className="input-field text-sm"
                 value={data.std1?.unit || ''}
-                onChange={(e) => setStd1('unit', e.target.value)}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('unit', e.target.value)} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Cal. Date</label>
-              <input type="text" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="text" className="input-field text-sm"
                 value={data.std1?.calDate || ''}
-                onChange={(e) => setStd1('calDate', e.target.value)}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('calDate', e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">Correction</label>
-              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="number" step="any" className="input-field text-sm"
                 value={data.std1?.correction ?? ''}
-                onChange={(e) => setStd1('correction', e.target.value === '' ? '' : Number(e.target.value))}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('correction', e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">uT STD</label>
-              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="number" step="any" className="input-field text-sm"
                 value={data.std1?.uTStd ?? ''}
-                onChange={(e) => setStd1('uTStd', e.target.value === '' ? '' : Number(e.target.value))}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('uTStd', e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">uT Drif</label>
-              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="number" step="any" className="input-field text-sm"
                 value={data.std1?.uTDrif ?? ''}
-                onChange={(e) => setStd1('uTDrif', e.target.value === '' ? '' : Number(e.target.value))}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('uTDrif', e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">uT Res.(STD)</label>
-              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="number" step="any" className="input-field text-sm"
                 value={data.std1?.uTResStd ?? ''}
-                onChange={(e) => setStd1('uTResStd', e.target.value === '' ? '' : Number(e.target.value))}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('uTResStd', e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">uT Res.(UUC)</label>
-              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="number" step="any" className="input-field text-sm"
                 value={data.std1?.uTUuc ?? ''}
-                onChange={(e) => setStd1('uTUuc', e.target.value === '' ? '' : Number(e.target.value))}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('uTUuc', e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">uT Int.</label>
-              <input type="number" step="any" className={`input-field text-sm ${std1FromRef ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+              <input type="number" step="any" className="input-field text-sm"
                 value={data.std1?.uTInt ?? ''}
-                onChange={(e) => setStd1('uTInt', e.target.value === '' ? '' : Number(e.target.value))}
-                readOnly={std1FromRef} />
+                onChange={(e) => setStd1('uTInt', e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
           </div>
         </div>
@@ -1297,6 +1317,16 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                   onClick={() => { pendingContinueRef.current = true; submit('draft') }}
                   className="btn-primary px-6 flex items-center gap-1.5">
                   {saving && pendingContinueRef.current ? 'กำลังบันทึก...' : <>บันทึกและไปต่อ <span>&rarr;</span></>}
+                </button>
+              )}
+              {mode === 'edit' && canSubmitForApproval && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => submit('request_approval')}
+                  className="px-6 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  บันทึกและส่งอนุมัติ
                 </button>
               )}
             </div>
