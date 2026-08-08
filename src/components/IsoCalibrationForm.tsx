@@ -207,7 +207,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
 
   const [data, setData] = useState<any>(() => {
-    if (initialData) return normalizeInitialData(initialData) || initialData
+    if (initialData) {
+      const norm = normalizeInitialData(initialData) || initialData
+      // Default deviceName to method.deviceType if empty
+      if (!String(norm.deviceName || '').trim() && method) norm.deviceName = method.deviceType
+      return norm
+    }
     if (!method) return { calibrationType: 'iso', isoMethodCode: methodCode }
     return buildInitialState(method, methodCode)
   })
@@ -225,8 +230,9 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         const res = await fetch(`/api/records/${recordId}`)
         if (!res.ok) return
         const json = await res.json()
-        const rec = json.record || json
-        if (mounted) setData(normalizeInitialData(rec) || rec)
+        const rec = normalizeInitialData(json.record || json) || json.record || json
+        if (!String(rec.deviceName || '').trim() && method) rec.deviceName = method.deviceType
+        if (mounted) setData(rec)
       } catch { /* ignore */ }
     }
     load()
