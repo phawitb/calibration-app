@@ -189,7 +189,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: session } = useSession()
-  const { goToNext } = useStepNav()
+  const { goToNext, registerValidator } = useStepNav()
   const role = (session?.user as any)?.role as string | undefined
   const canSubmitForApproval = role === 'admin' || role === 'technician'
   const isReadOnly = role === 'hospital_user'
@@ -460,6 +460,20 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
     return errors
   }
+
+  // Register validator so step bar can validate before switching tabs
+  useEffect(() => {
+    registerValidator(() => {
+      if (!validateRequired()) return false
+      const calcErrors = validateForCalculation()
+      if (Object.keys(calcErrors).length > 0) {
+        setFieldErrors((prev) => ({ ...prev, ...calcErrors }))
+        toast.error(Object.values(calcErrors)[0])
+        return false
+      }
+      return true
+    })
+  })
 
   // ล้าง error เมื่อกรอกข้อมูล
   useEffect(() => {

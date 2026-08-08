@@ -55,14 +55,24 @@ export default function RecordDetailTabs({
   const isApproved = approvalStatus === 'approved'
   const isPending = approvalStatus === 'pending_approval'
 
-  const changeTab = useCallback((next: Tab) => {
+  // Form registers its validator here
+  const validatorRef = useRef<(() => boolean) | null>(null)
+  const registerValidator = useCallback((fn: () => boolean) => {
+    validatorRef.current = fn
+  }, [])
+
+  const changeTab = useCallback((next: Tab, skipValidation = false) => {
+    // When moving beyond 'edit', validate form data first
+    if (!skipValidation && (next === 'calc' || next === 'preview') && tab === 'edit') {
+      if (validatorRef.current && !validatorRef.current()) return
+    }
     if (next === 'calc') setCalcMounted(true)
     if (next === 'preview') { setCalcMounted(true); setPreviewMounted(true) }
     if (next === 'history') setHistoryMounted(true)
     setTab(next)
     // Persist step (only for main steps, not history)
     if (next !== 'history') persistStep(recordId, next)
-  }, [recordId])
+  }, [recordId, tab])
 
   return (
     <div className="space-y-4">
@@ -179,7 +189,7 @@ export default function RecordDetailTabs({
 
       {/* Tab: Edit */}
       <div className={tab === 'edit' ? 'block space-y-4 min-w-0' : 'hidden'} aria-hidden={tab !== 'edit'}>
-        <StepNavContext.Provider value={{ goToNext: () => changeTab('calc') }}>
+        <StepNavContext.Provider value={{ goToNext: () => changeTab('calc'), registerValidator }}>
           {children}
         </StepNavContext.Provider>
       </div>

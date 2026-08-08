@@ -390,7 +390,31 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('calculate failed'))))
       .then((data) => {
         if (cancel) return
-        setSummaryRows(Array.isArray(data.summary) ? data.summary : [])
+        if (Array.isArray(data.summary) && data.summary.length > 0) {
+          // SbCal: use summary directly
+          setSummaryRows(data.summary)
+        } else if (data.isoResult?.calPointSummaries?.length) {
+          // ISO: build summary rows from isoResult
+          const rows: SummaryRow[] = []
+          for (const cps of data.isoResult.calPointSummaries) {
+            for (const sr of cps.sensorResults) {
+              rows.push({
+                ucName: data.isoResult.sensorResults.length > 1 ? `S${sr.sensorIndex + 1}` : data.isoResult.isoMethodCode || 'ISO',
+                point: cps.point,
+                avgUUC: sr.avgUUC,
+                avgSTDRead: sr.avgSTDRead,
+                correction: sr.correction,
+                uc: sr.uc,
+                U: sr.U,
+                k: sr.k,
+                unit: data.isoResult.unit || '',
+              })
+            }
+          }
+          setSummaryRows(rows)
+        } else {
+          setSummaryRows([])
+        }
         setSummaryError(false)
       })
       .catch(() => {
