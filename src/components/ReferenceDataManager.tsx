@@ -212,7 +212,11 @@ export default function ReferenceDataManager() {
       const res = await fetch(`/api/reference?type=${sub.type}`, { cache: 'no-store' })
       if (!res.ok) throw new Error('โหลดไม่สำเร็จ')
       const j = await res.json()
-      setRows(Array.isArray(j.data) ? j.data : [])
+      let data = Array.isArray(j.data) ? j.data : []
+      if (sub.type === 'stdinstruments') {
+        data = data.sort((a: any, b: any) => String(a.no || '').localeCompare(String(b.no || '')))
+      }
+      setRows(data)
     } catch {
       toast.error('โหลดข้อมูลอ้างอิงไม่สำเร็จ')
       setRows([])
