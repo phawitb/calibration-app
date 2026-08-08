@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, Fragment } from 'react'
+import { useCallback, useEffect, useState, useMemo, Fragment } from 'react'
 import toast from 'react-hot-toast'
 
 type RefType = string
@@ -190,6 +190,11 @@ export default function ReferenceDataManager() {
   const [pendingCpAdded, setPendingCpAdded] = useState<any[]>([])   // new tables to create
   const [pendingCpDeleted, setPendingCpDeleted] = useState<string[]>([]) // ids to delete
 
+  // Search and sort
+  const [search, setSearch] = useState('')
+  const [sortKey, setSortKey] = useState<string>('')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
   // Reference options for ameddevices dropdowns
   const [refDevices, setRefDevices] = useState<string[]>([])
   const [refUnits, setRefUnits] = useState<string[]>([])
@@ -202,10 +207,7 @@ export default function ReferenceDataManager() {
       const res = await fetch(`/api/reference?type=${sub.type}`, { cache: 'no-store' })
       if (!res.ok) throw new Error('โหลดไม่สำเร็จ')
       const j = await res.json()
-      let data = Array.isArray(j.data) ? j.data : []
-      if (sub.type === 'stdinstruments') {
-        data = data.sort((a: any, b: any) => String(a.no || '').localeCompare(String(b.no || '')))
-      }
+      const data = Array.isArray(j.data) ? j.data : []
       setRows(data)
     } catch {
       toast.error('โหลดข้อมูลอ้างอิงไม่สำเร็จ')
@@ -542,6 +544,49 @@ export default function ReferenceDataManager() {
   const isStdInstrumentsTab = sub.key === 'stdinstruments'
   const tableFields = sub.fields
 
+  // Determine columns for sorting: STD_TABLE_COLUMNS for stdinstruments, sub.fields for others
+  const sortColumns = isStdInstrumentsTab ? STD_TABLE_COLUMNS : tableFields
+  const defaultSortKey = sortColumns[0]?.key || ''
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const displayRows = useMemo(() => {
+    let filtered = rows
+    // Search
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      filtered = rows.filter(r =>
+        Object.values(r).some(v =>
+          v != null && String(v).toLowerCase().includes(q)
+        )
+      )
+    }
+    // Sort
+    const sk = sortKey || defaultSortKey
+    if (sk) {
+      filtered = [...filtered].sort((a, b) => {
+        const av = a[sk] ?? ''
+        const bv = b[sk] ?? ''
+        // Try numeric comparison
+        const an = Number(av)
+        const bn = Number(bv)
+        if (!isNaN(an) && !isNaN(bn) && av !== '' && bv !== '') {
+          return sortDir === 'asc' ? an - bn : bn - an
+        }
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+        return sortDir === 'asc' ? cmp : -cmp
+      })
+    }
+    return filtered
+  }, [rows, search, sortKey, sortDir, defaultSortKey])
+
   // Render expanded detail for stdinstruments
   const renderStdDetail = (r: any) => {
     if (stdDetailLoading) return <p className="text-sm text-gray-500 py-4">กำลังโหลด...</p>
@@ -826,7 +871,7 @@ export default function ReferenceDataManager() {
             type="button"
             role="tab"
             aria-selected={sub.key === t.key}
-            onClick={() => { setSub(t); setExpandedId(null); setStdEditing(false) }}
+            onClick={() => { setSub(t); setExpandedId(null); setStdEditing(false); setSearch(''); setSortKey(''); setSortDir('asc') }}
             className={`px-3 py-1.5 text-xs sm:text-sm rounded-t-lg ${
               sub.key === t.key
                 ? 'bg-military-800 text-white'
@@ -839,8 +884,18 @@ export default function ReferenceDataManager() {
       </div>
       <p className="text-xs text-gray-500">{sub.desc}</p>
 
-      <div className="flex justify-end">
-        <button type="button" onClick={openAdd} className="btn-primary text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-md">
+          <input
+            type="text"
+            className="input-field text-sm pl-8"
+            placeholder="ค้นหา..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#128269;</span>
+        </div>
+        <button type="button" onClick={openAdd} className="btn-primary text-sm whitespace-nowrap">
           + เพิ่มรายการ
         </button>
       </div>
@@ -854,21 +909,27 @@ export default function ReferenceDataManager() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-military-800 text-white text-left">
-                  {STD_TABLE_COLUMNS.map((f) => (
-                    <th key={f.key} className="px-3 py-2 font-medium whitespace-nowrap">{f.label}</th>
-                  ))}
+                  {STD_TABLE_COLUMNS.map((f) => {
+                    const active = (sortKey || defaultSortKey) === f.key
+                    return (
+                    <th key={f.key} className="px-3 py-2 font-medium whitespace-nowrap cursor-pointer select-none hover:bg-military-700 transition-colors" onClick={() => handleSort(f.key)}>
+                      {f.label}
+                      <span className="ml-1 text-[10px] opacity-60">{active ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
+                    </th>
+                    )
+                  })}
                   <th className="px-3 py-2 w-24 text-center font-medium">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 ? (
+                {displayRows.length === 0 ? (
                   <tr>
                     <td colSpan={STD_TABLE_COLUMNS.length + 1} className="px-4 py-8 text-center text-gray-500">
-                      ยังไม่มีข้อมูล
+                      {search ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีข้อมูล'}
                     </td>
                   </tr>
                 ) : (
-                  rows.map((r) => (
+                  displayRows.map((r) => (
                     <Fragment key={r._id}>
                       <tr
                         className={`border-b border-gray-100 cursor-pointer transition-colors ${
@@ -906,23 +967,27 @@ export default function ReferenceDataManager() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-military-800 text-white text-left">
-                  {tableFields.map((f) => (
-                    <th key={f.key} className="px-2 py-2 font-medium whitespace-nowrap">
+                  {tableFields.map((f) => {
+                    const active = (sortKey || defaultSortKey) === f.key
+                    return (
+                    <th key={f.key} className="px-2 py-2 font-medium whitespace-nowrap cursor-pointer select-none hover:bg-military-700 transition-colors" onClick={() => handleSort(f.key)}>
                       {fieldLabel(f)}
+                      <span className="ml-1 text-[10px] opacity-60">{active ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}</span>
                     </th>
-                  ))}
+                    )
+                  })}
                   <th className="px-2 py-2 w-32 text-center">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 ? (
+                {displayRows.length === 0 ? (
                   <tr>
                     <td colSpan={tableFields.length + 1} className="px-4 py-8 text-center text-gray-500">
-                      ยังไม่มีข้อมูล
+                      {search ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีข้อมูล'}
                     </td>
                   </tr>
                 ) : (
-                  rows.map((r) => (
+                  displayRows.map((r) => (
                     <tr key={r._id} className="border-b border-gray-100 hover:bg-military-50/40">
                       {tableFields.map((f) => (
                         <td key={f.key} className="px-2 py-1.5 text-gray-800 max-w-[200px] truncate" title={String(r[f.key] ?? '')}>
