@@ -35,9 +35,7 @@ export default function NewRecordPage() {
   // Calibration type
   const [calType, setCalType] = useState<'sbcal' | 'iso' | ''>('')
 
-  // ISO method selection (shown after clicking a device when calType=iso)
-  const [showIsoMethods, setShowIsoMethods] = useState(false)
-  const [pendingDevice, setPendingDevice] = useState<AmedDevice | null>(null)
+  // ISO — no AmedNo, just pick a method and create record directly
 
   // Load user session and unit refs
   useEffect(() => {
@@ -84,14 +82,14 @@ export default function NewRecordPage() {
     return Array.from(options).slice(0, 50)
   }, [unitRefs, unitSearch])
 
-  const showDeviceTable = selectedUnit && calType
+  const showDeviceTable = selectedUnit && calType === 'sbcal'
 
-  const createRecord = async (device: AmedDevice, type: 'sbcal' | 'iso', isoMethodCode?: string) => {
+  const createSbcalRecord = async (device: AmedDevice) => {
     if (creating) return
     setCreating(true)
     try {
       const payload: Record<string, unknown> = {
-        calibrationType: type,
+        calibrationType: 'sbcal',
         deviceName: device.deviceName || '',
         deviceNameTh: device.deviceNameTh || '',
         amedNo: device.amedNo,
@@ -103,7 +101,30 @@ export default function NewRecordPage() {
         hpNumber: device.hpNumber || '',
         deviceFromRegistry: true,
       }
-      if (type === 'iso' && isoMethodCode) payload.isoMethodCode = isoMethodCode
+      const res = await fetch('/api/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) throw new Error('Failed to create')
+      const json = await res.json()
+      router.push(`/records/${json.record._id}`)
+    } catch {
+      toast.error('ไม่สามารถสร้างรายการใหม่ได้')
+      setCreating(false)
+    }
+  }
+
+  const createIsoRecord = async (isoMethodCode: string) => {
+    if (creating) return
+    setCreating(true)
+    try {
+      const payload: Record<string, unknown> = {
+        calibrationType: 'iso',
+        isoMethodCode,
+        unitName: selectedUnit,
+        deviceFromRegistry: false,
+      }
       const res = await fetch('/api/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,12 +141,7 @@ export default function NewRecordPage() {
 
   const handleDeviceClick = (device: AmedDevice) => {
     if (creating) return
-    if (calType === 'iso') {
-      setPendingDevice(device)
-      setShowIsoMethods(true)
-    } else {
-      createRecord(device, 'sbcal')
-    }
+    createSbcalRecord(device)
   }
 
   return (
@@ -140,47 +156,6 @@ export default function NewRecordPage() {
       </div>
 
       <h1 className="text-xl font-bold text-military-900">เพิ่มข้อมูลสอบเทียบ</h1>
-
-      {/* ISO Method Modal */}
-      {showIsoMethods && pendingDevice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
-            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-bold text-military-900">เลือกชนิดเครื่องมือ (ISO)</h2>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {pendingDevice.deviceName || pendingDevice.amedNo}
-                </p>
-              </div>
-              <button
-                onClick={() => { setShowIsoMethods(false); setPendingDevice(null) }}
-                className="text-gray-400 hover:text-gray-600 text-xl leading-none px-2"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {ISO_METHODS.map(m => (
-                <button
-                  key={m.code}
-                  onClick={() => createRecord(pendingDevice, 'iso', m.code)}
-                  disabled={creating}
-                  className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left disabled:opacity-50"
-                >
-                  <div className="font-semibold text-gray-800">{m.nameTh}</div>
-                  <div className="text-sm text-gray-500">{m.name}</div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    {m.code} | {m.unit} | {m.sensorCount} sensor{m.sensorCount > 1 ? 's' : ''} | {m.readingsPerPoint} readings
-                  </div>
-                </button>
-              ))}
-            </div>
-            {creating && (
-              <div className="text-center text-gray-500 text-sm py-3 border-t border-gray-100">กำลังสร้างรายการ...</div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Row: Hospital + Type */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -200,8 +175,6 @@ export default function NewRecordPage() {
                 if (selectedUnit && e.target.value !== selectedUnit) {
                   setSelectedUnit('')
                   setCalType('')
-                  setShowIsoMethods(false)
-                  setPendingDevice(null)
                 }
               }}
               onFocus={() => setUnitOpen(true)}
@@ -239,7 +212,7 @@ export default function NewRecordPage() {
           <h2 className="text-sm font-semibold text-military-800">2. เลือกระบบสอบเทียบ</h2>
           <div className="grid grid-cols-2 gap-2">
             <button
-              onClick={() => { setCalType('sbcal'); setShowIsoMethods(false); setPendingDevice(null) }}
+              onClick={() => setCalType('sbcal')}
               disabled={!selectedUnit}
               className={`p-3 border-2 rounded-lg text-left transition-all text-sm ${
                 calType === 'sbcal'
@@ -254,7 +227,7 @@ export default function NewRecordPage() {
             </button>
 
             <button
-              onClick={() => { setCalType('iso'); setShowIsoMethods(false); setPendingDevice(null) }}
+              onClick={() => setCalType('iso')}
               disabled={!selectedUnit}
               className={`p-3 border-2 rounded-lg text-left transition-all text-sm ${
                 calType === 'iso'
@@ -276,7 +249,7 @@ export default function NewRecordPage() {
         </div>
       </div>
 
-      {/* Device Table — only shows when both hospital and type are selected */}
+      {/* sbcal: Device Table */}
       {showDeviceTable && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-military-800">3. เลือกเครื่องมือแพทย์ <span className="font-normal text-gray-500">(คลิกเพื่อสร้างรายการ)</span></h2>
@@ -284,7 +257,33 @@ export default function NewRecordPage() {
             unitName={selectedUnit}
             onSelect={handleDeviceClick}
           />
-          {creating && !showIsoMethods && (
+          {creating && (
+            <div className="text-center text-gray-500 text-sm py-2">กำลังสร้างรายการ...</div>
+          )}
+        </div>
+      )}
+
+      {/* ISO: Method Selection */}
+      {selectedUnit && calType === 'iso' && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold text-military-800">3. เลือกชนิดเครื่องมือ <span className="font-normal text-gray-500">(คลิกเพื่อสร้างรายการ)</span></h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {ISO_METHODS.map(m => (
+              <button
+                key={m.code}
+                onClick={() => createIsoRecord(m.code)}
+                disabled={creating}
+                className="p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left disabled:opacity-50"
+              >
+                <div className="font-semibold text-gray-800">{m.nameTh}</div>
+                <div className="text-sm text-gray-500">{m.name}</div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {m.code} | {m.unit} | {m.sensorCount} sensor{m.sensorCount > 1 ? 's' : ''} | {m.readingsPerPoint} readings
+                </div>
+              </button>
+            ))}
+          </div>
+          {creating && (
             <div className="text-center text-gray-500 text-sm py-2">กำลังสร้างรายการ...</div>
           )}
         </div>
