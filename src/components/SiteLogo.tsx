@@ -44,7 +44,7 @@ export function SiteLogoHeader() {
       className="flex items-center gap-2 sm:gap-3 shrink-0"
       title={ALT}
     >
-      <LogoImg className="h-9 w-auto max-w-[min(32vw,160px)] object-contain object-left max-h-10" />
+      <LogoImg className="h-9 w-9 rounded-full object-cover max-h-10" />
       <span className="font-semibold text-sm hidden sm:inline leading-tight">ระบบสอบเทียบฯ</span>
     </Link>
   )
