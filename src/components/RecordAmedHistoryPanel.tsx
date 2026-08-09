@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useTableSort, sortIcon } from '@/hooks/useTableSort'
 
 type HistoryRow = {
   _id: string
@@ -27,6 +28,7 @@ export default function RecordAmedHistoryPanel({
 }) {
   const [rows, setRows] = useState<HistoryRow[]>([])
   const [loading, setLoading] = useState(true)
+  const { sorted: sortedRows, sortKey, sortDir, toggle: toggleSort } = useTableSort(rows)
 
   useEffect(() => {
     const key = String(amedNo || '').trim()
@@ -76,18 +78,18 @@ export default function RecordAmedHistoryPanel({
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-military-800 text-white">
+          <thead className="bg-military-800 text-white select-none">
             <tr>
-              <th className="text-left py-3 px-4 font-medium">คีย์รายการ</th>
-              <th className="text-left py-3 px-4 font-medium">เลขที่ใบรับรอง</th>
-              <th className="text-left py-3 px-4 font-medium">วันที่สอบเทียบ</th>
-              <th className="text-left py-3 px-4 font-medium">เครื่องมือ</th>
-              <th className="text-left py-3 px-4 font-medium">สถานะ</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('amedCertKey')}>คีย์รายการ{sortIcon(sortKey, sortDir, 'amedCertKey')}</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('certNo')}>เลขที่ใบรับรอง{sortIcon(sortKey, sortDir, 'certNo')}</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('calDate')}>วันที่สอบเทียบ{sortIcon(sortKey, sortDir, 'calDate')}</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('deviceName')}>เครื่องมือ{sortIcon(sortKey, sortDir, 'deviceName')}</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('approvalStatus')}>สถานะ{sortIcon(sortKey, sortDir, 'approvalStatus')}</th>
               <th className="text-center py-3 px-4 font-medium">หมายเหตุ</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {sortedRows.map((r) => {
               const rowCert = String(r.certNo || '').trim()
               const currentCert = String(currentCertNo || '').trim()
               const isCurrent = currentCert

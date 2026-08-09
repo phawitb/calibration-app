@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
+import { useTableSort, sortIcon } from '@/hooks/useTableSort'
 
 type PendingRow = {
   _id: string
@@ -20,6 +21,7 @@ export default function ApprovalsPage() {
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectComment, setRejectComment] = useState('')
   const [rejecting, setRejecting] = useState(false)
+  const { sorted: sortedRows, sortKey, sortDir, toggle: toggleSort } = useTableSort(rows)
 
   const load = async () => {
     setLoading(true)
@@ -82,22 +84,22 @@ export default function ApprovalsPage() {
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-military-800 text-white">
+            <thead className="bg-military-800 text-white select-none">
               <tr>
-                <th className="text-left py-3 px-4 font-medium">ใบรับรอง</th>
-                <th className="text-left py-3 px-4 font-medium">เครื่องมือ</th>
-                <th className="text-left py-3 px-4 font-medium">โรงพยาบาล</th>
-                <th className="text-left py-3 px-4 font-medium">วันที่สอบเทียบ</th>
-                <th className="text-left py-3 px-4 font-medium">ผู้ขออนุมัติ</th>
+                <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('certNo')}>ใบรับรอง{sortIcon(sortKey, sortDir, 'certNo')}</th>
+                <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('deviceName')}>เครื่องมือ{sortIcon(sortKey, sortDir, 'deviceName')}</th>
+                <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('unitName')}>โรงพยาบาล{sortIcon(sortKey, sortDir, 'unitName')}</th>
+                <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('calDate')}>วันที่สอบเทียบ{sortIcon(sortKey, sortDir, 'calDate')}</th>
+                <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('requestedApproverName')}>ผู้ขออนุมัติ{sortIcon(sortKey, sortDir, 'requestedApproverName')}</th>
                 <th className="text-center py-3 px-4 font-medium">จัดการ</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={6} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>
-              ) : rows.length === 0 ? (
+              ) : sortedRows.length === 0 ? (
                 <tr><td colSpan={6} className="py-8 text-center text-gray-400">ไม่มีงานรออนุมัติ</td></tr>
-              ) : rows.map((r) => (
+              ) : sortedRows.map((r) => (
                 <tr key={r._id} className="border-b border-gray-50 hover:bg-military-50">
                   <td className="py-3 px-4">{r.certNo || '-'}</td>
                   <td className="py-3 px-4">

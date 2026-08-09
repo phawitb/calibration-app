@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { useTableSort, sortIcon } from '@/hooks/useTableSort'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { useSession } from 'next-auth/react'
@@ -86,6 +87,8 @@ export default function RecordsPage() {
   const [fUnitName,    setFUnitName]    = useState('')
   const [fCalDateFrom, setFCalDateFrom] = useState('')
   const [fCalDateTo,   setFCalDateTo]   = useState('')
+
+  const { sorted: sortedRecords, sortKey, sortDir, toggle: toggleSort } = useTableSort(records)
 
   const hasActiveFilter = !!(fStatus || fCalType || fSection || fUnitName || fCalDateFrom || fCalDateTo)
   const activeFilterCount = [fStatus, fCalType, fSection, fUnitName, fCalDateFrom, fCalDateTo].filter(Boolean).length
@@ -259,27 +262,27 @@ export default function RecordsPage() {
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-military-800 text-white">
+            <thead className="bg-military-800 text-white select-none">
               <tr>
-                <th className="text-left py-3 px-3 font-medium">ประเภท</th>
-                <th className="text-left py-3 px-3 font-medium">เลขที่อาร์เมด</th>
-                <th className="text-left py-3 px-3 font-medium">เครื่องมือ</th>
-                <th className="text-left py-3 px-3 font-medium hidden md:table-cell">โรงพยาบาล</th>
-                <th className="text-left py-3 px-3 font-medium hidden xl:table-cell">แผนก</th>
-                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell">ใบรับรอง</th>
-                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell">วันที่สอบเทียบ</th>
-                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell">สร้างโดย</th>
-                <th className="text-left py-3 px-3 font-medium hidden md:table-cell">สถานะ</th>
-                <th className="text-left py-3 px-3 font-medium hidden xl:table-cell">อัพเดทล่าสุด</th>
+                <th className="text-left py-3 px-3 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('calibrationType')}>ประเภท{sortIcon(sortKey, sortDir, 'calibrationType')}</th>
+                <th className="text-left py-3 px-3 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('amedNo')}>เลขที่อาร์เมด{sortIcon(sortKey, sortDir, 'amedNo')}</th>
+                <th className="text-left py-3 px-3 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('deviceName')}>เครื่องมือ{sortIcon(sortKey, sortDir, 'deviceName')}</th>
+                <th className="text-left py-3 px-3 font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('unitName')}>โรงพยาบาล{sortIcon(sortKey, sortDir, 'unitName')}</th>
+                <th className="text-left py-3 px-3 font-medium hidden xl:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('section')}>แผนก{sortIcon(sortKey, sortDir, 'section')}</th>
+                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('certNo')}>ใบรับรอง{sortIcon(sortKey, sortDir, 'certNo')}</th>
+                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('calDate')}>วันที่สอบเทียบ{sortIcon(sortKey, sortDir, 'calDate')}</th>
+                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('createdBy')}>สร้างโดย{sortIcon(sortKey, sortDir, 'createdBy')}</th>
+                <th className="text-left py-3 px-3 font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('approvalStatus')}>สถานะ{sortIcon(sortKey, sortDir, 'approvalStatus')}</th>
+                <th className="text-left py-3 px-3 font-medium hidden xl:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('updatedAt')}>อัพเดทล่าสุด{sortIcon(sortKey, sortDir, 'updatedAt')}</th>
                 <th className="text-center py-3 px-3 font-medium">จัดการ</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr><td colSpan={11} className="py-12 text-center text-gray-400">กำลังโหลด...</td></tr>
-              ) : records.length === 0 ? (
+              ) : sortedRecords.length === 0 ? (
                 <tr><td colSpan={11} className="py-12 text-center text-gray-400">ไม่พบข้อมูล</td></tr>
-              ) : records.map((r, i) => (
+              ) : sortedRecords.map((r, i) => (
                 <tr key={r._id} className={`border-b border-gray-50 hover:bg-military-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
                   <td className="py-3 px-3">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${r.calibrationType === 'iso' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>

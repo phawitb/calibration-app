@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { useTableSort, sortIcon } from '@/hooks/useTableSort'
 
 interface AmedDevice {
   _id: string
@@ -61,6 +62,8 @@ export default function DeviceSelector({ unitName, onSelect, disabled }: Props) 
     )
   }, [devices, search])
 
+  const { sorted: sortedFiltered, sortKey, sortDir, toggle: toggleSort } = useTableSort(filtered)
+
   if (loading) {
     return <div className="text-center text-gray-500 py-8">กำลังโหลดรายการเครื่องมือ...</div>
   }
@@ -86,18 +89,18 @@ export default function DeviceSelector({ unitName, onSelect, disabled }: Props) 
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-military-800 text-white">
+            <thead className="bg-military-800 text-white select-none">
               <tr>
-                <th className="py-2 px-3 text-left font-medium">AmedNo</th>
-                <th className="py-2 px-3 text-left font-medium">ชื่อเครื่อง</th>
-                <th className="py-2 px-3 text-left font-medium hidden md:table-cell">ยี่ห้อ</th>
-                <th className="py-2 px-3 text-left font-medium hidden md:table-cell">รุ่น</th>
-                <th className="py-2 px-3 text-left font-medium hidden lg:table-cell">Serial No.</th>
-                <th className="py-2 px-3 text-left font-medium hidden lg:table-cell">แผนก</th>
+                <th className="py-2 px-3 text-left font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('amedNo')}>AmedNo{sortIcon(sortKey, sortDir, 'amedNo')}</th>
+                <th className="py-2 px-3 text-left font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('deviceName')}>ชื่อเครื่อง{sortIcon(sortKey, sortDir, 'deviceName')}</th>
+                <th className="py-2 px-3 text-left font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('brand')}>ยี่ห้อ{sortIcon(sortKey, sortDir, 'brand')}</th>
+                <th className="py-2 px-3 text-left font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('model')}>รุ่น{sortIcon(sortKey, sortDir, 'model')}</th>
+                <th className="py-2 px-3 text-left font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('serialNo')}>Serial No.{sortIcon(sortKey, sortDir, 'serialNo')}</th>
+                <th className="py-2 px-3 text-left font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('section')}>แผนก{sortIcon(sortKey, sortDir, 'section')}</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(d => {
+              {sortedFiltered.map(d => {
                 const isSelected = selectedId === d._id
                 return (
                 <tr

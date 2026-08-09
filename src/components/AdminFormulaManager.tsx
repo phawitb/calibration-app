@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { useTableSort, sortIcon } from '@/hooks/useTableSort'
 
 interface Formula {
   _id: string
@@ -40,6 +41,7 @@ function FormulaConfigSummary({ f }: { f: Formula }) {
 
 export default function AdminFormulaManager() {
   const [formulas, setFormulas] = useState<Formula[]>([])
+  const { sorted: sortedFormulas, sortKey, sortDir, toggle: toggleSort } = useTableSort(formulas)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Formula | null>(null)
@@ -204,18 +206,18 @@ export default function AdminFormulaManager() {
 
       <div className="card p-0 overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-military-800 text-white">
+          <thead className="bg-military-800 text-white select-none">
             <tr>
-              <th className="text-left py-3 px-4 font-medium">สูตร</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('name')}>สูตร{sortIcon(sortKey, sortDir, 'name')}</th>
               <th className="text-left py-3 px-4 font-medium">ค่าพารามิเตอร์</th>
-              <th className="text-center py-3 px-4 font-medium">สถานะ</th>
+              <th className="text-center py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('isActive')}>สถานะ{sortIcon(sortKey, sortDir, 'isActive')}</th>
               <th className="text-center py-3 px-4 font-medium">จัดการ</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr><td colSpan={4} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>
-            ) : formulas.map(f => (
+            ) : sortedFormulas.map(f => (
               <tr key={f._id} className="border-b border-gray-50 hover:bg-gray-50">
                 <td className="py-3 px-4">
                   <p className="font-medium text-military-900">{f.name}</p>

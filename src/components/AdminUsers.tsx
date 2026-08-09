@@ -5,6 +5,7 @@ import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
 import { removeWhiteBackground } from '@/lib/signatureUtils'
 import SignaturePad from '@/components/SignaturePad'
 import { useImpersonation } from '@/components/ImpersonationProvider'
+import { useTableSort, sortIcon } from '@/hooks/useTableSort'
 
 interface User {
   _id: string
@@ -29,6 +30,7 @@ interface UserCertMeta {
 export default function AdminUsers() {
   const { startImpersonation } = useImpersonation()
   const [users,    setUsers]    = useState<User[]>([])
+  const { sorted: sortedUsers, sortKey, sortDir, toggle: toggleSort } = useTableSort(users)
   const [unitRefs, setUnitRefs] = useState<Array<{ name?: string; thaiName?: string }>>([])
   const [loading,  setLoading]  = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -646,20 +648,20 @@ export default function AdminUsers() {
 
       <div className="card p-0 overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-military-800 text-white">
+          <thead className="bg-military-800 text-white select-none">
             <tr>
-              <th className="text-left py-3 px-4 font-medium">ชื่อผู้ใช้</th>
-              <th className="text-left py-3 px-4 font-medium">ชื่อ-นามสกุล</th>
-              <th className="text-left py-3 px-4 font-medium">สิทธิ์</th>
-              <th className="text-left py-3 px-4 font-medium">โรงพยาบาล</th>
-              <th className="text-left py-3 px-4 font-medium hidden sm:table-cell">วันที่สร้าง</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('username')}>ชื่อผู้ใช้{sortIcon(sortKey, sortDir, 'username')}</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('fullName')}>ชื่อ-นามสกุล{sortIcon(sortKey, sortDir, 'fullName')}</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('role')}>สิทธิ์{sortIcon(sortKey, sortDir, 'role')}</th>
+              <th className="text-left py-3 px-4 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('hospitalUnit')}>โรงพยาบาล{sortIcon(sortKey, sortDir, 'hospitalUnit')}</th>
+              <th className="text-left py-3 px-4 font-medium hidden sm:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('createdAt')}>วันที่สร้าง{sortIcon(sortKey, sortDir, 'createdAt')}</th>
               <th className="text-center py-3 px-4 font-medium">จัดการ</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr><td colSpan={6} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>
-            ) : users.map(u => (
+            ) : sortedUsers.map(u => (
               <tr key={u._id} className="border-b border-gray-50 hover:bg-military-50">
                 <td className="py-3 px-4 font-medium text-military-800">{u.username}</td>
                 <td className="py-3 px-4 text-gray-600">{u.fullName || u.name}{u.rank ? ` (${u.rank})` : ''}</td>
