@@ -94,12 +94,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     ? String(rawBody.requestedApproverId)
     : ''
   const selectedApprover = approverId
-    ? await User.findById(approverId).select('name fullName rank fullNameEn rankEn').lean()
+    ? await User.findById(approverId).select('name fullName fullNameEn').lean()
     : null
   const approverName = selectedApprover
     ? String(
-        `${(selectedApprover as any).rankEn || (selectedApprover as any).rank || ''} ${(selectedApprover as any).fullNameEn || (selectedApprover as any).fullName || (selectedApprover as any).name || ''}`.trim()
-      )
+        (selectedApprover as any).fullNameEn || (selectedApprover as any).fullName || (selectedApprover as any).name || ''
+      ).trim()
     : String(rawBody?.requestedApproverName || '')
 
   const normalizedUnitName = rawBody?.unitName != null ? await normalizeHospitalUnit(rawBody.unitName) : undefined

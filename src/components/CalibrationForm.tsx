@@ -1125,7 +1125,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       saveAction,
       requestedApproverName:
         saveAction === 'request_approval' && selectedApprover
-          ? `${selectedApprover.rankEn || selectedApprover.rank || ''} ${selectedApprover.fullNameEn || selectedApprover.fullName || selectedApprover.name || ''}`.trim()
+          ? (selectedApprover.fullNameEn || selectedApprover.fullName || selectedApprover.name || '').trim()
           : data.requestedApproverName || '',
     }
   }

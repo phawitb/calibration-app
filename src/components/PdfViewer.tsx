@@ -55,7 +55,8 @@ const s = StyleSheet.create({
   /* ---- signatures ---- */
   sigRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 16 },
   sigBox: { width: '40%', alignItems: 'center' },
-  sigImg: { maxHeight: 36, maxWidth: 130, objectFit: 'contain', marginBottom: -2 },
+  sigArea: { height: 32, justifyContent: 'flex-end' as const, alignItems: 'center' as const },
+  sigImg: { maxHeight: 32, maxWidth: 130, objectFit: 'contain' },
   sigLine: { width: '100%', borderTop: '1pt solid #111', marginTop: 0 },
   sigText: { fontSize: 8, marginTop: 3, textAlign: 'center', color: '#111' },
   /* ---- calibration method & disclaimer ---- */
@@ -263,13 +264,17 @@ function CalibrationPDF({
         {/* Signatures */}
         <View style={s.sigRow}>
           <View style={s.sigBox}>
-            {calibratorSignature ? <Image style={s.sigImg} src={calibratorSignature} /> : <View style={{ height: 30 }} />}
+            <View style={s.sigArea}>
+              {calibratorSignature ? <Image style={s.sigImg} src={calibratorSignature} /> : null}
+            </View>
             <View style={s.sigLine} />
             <Text style={s.sigText}>{f(r.calibrate)}</Text>
             <Text style={s.sigText}>Calibrate</Text>
           </View>
           <View style={s.sigBox}>
-            {certApproved && approverSignature ? <Image style={s.sigImg} src={approverSignature} /> : <View style={{ height: 30 }} />}
+            <View style={s.sigArea}>
+              {certApproved && approverSignature ? <Image style={s.sigImg} src={approverSignature} /> : null}
+            </View>
             <View style={s.sigLine} />
             <Text style={s.sigText}>{approvedDisplayName}</Text>
             <Text style={s.sigText}>Approve</Text>

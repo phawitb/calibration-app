@@ -30,10 +30,10 @@ export async function POST(
   }
 
   const approverId = String((session.user as any).id || '')
-  const approver = await User.findById(approverId).select('name fullName rank fullNameEn rankEn').lean()
+  const approver = await User.findById(approverId).select('name fullName fullNameEn').lean()
   const approverName = String(
-    `${(approver as any)?.rankEn || (approver as any)?.rank || ''} ${(approver as any)?.fullNameEn || (approver as any)?.fullName || (approver as any)?.name || (session.user as any).fullName || session.user?.name || ''}`.trim()
-  )
+    (approver as any)?.fullNameEn || (approver as any)?.fullName || (approver as any)?.name || (session.user as any).fullName || session.user?.name || ''
+  ).trim()
 
   record.approvalStatus = 'approved'
   record.approvedById = approverId

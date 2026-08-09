@@ -62,7 +62,7 @@ export default function RecordApprovalPanel({
     setSubmitting(true)
     const selectedApprover = approvers.find(a => a._id === selectedApproverId)
     const approverName = selectedApprover
-      ? `${selectedApprover.rankEn || selectedApprover.rank || ''} ${selectedApprover.fullNameEn || selectedApprover.fullName || selectedApprover.name || ''}`.trim()
+      ? (selectedApprover.fullNameEn || selectedApprover.fullName || selectedApprover.name || '').trim()
       : ''
 
     const res = await fetch(`/api/records/${recordId}`, {
