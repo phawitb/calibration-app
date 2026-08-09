@@ -122,13 +122,21 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     patch.approvedByName = undefined
     patch.approvedAt = undefined
     patch.approve = ''
+    patch.rejectionComment = undefined
+    patch.rejectedById = undefined
+    patch.rejectedByName = undefined
+    patch.rejectedAt = undefined
   } else {
     patch.approvalStatus = 'draft'
-    if (existing.approvalStatus === 'approved' || existing.approvalStatus === 'pending_approval') {
+    if (existing.approvalStatus === 'approved' || existing.approvalStatus === 'pending_approval' || existing.approvalStatus === 'rejected') {
       patch.approvedById = undefined
       patch.approvedByName = undefined
       patch.approvedAt = undefined
       patch.approve = ''
+      patch.rejectionComment = undefined
+      patch.rejectedById = undefined
+      patch.rejectedByName = undefined
+      patch.rejectedAt = undefined
     }
     if (approverId) {
       patch.requestedApproverId = approverId

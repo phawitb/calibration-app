@@ -24,10 +24,12 @@ interface CalibrationRecordRow {
   calibrate: string
   approve: string
   calPrice: number
-  approvalStatus?: 'draft' | 'pending_approval' | 'approved'
+  approvalStatus?: 'draft' | 'pending_approval' | 'approved' | 'rejected'
+  rejectionComment?: string
   updatedAt?: string
   calibrationType?: 'sbcal' | 'iso'
   isoMethodCode?: string
+  createdBy?: string
 }
 
 const STATUS_OPTIONS = [
@@ -35,6 +37,7 @@ const STATUS_OPTIONS = [
   { value: 'draft', label: 'ฉบับร่าง' },
   { value: 'pending_approval', label: 'รออนุมัติ' },
   { value: 'approved', label: 'อนุมัติแล้ว' },
+  { value: 'rejected', label: 'ไม่อนุมัติ' },
 ]
 
 const CALTYPE_OPTIONS = [
@@ -47,6 +50,7 @@ function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, { bg: string; text: string; label: string }> = {
     approved:         { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'อนุมัติแล้ว' },
     pending_approval: { bg: 'bg-amber-100',   text: 'text-amber-700',   label: 'รออนุมัติ' },
+    rejected:         { bg: 'bg-red-100',      text: 'text-red-700',     label: 'ไม่อนุมัติ' },
     draft:            { bg: 'bg-gray-100',     text: 'text-gray-600',    label: 'ฉบับร่าง' },
   }
   const s = map[status || 'draft'] || map.draft
@@ -72,6 +76,8 @@ export default function RecordsPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [total,      setTotal]      = useState(0)
   const [showFilter, setShowFilter] = useState(false)
+  const [myOnly,     setMyOnly]     = useState(true)
+  const [myOnlyInit, setMyOnlyInit] = useState(false)
 
   // Advanced filters
   const [fStatus,      setFStatus]      = useState('')
@@ -105,16 +111,23 @@ export default function RecordsPage() {
     if (fCalDateFrom) params.set('calDateFrom', fCalDateFrom)
     if (fCalDateTo)   params.set('calDateTo', fCalDateTo)
     if (cardFilter)   params.set('cardFilter', cardFilter)
+    if (myOnly)       params.set('myOnly', '1')
     const res  = await fetch(`/api/records?${params}`)
     const data = await res.json()
     setRecords(data.records || [])
     setTotalPages(data.totalPages || 1)
     setTotal(data.total || 0)
     setLoading(false)
-  }, [search, fSection, fStatus, fCalType, fUnitName, fCalDateFrom, fCalDateTo, page, cardFilter])
+  }, [search, fSection, fStatus, fCalType, fUnitName, fCalDateFrom, fCalDateTo, page, cardFilter, myOnly])
 
   useEffect(() => { fetchRecords() }, [fetchRecords])
   useEffect(() => { setPage(1) }, [cardFilter])
+  useEffect(() => {
+    if (role && !myOnlyInit) {
+      setMyOnly(!isAdmin)
+      setMyOnlyInit(true)
+    }
+  }, [role, isAdmin, myOnlyInit])
 
   const clearFilters = () => {
     setFStatus(''); setFCalType(''); setFSection(''); setFUnitName('')
@@ -152,6 +165,20 @@ export default function RecordsPage() {
             <Link href="/records" className="text-military-600 hover:underline text-xs">ล้างตัวกรอง</Link>
           </div>
         )}
+
+        {/* My records toggle */}
+        <div className="flex items-center gap-4 mb-3">
+          <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+            <input type="radio" name="myOnly" checked={myOnly} onChange={() => { setMyOnly(true); setPage(1) }}
+              className="accent-military-700" />
+            งานของฉัน
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+            <input type="radio" name="myOnly" checked={!myOnly} onChange={() => { setMyOnly(false); setPage(1) }}
+              className="accent-military-700" />
+            ทั้งหมด
+          </label>
+        </div>
 
         {/* Search + toggle */}
         <div className="flex gap-3">
@@ -241,6 +268,7 @@ export default function RecordsPage() {
                 <th className="text-left py-3 px-3 font-medium hidden xl:table-cell">แผนก</th>
                 <th className="text-left py-3 px-3 font-medium hidden lg:table-cell">ใบรับรอง</th>
                 <th className="text-left py-3 px-3 font-medium hidden lg:table-cell">วันที่สอบเทียบ</th>
+                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell">สร้างโดย</th>
                 <th className="text-left py-3 px-3 font-medium hidden md:table-cell">สถานะ</th>
                 <th className="text-left py-3 px-3 font-medium hidden xl:table-cell">อัพเดทล่าสุด</th>
                 <th className="text-center py-3 px-3 font-medium">จัดการ</th>
@@ -248,9 +276,9 @@ export default function RecordsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="py-12 text-center text-gray-400">กำลังโหลด...</td></tr>
+                <tr><td colSpan={11} className="py-12 text-center text-gray-400">กำลังโหลด...</td></tr>
               ) : records.length === 0 ? (
-                <tr><td colSpan={10} className="py-12 text-center text-gray-400">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={11} className="py-12 text-center text-gray-400">ไม่พบข้อมูล</td></tr>
               ) : records.map((r, i) => (
                 <tr key={r._id} className={`border-b border-gray-50 hover:bg-military-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
                   <td className="py-3 px-3">
@@ -269,8 +297,14 @@ export default function RecordsPage() {
                   <td className="py-3 px-3 text-gray-600 hidden lg:table-cell whitespace-nowrap">
                     {r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}
                   </td>
+                  <td className="py-3 px-3 text-gray-600 text-xs hidden lg:table-cell">{r.createdBy || '-'}</td>
                   <td className="py-3 px-3 hidden md:table-cell">
                     <StatusBadge status={r.approvalStatus} />
+                    {r.approvalStatus === 'rejected' && r.rejectionComment && (
+                      <div className="text-xs text-red-500 mt-0.5 max-w-[160px] truncate" title={r.rejectionComment}>
+                        {r.rejectionComment}
+                      </div>
+                    )}
                   </td>
                   <td className="py-3 px-3 text-gray-500 text-xs hidden xl:table-cell whitespace-nowrap">
                     {r.updatedAt

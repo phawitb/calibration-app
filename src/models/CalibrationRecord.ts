@@ -80,12 +80,16 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
   calibratedById?: string
   calPrice:     number
   mainPrice:    number
-  approvalStatus?: 'draft' | 'pending_approval' | 'approved'
+  approvalStatus?: 'draft' | 'pending_approval' | 'approved' | 'rejected'
   requestedApproverId?: string
   requestedApproverName?: string
   approvedById?: string
   approvedByName?: string
   approvedAt?: Date
+  rejectionComment?: string
+  rejectedById?: string
+  rejectedByName?: string
+  rejectedAt?: Date
 
   // Environmental standard instrument (same uncertainty fields as StdInstrumentSchema in Uc)
   std1: {
@@ -213,12 +217,16 @@ const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   calibratedById: { type: String, index: true },
   calPrice:     { type: Number },
   mainPrice:    { type: Number },
-  approvalStatus: { type: String, enum: ['draft', 'pending_approval', 'approved'], default: 'draft' },
+  approvalStatus: { type: String, enum: ['draft', 'pending_approval', 'approved', 'rejected'], default: 'draft' },
   requestedApproverId: { type: String },
   requestedApproverName: { type: String },
   approvedById: { type: String },
   approvedByName: { type: String },
   approvedAt: { type: Date },
+  rejectionComment: { type: String },
+  rejectedById: { type: String },
+  rejectedByName: { type: String },
+  rejectedAt: { type: Date },
 
   std1: {
     no:          String,

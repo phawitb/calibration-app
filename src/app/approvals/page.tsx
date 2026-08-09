@@ -17,6 +17,9 @@ export default function ApprovalsPage() {
   const [rows, setRows] = useState<PendingRow[]>([])
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [rejectId, setRejectId] = useState<string | null>(null)
+  const [rejectComment, setRejectComment] = useState('')
+  const [rejecting, setRejecting] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -39,6 +42,34 @@ export default function ApprovalsPage() {
     }
     const json = await res.json().catch(() => ({}))
     toast.error(json.error || 'อนุมัติไม่สำเร็จ')
+  }
+
+  const openReject = (id: string) => {
+    setRejectId(id)
+    setRejectComment('')
+  }
+
+  const doReject = async () => {
+    if (!rejectId) return
+    if (!rejectComment.trim()) {
+      toast.error('กรุณาระบุเหตุผล')
+      return
+    }
+    setRejecting(true)
+    const res = await fetch(`/api/approvals/${rejectId}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comment: rejectComment }),
+    })
+    setRejecting(false)
+    if (res.ok) {
+      toast.success('ไม่อนุมัติเรียบร้อย — ส่งกลับให้แก้ไข')
+      setRejectId(null)
+      load()
+    } else {
+      const json = await res.json().catch(() => ({}))
+      toast.error(json.error || 'เกิดข้อผิดพลาด')
+    }
   }
 
   return (
@@ -86,6 +117,13 @@ export default function ApprovalsPage() {
                       >
                         {busyId === r._id ? 'กำลังอนุมัติ...' : 'อนุมัติ'}
                       </button>
+                      <button
+                        className="text-xs px-2 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50"
+                        disabled={busyId === r._id}
+                        onClick={() => openReject(r._id)}
+                      >
+                        ไม่อนุมัติ
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -94,6 +132,39 @@ export default function ApprovalsPage() {
           </table>
         </div>
       </div>
+
+      {/* Reject modal */}
+      {rejectId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-md mx-4 space-y-4">
+            <h3 className="text-lg font-bold text-red-700">ไม่อนุมัติ</h3>
+            <p className="text-sm text-gray-600">กรุณาระบุเหตุผลที่ไม่อนุมัติ เพื่อให้ผู้สร้างรายการแก้ไข</p>
+            <textarea
+              className="input-field w-full h-28 text-sm"
+              placeholder="เหตุผลที่ไม่อนุมัติ..."
+              value={rejectComment}
+              onChange={(e) => setRejectComment(e.target.value)}
+              autoFocus
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                className="btn-secondary text-sm"
+                onClick={() => setRejectId(null)}
+                disabled={rejecting}
+              >
+                ยกเลิก
+              </button>
+              <button
+                className="text-sm px-4 py-2 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50"
+                onClick={doReject}
+                disabled={rejecting}
+              >
+                {rejecting ? 'กำลังดำเนินการ...' : 'ยืนยันไม่อนุมัติ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

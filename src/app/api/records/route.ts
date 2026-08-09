@@ -55,10 +55,16 @@ export async function GET(req: NextRequest) {
   const calDateTo = searchParams.get('calDateTo') || ''
   const role = (session.user as any)?.role
   const hospitalUnit = (session.user as any)?.hospitalUnit
+  const myOnly = searchParams.get('myOnly') === '1'
+  const currentUsername = (session.user as any)?.username || ''
 
   const query: any = {
     // ซ่อน record ที่ยังไม่เคยกดบันทึก
     savedOnce: { $ne: false },
+  }
+  // User-scoping: non-admin users default to seeing only their own records
+  if (myOnly && currentUsername) {
+    query.createdBy = currentUsername
   }
   if (role === 'hospital_user' && hospitalUnit) {
     const unitVariants = await getUnitVariants(hospitalUnit)
@@ -144,7 +150,7 @@ export async function GET(req: NextRequest) {
   const effectiveLimit = search ? Math.max(limit, 200) : limit
   const total   = await CalibrationRecord.countDocuments(query)
   const records = await CalibrationRecord.find(query)
-    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calPrice approvalStatus requestedApproverName calibrationType isoMethodCode updatedAt')
+    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calPrice approvalStatus requestedApproverName rejectionComment calibrationType isoMethodCode createdBy updatedAt')
     .sort({ calDate: -1, recordNo: -1 })
     .skip((page - 1) * effectiveLimit)
     .limit(effectiveLimit)
