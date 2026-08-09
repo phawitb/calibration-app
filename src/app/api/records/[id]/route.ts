@@ -139,12 +139,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   }
 
-  if (role === 'technician' && sessionId) {
+  if (sessionId) {
     patch.calibratedById = sessionId
-    const me = await User.findById(sessionId).select('name fullName rank fullNameEn rankEn').lean()
+    const me = await User.findById(sessionId).select('name fullName fullNameEn').lean()
     patch.calibrate = String(
-      `${(me as any)?.rankEn || (me as any)?.rank || ''} ${(me as any)?.fullNameEn || (me as any)?.fullName || (me as any)?.name || patch.calibrate || ''}`.trim()
-    )
+      (me as any)?.fullNameEn || (me as any)?.fullName || (me as any)?.name || patch.calibrate || ''
+    ).trim()
   } else if (rawBody?.calibratedById != null) {
     patch.calibratedById = rawBody.calibratedById
   }

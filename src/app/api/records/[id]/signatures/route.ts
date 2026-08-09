@@ -51,8 +51,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     const c = String(r.calibrate).trim()
     if (c) {
       const alt = await User.findOne({
-        role: { $in: ['technician', 'admin'] },
-        $or: [{ fullName: c }, { name: c }],
+        $or: [{ fullName: c }, { name: c }, { fullNameEn: c }],
       })
         .select('signaturePng')
         .lean()
