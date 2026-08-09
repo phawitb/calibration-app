@@ -138,6 +138,49 @@ export default function RecordsPage() {
     setPage(1)
   }
 
+  const exportCsv = async () => {
+    const params = new URLSearchParams({ page: '1', limit: '99999' })
+    if (search)       params.set('search', search)
+    if (fSection)     params.set('section', fSection)
+    if (fStatus)      params.set('status', fStatus)
+    if (fCalType)     params.set('calType', fCalType)
+    if (fUnitName)    params.set('unitName', fUnitName)
+    if (fCalDateFrom) params.set('calDateFrom', fCalDateFrom)
+    if (fCalDateTo)   params.set('calDateTo', fCalDateTo)
+    if (cardFilter)   params.set('cardFilter', cardFilter)
+    if (myOnly)       params.set('myOnly', '1')
+    const res = await fetch(`/api/records?${params}`)
+    const data = await res.json()
+    const rows: Record<string, string>[] = (data.records || []).map((r: any) => ({
+      'ประเภท': r.calibrationType === 'iso' ? 'ISO' : 'SbCal',
+      'เลขที่อาร์เมด': r.amedNo || '',
+      'เครื่องมือ': r.deviceName || '',
+      'ยี่ห้อ': r.brand || '',
+      'รุ่น': r.model || '',
+      'Serial No.': r.serialNo || '',
+      'โรงพยาบาล': r.unitName || '',
+      'แผนก': r.section || '',
+      'ใบรับรอง': r.certNo || '',
+      'วันที่สอบเทียบ': r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '',
+      'สร้างโดย': r.createdBy || '',
+      'สถานะ': r.approvalStatus || '',
+      'อัพเดทล่าสุด': r.updatedAt ? new Date(r.updatedAt).toLocaleString('th-TH') : '',
+    }))
+    if (!rows.length) { toast.error('ไม่มีข้อมูลให้ export'); return }
+    const headers = Object.keys(rows[0])
+    const csvContent = '\uFEFF' + [
+      headers.join(','),
+      ...rows.map(row => headers.map(h => `"${String(row[h] || '').replace(/"/g, '""')}"`).join(','))
+    ].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `calibration-records-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const handleDelete = async (id: string) => {
     if (!confirm('ยืนยันการลบข้อมูลนี้?')) return
     const res = await fetch(`/api/records/${id}`, { method: 'DELETE' })
@@ -153,11 +196,20 @@ export default function RecordsPage() {
           <h1 className="text-2xl font-bold text-military-900">ข้อมูลสอบเทียบ</h1>
           <p className="text-gray-500 text-sm">{total} รายการ</p>
         </div>
-        {canAddRecord && (
-          <Link href="/records/new" className="btn-primary flex items-center gap-2 self-start sm:self-auto">
-            <span>+</span> เพิ่มข้อมูล
-          </Link>
-        )}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button onClick={exportCsv} className="btn-secondary flex items-center gap-1.5 text-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+              <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
+              <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+            </svg>
+            Export CSV
+          </button>
+          {canAddRecord && (
+            <Link href="/records/new" className="btn-primary flex items-center gap-2">
+              <span>+</span> เพิ่มข้อมูล
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Search & Filter */}
