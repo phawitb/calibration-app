@@ -124,8 +124,8 @@ export default function HospitalDevicesPage() {
   }
 
   const SortIcon = ({ col }: { col: string }) => {
-    if (sortKey !== col) return <span className="ml-1 text-military-400 opacity-40">&#8597;</span>
-    return <span className="ml-1">{sortDir === 'asc' ? '&#9650;' : '&#9660;'}</span>
+    if (sortKey !== col) return <span className="ml-1 text-military-400 opacity-40">{'\u2195'}</span>
+    return <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>
   }
 
   const toggleExpand = useCallback(async (amedNo: string) => {
