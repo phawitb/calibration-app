@@ -26,8 +26,8 @@ const StdInstrumentSchema = new Schema({
 // Sub-schema for a single calibration point reading
 const CalPointSchema = new Schema({
   point:  mongoose.Schema.Types.Mixed, // calibration point value
-  readings: [Number], // UUC readings (up to 4)
-  standards: [Number], // STD readings (up to 4)
+  readings: [mongoose.Schema.Types.Mixed], // UUC readings (up to 4)
+  standards: [mongoose.Schema.Types.Mixed], // STD readings (up to 4)
 }, { _id: false })
 
 // Sub-schema for one uncertainty component (Uc)
@@ -272,5 +272,10 @@ CalibrationRecordSchema.index({
   section:    'text',
 })
 
-export default mongoose.models.CalibrationRecord ||
-  mongoose.model<ICalibrationRecord>('CalibrationRecord', CalibrationRecordSchema)
+// Delete cached model to pick up schema changes during dev HMR
+if (mongoose.models.CalibrationRecord) {
+  delete (mongoose.models as any).CalibrationRecord
+  delete (mongoose.connection.models as any).CalibrationRecord
+}
+
+export default mongoose.model<ICalibrationRecord>('CalibrationRecord', CalibrationRecordSchema)

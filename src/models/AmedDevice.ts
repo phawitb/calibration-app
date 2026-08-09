@@ -9,6 +9,14 @@ export interface IAmedDevice extends Omit<Document, 'model'> {
   model?: string
   serialNo?: string
   hpNumber?: string
+  toSelect?: boolean
+  uc1?: string
+  uc2?: string
+  uc3?: string
+  uc4?: string
+  uc5?: string
+  uc6?: string
+  ucT?: string
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -24,6 +32,14 @@ const AmedDeviceSchema = new Schema<IAmedDevice>(
     model:        { type: String },
     serialNo:     { type: String },
     hpNumber:     { type: String },
+    toSelect:     { type: Boolean, default: false },
+    uc1:          { type: String },
+    uc2:          { type: String },
+    uc3:          { type: String },
+    uc4:          { type: String },
+    uc5:          { type: String },
+    uc6:          { type: String },
+    ucT:          { type: String },
     isActive:     { type: Boolean, default: true },
   },
   { timestamps: true }

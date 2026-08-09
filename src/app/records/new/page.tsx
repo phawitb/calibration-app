@@ -19,6 +19,14 @@ interface AmedDevice {
   model?: string
   serialNo?: string
   hpNumber?: string
+  toSelect?: boolean
+  uc1?: string
+  uc2?: string
+  uc3?: string
+  uc4?: string
+  uc5?: string
+  uc6?: string
+  ucT?: string
 }
 
 export default function NewRecordPage() {
@@ -89,6 +97,13 @@ export default function NewRecordPage() {
     if (creating) return
     setCreating(true)
     try {
+      // Build UC defaults from AmedDevice registry (std.no only — CalibrationForm resolves full std data)
+      const ucDefaults: Record<string, any> = {}
+      for (const k of ['uc1','uc2','uc3','uc4','uc5','uc6'] as const) {
+        if (device[k]) ucDefaults[k] = { std: { no: device[k] }, calPoints: [] }
+      }
+      if (device.ucT) ucDefaults.ucT = { std: { no: device.ucT }, calPoints: [] }
+
       const payload: Record<string, unknown> = {
         calibrationType: 'sbcal',
         deviceName: device.deviceName || '',
@@ -100,7 +115,9 @@ export default function NewRecordPage() {
         model: device.model || '',
         serialNo: device.serialNo || '',
         hpNumber: device.hpNumber || '',
+        select: device.toSelect !== false,
         deviceFromRegistry: true,
+        ...ucDefaults,
       }
       const res = await fetch('/api/records', {
         method: 'POST',

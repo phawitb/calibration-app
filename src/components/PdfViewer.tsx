@@ -30,46 +30,108 @@ type SummaryRow = {
   unit: string
 }
 
-const styles = StyleSheet.create({
-  page: { fontFamily: 'NotoSansThai', fontSize: 9, padding: 28, backgroundColor: '#fff' },
-  headerTop: { marginBottom: 6 },
-  orgName: { fontSize: 11, fontWeight: 700, textAlign: 'center', color: '#111' },
-  orgSub: { fontSize: 8, textAlign: 'center', color: '#444', marginTop: 2 },
-  certTitle: { fontSize: 13, fontWeight: 700, textAlign: 'center', marginTop: 8, color: '#111' },
-  certMeta: { fontSize: 8, textAlign: 'right', color: '#333', marginTop: 3 },
-  sectionRule: { borderTop: '1px solid #111', marginVertical: 6 },
-  block: { marginBottom: 6 },
-  row: { flexDirection: 'row', marginBottom: 3 },
-  label: { width: 115, color: '#222', fontSize: 8, fontWeight: 700 },
-  value: { flex: 1, color: '#111', fontSize: 8 },
-  envBox: { border: '1px solid #111', padding: 5, marginBottom: 6 },
-  envTitle: { fontSize: 8, fontWeight: 700, marginBottom: 3 },
-  envRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  table: { border: '1px solid #111', marginTop: 4, marginBottom: 8 },
-  tableHeader: { flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottom: '1px solid #111' },
-  tableRow: { flexDirection: 'row', borderTop: '1px solid #ddd' },
-  thCell: { padding: '3 2', color: '#111', fontSize: 7, textAlign: 'center', fontWeight: 700 },
-  tdCell: { padding: '3 2', color: '#111', fontSize: 7, textAlign: 'center' },
-  stdTableName: { width: '40%' },
-  stdTableCol: { width: '20%' },
-  signatureRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
-  signatureBox: { width: '42%', alignItems: 'center' },
-  signatureLine: { width: '100%', borderTop: '1px solid #111', marginTop: 4 },
-  sigImg: { maxHeight: 40, maxWidth: 130, objectFit: 'contain', alignSelf: 'center', marginBottom: 2 },
-  sigText: { fontSize: 8, marginTop: 4, textAlign: 'center' },
-  smallNote: { fontSize: 7, color: '#333', marginTop: 5, lineHeight: 1.25 },
-  footer: { position: 'absolute', bottom: 16, left: 28, right: 28, borderTop: '1px solid #ddd', paddingTop: 5, flexDirection: 'row', justifyContent: 'space-between' },
+const s = StyleSheet.create({
+  page: { fontFamily: 'NotoSansThai', fontSize: 9, padding: 30, paddingBottom: 50, backgroundColor: '#fff' },
+  /* ---- header ---- */
+  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  logo: { width: 52, height: 52, marginRight: 8 },
+  orgName: { fontSize: 10, fontWeight: 700, color: '#111' },
+  orgAddr: { fontSize: 8, color: '#111', marginTop: 1 },
+  pageNo: { fontSize: 8, textAlign: 'right', color: '#111', marginBottom: 2 },
+  certTitle: { fontSize: 14, fontWeight: 700, textAlign: 'center', marginTop: 6, marginBottom: 6, color: '#111' },
+  certNo: { fontSize: 10, textAlign: 'right', marginBottom: 6 },
+  /* ---- bordered info table ---- */
+  infoTable: { border: '1pt solid #111', marginBottom: 4 },
+  infoRow: { flexDirection: 'row', borderBottom: '0.5pt solid #999', minHeight: 16 },
+  infoRowLast: { flexDirection: 'row', minHeight: 16 },
+  infoLabel: { fontSize: 8, fontWeight: 700, paddingHorizontal: 4, paddingVertical: 2, color: '#111' },
+  infoValue: { fontSize: 8, paddingHorizontal: 4, paddingVertical: 2, color: '#111' },
+  infoLeft: { width: '50%', flexDirection: 'row' },
+  infoRight: { width: '50%', flexDirection: 'row' },
+  infoLabelW: { width: 90 },
+  infoLabelW2: { width: 80 },
+  infoValueFlex: { flex: 1 },
+  infoFull: { width: '100%', flexDirection: 'row' },
+  /* ---- signatures ---- */
+  sigRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 16 },
+  sigBox: { width: '40%', alignItems: 'center' },
+  sigImg: { maxHeight: 40, maxWidth: 130, objectFit: 'contain', marginBottom: 2 },
+  sigLine: { width: '100%', borderTop: '1pt solid #111', marginTop: 4 },
+  sigText: { fontSize: 8, marginTop: 3, textAlign: 'center', color: '#111' },
+  /* ---- calibration method & disclaimer ---- */
+  methodText: { fontSize: 9, marginTop: 10, marginBottom: 6, color: '#111' },
+  disclaimer: { fontSize: 7.5, color: '#111', marginTop: 4, lineHeight: 1.4, textIndent: 20 },
+  /* ---- page 2+ header ---- */
+  p2Header: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  p2HeaderText: { fontSize: 9, color: '#111' },
+  sectionTitle: { fontSize: 9.5, fontWeight: 700, marginTop: 6, marginBottom: 3, color: '#111' },
+  bodyText: { fontSize: 8, color: '#111', lineHeight: 1.35 },
+  /* ---- tables ---- */
+  table: { border: '0.5pt solid #111', marginTop: 3, marginBottom: 6 },
+  tRow: { flexDirection: 'row', borderBottom: '0.5pt solid #999' },
+  tRowLast: { flexDirection: 'row' },
+  th: { fontSize: 7.5, fontWeight: 700, paddingVertical: 2, paddingHorizontal: 3, textAlign: 'center', color: '#111' },
+  td: { fontSize: 7.5, paddingVertical: 2, paddingHorizontal: 3, textAlign: 'center', color: '#111' },
+  /* ---- footer ---- */
+  footer: { position: 'absolute', bottom: 16, left: 30, right: 30 },
   footerText: { fontSize: 7, color: '#666' },
-  sumTh: { fontSize: 6, fontWeight: 700, padding: '2 1', textAlign: 'center', color: '#111' },
-  sumTd: { fontSize: 6, padding: '2 1', textAlign: 'center' },
-  sumUc: { width: '9%' },
-  sumPt: { width: '11%' },
-  sumN: { width: '10%' },
 })
 
-function formatPdfValue(n: number | undefined | null) {
-  if (n == null || Number.isNaN(Number(n))) return '—'
-  return fmt(Number(n), 4)
+function fmtVal(n: number | undefined | null, decimals = 1) {
+  if (n == null || Number.isNaN(Number(n))) return '-'
+  return fmt(Number(n), decimals)
+}
+
+function fmtDate(d: any) {
+  if (!d) return '-'
+  const dt = new Date(d)
+  if (isNaN(dt.getTime())) return '-'
+  const dd = String(dt.getDate()).padStart(2, '0')
+  const mm = String(dt.getMonth() + 1).padStart(2, '0')
+  const yyyy = dt.getFullYear()
+  return `${dd}/${mm}/${yyyy}`
+}
+
+/** Build per-UC sections for result pages */
+function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
+  const ucKeys = ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT'] as const
+  const sections: {
+    index: number
+    std: any
+    measurement: string
+    unit: string
+    calPoints: { point: any; avgUUC: number; avgSTD: number; correction: number; uncertainty: number }[]
+  }[] = []
+
+  let idx = 0
+  for (const key of ucKeys) {
+    const uc = record[key]
+    if (!uc?.std?.name && !uc?.std?.no) continue
+    const pts = uc.calPoints as any[] | undefined
+    if (!pts || pts.length === 0) continue
+
+    idx++
+    const ucSummary = summaryRows?.filter((sr) => sr.ucName === key) || []
+    const calPoints = pts.map((pt: any) => {
+      const matchRow = ucSummary.find((sr) => String(sr.point) === String(pt.point))
+      const readings = (pt.readings || []).filter((v: any) => v !== '' && v != null).map(Number)
+      const standards = (pt.standards || []).filter((v: any) => v !== '' && v != null).map(Number)
+      const avgUUC = matchRow ? matchRow.avgUUC : readings.length ? readings.reduce((a: number, b: number) => a + b, 0) / readings.length : NaN
+      const avgSTD = matchRow ? matchRow.avgSTDRead : standards.length ? standards.reduce((a: number, b: number) => a + b, 0) / standards.length : NaN
+      const correction = matchRow ? matchRow.correction : NaN
+      const uncertainty = matchRow ? matchRow.U : NaN
+      return { point: pt.point, avgUUC, avgSTD, correction, uncertainty }
+    })
+
+    sections.push({
+      index: idx,
+      std: uc.std,
+      measurement: uc.std?.measurement || '-',
+      unit: uc.std?.unit || '-',
+      calPoints,
+    })
+  }
+  return sections
 }
 
 function CalibrationPDF({
@@ -88,243 +150,273 @@ function CalibrationPDF({
   const certApproved = r.approvalStatus === 'approved'
   const requestedApproverName = f(r.requestedApproverName)
   const approvedDisplayName = certApproved ? f(r.approve) : requestedApproverName
-  const formatDate = (d: any) => (d ? new Date(d).toLocaleDateString('th-TH') : '-')
+  const std1 = r.std1 || {}
+  const ucSections = buildUcSections(r, summaryRows)
+  const totalPages = ucSections.length > 4 ? 3 : 2
+  // Extract English-only from unitName: "Fort Surasi Hospital(รพ.ค่ายสุรสีห์)" → "Fort Surasi Hospital"
+  const customerEn = String(r.unitName || '').replace(/\(.*\)$/, '').trim() || f(r.unitName)
+  const locationDisplay = (r.location === 'lab' || r.location === 'Lab') ? 'Medical Depot Division of Royal Thai Army Medical Department' : (r.location === 'outside' ? customerEn : f(r.location))
 
-  const standardRows = [
-    r.std1,
-    r.uc1?.std,
-    r.uc2?.std,
-    r.uc3?.std,
-    r.uc4?.std,
-    r.uc5?.std,
-    r.uc6?.std,
-    r.ucT?.std,
-  ].filter((s: any) => s?.name || s?.no)
+  /* ---- Reusable info row ---- */
+  const InfoRow2 = ({ l1, v1, l2, v2, last }: { l1: string; v1: string; l2?: string; v2?: string; last?: boolean }) => (
+    <View style={last ? s.infoRowLast : s.infoRow}>
+      <View style={s.infoLeft}>
+        <Text style={[s.infoLabel, s.infoLabelW]}>{l1}</Text>
+        <Text style={[s.infoValue, s.infoValueFlex]}>{v1}</Text>
+      </View>
+      {l2 != null && (
+        <View style={s.infoRight}>
+          <Text style={[s.infoLabel, s.infoLabelW2]}>{l2}</Text>
+          <Text style={[s.infoValue, s.infoValueFlex]}>{v2 || '-'}</Text>
+        </View>
+      )}
+    </View>
+  )
 
-  const displaySummary =
-    summaryRows && summaryRows.length > 0
-      ? summaryRows
-      : [
-          {
-            ucName: '—',
-            point: 0,
-            avgUUC: NaN,
-            avgSTDRead: NaN,
-            correction: NaN,
-            uc: NaN,
-            U: NaN,
-            k: NaN,
-            unit: '',
-          },
-        ]
+  const InfoRowFull = ({ label, value, last }: { label: string; value: string; last?: boolean }) => (
+    <View style={last ? s.infoRowLast : s.infoRow}>
+      <View style={s.infoFull}>
+        <Text style={[s.infoLabel, s.infoLabelW]}>{label}</Text>
+        <Text style={[s.infoValue, s.infoValueFlex]}>{value}</Text>
+      </View>
+    </View>
+  )
+
+  /* ---- Page 2+ header ---- */
+  const PageHeader = ({ pageNum, totalPg }: { pageNum: number; totalPg: number }) => (
+    <View style={s.p2Header}>
+      <Text style={s.p2HeaderText}>Amed No. {f(r.amedNo)}</Text>
+      <Text style={s.p2HeaderText}>Certificate No. {f(r.certNo)}</Text>
+      <Text style={s.p2HeaderText}>Page {pageNum}/{totalPg}</Text>
+    </View>
+  )
 
   return (
     <Document>
-      <Page size="A4" style={styles.page}>
-        <View style={styles.headerTop}>
-          <Text style={styles.orgName}>กรมแพทย์ทหารบก</Text>
-          <Text style={styles.orgSub}>Directorate of Medical Service, Royal Thai Army</Text>
-          <Text style={styles.orgSub}>Calibration Laboratory</Text>
-          <Text style={styles.certTitle}>CERTIFICATE OF CALIBRATION</Text>
-          <Text style={styles.certMeta}>Certificate Number: {f(r.certNo)} | Page: 1 of 2</Text>
-        </View>
-        <View style={styles.sectionRule} />
+      {/* ===================== PAGE 1 ===================== */}
+      <Page size="A4" style={s.page}>
+        <Text style={s.pageNo}>Page 1/{totalPages}</Text>
 
-        <View style={styles.block}>
-          <View style={styles.row}>
-            <Text style={styles.label}>Customer:</Text>
-            <Text style={styles.value}>
-              {f(r.unitName)} {r.section ? `- ${r.section}` : ''}
-            </Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Address:</Text>
-            <Text style={styles.value}>{f(r.address)}</Text>
+        <View style={s.headerRow}>
+          <Image style={s.logo} src="/logo.jpg" />
+          <View style={{ flex: 1 }}>
+            <Text style={s.orgName}>MEDICAL DEPOT DIVISION OF ROYAL THAI ARMY MEDICAL DEPARTMENT</Text>
+            <Text style={s.orgAddr}>8 Phaya Thai Road, Thung Phaya Thai, Ratchathewi, Bangkok, 10400 Thailand</Text>
           </View>
         </View>
 
-        <View style={styles.sectionRule} />
-        <View style={styles.block}>
-          <View style={styles.row}>
-            <Text style={styles.label}>Equipment:</Text>
-            <Text style={styles.value}>{f(r.deviceName)}</Text>
+        <Text style={s.certTitle}>Calibration Certificate</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 4 }}>
+          <Text style={{ fontSize: 10, fontWeight: 700 }}>Certificate </Text>
+          <Text style={{ fontSize: 10 }}>{f(r.certNo)}</Text>
+        </View>
+
+        {/* Device info table */}
+        <View style={s.infoTable}>
+          <InfoRow2 l1="Equipment" v1={f(r.deviceName)} l2="Section" v2={f(r.section)} />
+          <InfoRow2 l1="Manufacture" v1={f(r.brand)} l2="Model" v2={f(r.model)} />
+          <InfoRow2 l1="Serial No." v1={f(r.serialNo)} l2="Amed No." v2={f(r.amedNo)} />
+        </View>
+
+        {/* Customer info table */}
+        <View style={s.infoTable}>
+          <InfoRowFull label="Hospital No" value={f(r.hpNumber)} />
+          <InfoRowFull label="Customer" value={customerEn} />
+          <InfoRowFull label="Address" value={f(r.address)} />
+          <InfoRow2 l1="Received N" v1={f(r.receivedN)} l2="Issued date" v2={fmtDate(r.issuedDate)} />
+          <InfoRow2 l1="Received date" v1={fmtDate(r.receivedDate)} l2="Cal. date" v2={fmtDate(r.calDate)} />
+          <InfoRowFull label="Location" value={locationDisplay} />
+          <View style={s.infoRow}>
+            <View style={s.infoLeft}>
+              <Text style={[s.infoLabel, s.infoLabelW]}>Environment</Text>
+              <Text style={[s.infoValue, s.infoValueFlex]}></Text>
+            </View>
+            <View style={s.infoRight}>
+              <Text style={[s.infoLabel, { width: 70 }]}>Temperature</Text>
+              <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapTemp)}</Text>
+              <Text style={[s.infoValue, { marginLeft: 4 }]}>°C</Text>
+            </View>
           </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Manufacturer / Model:</Text>
-            <Text style={styles.value}>
-              {f(r.brand)} / {f(r.model)}
-            </Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Serial Number:</Text>
-            <Text style={styles.value}>{f(r.serialNo)}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>ID Number (Amed / SB):</Text>
-            <Text style={styles.value}>
-              {f(r.amedNo)} / {f(r.sbNo)}
-            </Text>
+          <View style={s.infoRowLast}>
+            <View style={s.infoLeft}>
+              <Text style={[s.infoLabel, s.infoLabelW]}></Text>
+              <Text style={[s.infoValue, s.infoValueFlex]}></Text>
+            </View>
+            <View style={s.infoRight}>
+              <Text style={[s.infoLabel, { width: 70 }]}>Humidity</Text>
+              <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapHumid)}</Text>
+              <Text style={[s.infoValue, { marginLeft: 4 }]}>%RH</Text>
+            </View>
           </View>
         </View>
 
-        <View style={styles.sectionRule} />
-        <View style={styles.block}>
-          <View style={styles.row}>
-            <Text style={styles.label}>Calibration place:</Text>
-            <Text style={styles.value}>{f(r.location)}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Received date:</Text>
-            <Text style={styles.value}>{formatDate(r.receivedDate)}</Text>
-          </View>
-          {r.receivedN && (
-          <View style={styles.row}>
-            <Text style={styles.label}>Received by:</Text>
-            <Text style={styles.value}>{r.receivedN}</Text>
-          </View>
-          )}
-          <View style={styles.row}>
-            <Text style={styles.label}>Calibration date:</Text>
-            <Text style={styles.value}>{formatDate(r.calDate)}</Text>
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Issued date:</Text>
-            <Text style={styles.value}>{formatDate(r.issuedDate)}</Text>
-          </View>
-        </View>
-
-        <View style={styles.envBox}>
-          <Text style={styles.envTitle}>Environmental</Text>
-          <View style={styles.envRow}>
-            <Text style={styles.value}>Ambient Temperature: {f(r.lapTemp)} °C</Text>
-            <Text style={styles.value}>Relative Humidity: {f(r.lapHumid)} %RH</Text>
-          </View>
-        </View>
-
-        <View style={styles.sectionRule} />
-        <View style={styles.row}>
-          <Text style={styles.label}>Calibrated By:</Text>
-          <Text style={styles.value}>{f(r.calibrate)}</Text>
-        </View>
-        <View style={styles.row}>
-          <Text style={styles.label}>Approved By:</Text>
-          <Text style={styles.value}>
-            {approvedDisplayName}
-          </Text>
-        </View>
-
-        <View style={styles.signatureRow}>
-          <View style={styles.signatureBox}>
-            {calibratorSignature ? <Image style={styles.sigImg} src={calibratorSignature} /> : <View style={{ height: 36 }} />}
-            <View style={styles.signatureLine} />
-            <Text style={styles.sigText}>( {f(r.calibrate)} )</Text>
-            <Text style={styles.sigText}>Calibrated By</Text>
-          </View>
-          <View style={styles.signatureBox}>
-            {certApproved && approverSignature ? (
-              <Image style={styles.sigImg} src={approverSignature} />
-            ) : (
-              <View style={{ height: 36 }} />
-            )}
-            <View style={styles.signatureLine} />
-            <Text style={styles.sigText}>( {approvedDisplayName} )</Text>
-            <Text style={styles.sigText}>Approved By</Text>
-          </View>
-        </View>
-
-        <Text style={styles.smallNote}>
-          The reported uncertainty is expanded uncertainty at approximately 95% confidence level.
-        </Text>
-        <Text style={styles.smallNote}>
-          This certificate shall not be reproduced except in full, without written approval.
+        {/* Calibration method */}
+        <Text style={s.methodText}>
+          <Text style={{ fontWeight: 700 }}>Calibration method</Text> : By comparison with standard tools. This certificate is traceable to the SI units.
         </Text>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Certificate: {f(r.certNo)}</Text>
-          <Text style={styles.footerText}>Printed: {new Date().toLocaleDateString('th-TH')}</Text>
-          <Text style={styles.footerText}>Page 1 of 2</Text>
+        {/* Signatures */}
+        <View style={s.sigRow}>
+          <View style={s.sigBox}>
+            {calibratorSignature ? <Image style={s.sigImg} src={calibratorSignature} /> : <View style={{ height: 36 }} />}
+            <View style={s.sigLine} />
+            <Text style={s.sigText}>{f(r.calibrate)}</Text>
+            <Text style={s.sigText}>Calibrate</Text>
+          </View>
+          <View style={s.sigBox}>
+            {certApproved && approverSignature ? <Image style={s.sigImg} src={approverSignature} /> : <View style={{ height: 36 }} />}
+            <View style={s.sigLine} />
+            <Text style={s.sigText}>{approvedDisplayName}</Text>
+            <Text style={s.sigText}>Approve</Text>
+          </View>
         </View>
+
+        {/* Disclaimer */}
+        <Text style={s.disclaimer}>
+          This certificate is valid only to the item calibrated on date and place of calibration. The report shall not be reproduced except in full without approval of Medical depot division of royal Thai army medical department.
+        </Text>
+        <Text style={s.disclaimer}>
+          This certificate is issued the units of measurement according to the International System of units (SI unit). It provides traceability of measurement to international or national standard or other recognized national standard laboratories.
+        </Text>
+        <Text style={s.disclaimer}>
+          The measurement uncertainty stated is the expanded uncertainty which is obtained from the standard uncertainty multiplied by the coverage factor ( k = 2 ) to provide a level of confidence of approximately 95%. It is determined in accordance with the Guide to Expression of Uncertainty in Measurement (GUM).
+        </Text>
       </Page>
 
-      <Page size="A4" style={styles.page}>
-        <View style={styles.headerTop}>
-          <Text style={styles.orgName}>กรมแพทย์ทหารบก</Text>
-          <Text style={styles.orgSub}>Result of Calibration (Without Adjustment)</Text>
-          <Text style={styles.certMeta}>Certificate Number: {f(r.certNo)} | Page: 2 of 2</Text>
-        </View>
-        <View style={styles.sectionRule} />
+      {/* ===================== PAGE 2+ ===================== */}
+      <Page size="A4" style={s.page} wrap>
+        <PageHeader pageNum={2} totalPg={totalPages} />
 
-        <Text style={{ fontSize: 9, fontWeight: 700, marginBottom: 2 }}>Reference Standard</Text>
-        <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.thCell, styles.stdTableName]}>Instrument</Text>
-            <Text style={[styles.thCell, styles.stdTableCol]}>Serial No.</Text>
-            <Text style={[styles.thCell, styles.stdTableCol]}>Certificate No.</Text>
-            <Text style={[styles.thCell, styles.stdTableCol]}>Cal.Date</Text>
+        {/* Environmental – Std1 */}
+        <Text style={s.sectionTitle}>Environmental</Text>
+        <Text style={[s.bodyText, { fontWeight: 700 }]}>Reference Standard Instrument</Text>
+        {(std1.name || std1.no) && (
+          <Text style={[s.bodyText, { marginBottom: 2 }]}>- {f(std1.name)}</Text>
+        )}
+        <View style={s.table}>
+          <View style={s.tRow}>
+            <Text style={[s.th, { width: '25%' }]}>Manufacture</Text>
+            <Text style={[s.th, { width: '15%' }]}>Model</Text>
+            <Text style={[s.th, { width: '20%' }]}>Serial NO.</Text>
+            <Text style={[s.th, { width: '20%' }]}>Cert. NO.</Text>
+            <Text style={[s.th, { width: '20%' }]}>Cal.Date</Text>
           </View>
-          {(standardRows.length
-            ? standardRows
-            : [{ name: '-', model: '', serialNo: '-', certNo: '-', calDate: '-' }]
-          ).map((s: any, i: number) => (
-            <View key={i} style={styles.tableRow}>
-              <Text style={[styles.tdCell, styles.stdTableName]}>
-                {f(s.name)} {s.model ? `(${f(s.model)})` : ''}
-              </Text>
-              <Text style={[styles.tdCell, styles.stdTableCol]}>{f(s.serialNo)}</Text>
-              <Text style={[styles.tdCell, styles.stdTableCol]}>{f(s.certNo)}</Text>
-              <Text style={[styles.tdCell, styles.stdTableCol]}>{f(s.calDate)}</Text>
-            </View>
-          ))}
+          <View style={s.tRowLast}>
+            <Text style={[s.td, { width: '25%' }]}>{f(std1.manufacture)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{f(std1.model)}</Text>
+            <Text style={[s.td, { width: '20%' }]}>{f(std1.serialNo)}</Text>
+            <Text style={[s.td, { width: '20%' }]}>{f(std1.certNo)}</Text>
+            <Text style={[s.td, { width: '20%' }]}>{f(std1.calDate)}</Text>
+          </View>
         </View>
 
-        <Text style={{ fontSize: 9, fontWeight: 700, marginBottom: 2, marginTop: 4 }}>สรุปผล / Uncertainty summary</Text>
-        <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <Text style={[styles.sumTh, styles.sumUc]}>Uc</Text>
-            <Text style={[styles.sumTh, styles.sumPt]}>Cal.point</Text>
-            <Text style={[styles.sumTh, styles.sumN]}>UUC avg</Text>
-            <Text style={[styles.sumTh, styles.sumN]}>STD avg read</Text>
-            <Text style={[styles.sumTh, styles.sumN]}>Corr.</Text>
-            <Text style={[styles.sumTh, styles.sumN]}>uc</Text>
-            <Text style={[styles.sumTh, styles.sumN]}>U (exp.)</Text>
-            <Text style={[styles.sumTh, styles.sumN]}>k</Text>
-            <Text style={[styles.sumTh, styles.sumN]}>Unit</Text>
+        {/* Temp / Humidity min-max */}
+        <View style={s.table}>
+          <View style={s.tRow}>
+            <Text style={[s.th, { width: '20%' }]}>Temp ( °C )</Text>
+            <Text style={[s.th, { width: '15%' }]}>Min.Value</Text>
+            <Text style={[s.th, { width: '15%' }]}>Max.Value</Text>
+            <Text style={[s.th, { width: '20%' }]}>Humidity(%)</Text>
+            <Text style={[s.th, { width: '15%' }]}>Min.Value</Text>
+            <Text style={[s.th, { width: '15%' }]}>Max.Value</Text>
           </View>
-          {displaySummary.map((row, i) => (
-            <View key={i} style={styles.tableRow}>
-              <Text style={[styles.sumTd, styles.sumUc]}>
-                {row.ucName}
-              </Text>
-              <Text style={[styles.sumTd, styles.sumPt]}>
-                {summaryRows && summaryRows.length > 0 ? String(row.point) : '—'}
-              </Text>
-              <Text style={[styles.sumTd, styles.sumN]}>{formatPdfValue(row.avgUUC)}</Text>
-              <Text style={[styles.sumTd, styles.sumN]}>{formatPdfValue(row.avgSTDRead)}</Text>
-              <Text style={[styles.sumTd, styles.sumN]}>{formatPdfValue(row.correction)}</Text>
-              <Text style={[styles.sumTd, styles.sumN]}>{formatPdfValue(row.uc)}</Text>
-              <Text style={[styles.sumTd, styles.sumN]}>{formatPdfValue(row.U)}</Text>
-              <Text style={[styles.sumTd, styles.sumN]}>{formatPdfValue(row.k)}</Text>
-              <Text style={[styles.sumTd, styles.sumN]}>{row.unit || '—'}</Text>
-            </View>
-          ))}
+          <View style={s.tRowLast}>
+            <Text style={[s.td, { width: '20%' }]}></Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.tMin)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.tMax)}</Text>
+            <Text style={[s.td, { width: '20%' }]}></Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.hMin)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.hMax)}</Text>
+          </View>
         </View>
+
+        {/* Calibration Procedure */}
+        <Text style={s.sectionTitle}>Calibration Procedure</Text>
+        <Text style={s.bodyText}>
+          This calibration was performed by direct measurement of the unit under calibration using calibrated standard instrument. The data was recorded in steady state at the calibrate point values.
+        </Text>
+
+        {/* Result of Calibration */}
+        <Text style={[s.sectionTitle, { marginTop: 8 }]}>Result of Calibration</Text>
+        <Text style={[s.bodyText, { fontWeight: 700, marginBottom: 4 }]}>
+          STD = Standard Instrument  UUC = Unit Under Calibration
+        </Text>
+
+        {/* Per-UC result tables */}
+        {ucSections.map((sec) => {
+          const colW = { left: '48%', model: '12%', serial: '13%', cert: '14%', caldt: '13%' }
+          return (
+          <View key={sec.index} wrap={false} style={{ marginBottom: 10 }}>
+            {/* Row 1: header labels */}
+            <View style={{ flexDirection: 'row' }}>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.left }]}>
+                Reference Standard Instrument {sec.index}
+              </Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.model }]}>Model</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.serial }]}>Serial NO.</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.cert }]}>Cert. NO.</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.caldt }]}>Cal.Date</Text>
+            </View>
+            {/* Row 2: instrument values */}
+            <View style={{ flexDirection: 'row', marginBottom: 2 }}>
+              <Text style={[s.bodyText, { width: colW.left }]}>- {f(sec.std.name)}</Text>
+              <Text style={[s.bodyText, { width: colW.model }]}>{f(sec.std.model)}</Text>
+              <Text style={[s.bodyText, { width: colW.serial }]}>{f(sec.std.serialNo)}</Text>
+              <Text style={[s.bodyText, { width: colW.cert }]}>{f(sec.std.certNo)}</Text>
+              <Text style={[s.bodyText, { width: colW.caldt }]}>{f(sec.std.calDate)}</Text>
+            </View>
+
+            {/* Measurement row */}
+            <View style={{ flexDirection: 'row', marginBottom: 3 }}>
+              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>Measurement</Text>
+              <Text style={[s.bodyText, { width: 90 }]}>{sec.measurement}</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>Meausre Unit</Text>
+              <Text style={[s.bodyText, { width: 60 }]}>{sec.unit}</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: 50 }]}>Remark</Text>
+              <Text style={s.bodyText}>-</Text>
+            </View>
+
+            {/* Cal point table */}
+            <View style={s.table}>
+              <View style={s.tRow}>
+                <Text style={[s.th, { width: '20%' }]}>Cal.point</Text>
+                <Text style={[s.th, { width: '20%' }]}>UUC reading</Text>
+                <Text style={[s.th, { width: '20%' }]}>STD reading</Text>
+                <Text style={[s.th, { width: '20%' }]}>Correction</Text>
+                <Text style={[s.th, { width: '20%' }]}>± Uncertainty</Text>
+              </View>
+              {/* Units row */}
+              <View style={s.tRow}>
+                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
+              </View>
+              {/* Data rows */}
+              {sec.calPoints.map((cp, i) => (
+                <View key={i} style={i === sec.calPoints.length - 1 ? s.tRowLast : s.tRow}>
+                  <Text style={[s.td, { width: '20%' }]}>{cp.point != null ? String(cp.point) : '-'}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.avgUUC)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.avgSTD)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.correction)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.uncertainty)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+          )
+        })}
+
+        {/* Remarks */}
         {Array.isArray(r.remarks) && r.remarks.some((rm: string) => rm) && (
           <View style={{ marginTop: 4 }}>
-            <Text style={{ fontSize: 8.5, fontWeight: 700, marginBottom: 2 }}>หมายเหตุ / Remarks</Text>
+            <Text style={[s.bodyText, { fontWeight: 700, marginBottom: 2 }]}>Remark</Text>
             {r.remarks.filter(Boolean).map((rm: string, i: number) => (
-              <Text key={i} style={{ fontSize: 8, marginBottom: 2 }}>
-                - {rm}
-              </Text>
+              <Text key={i} style={[s.bodyText, { marginBottom: 1 }]}>- {rm}</Text>
             ))}
           </View>
         )}
-
-        <Text style={{ textAlign: 'center', marginTop: 20, fontSize: 9, fontWeight: 700 }}>----- END -----</Text>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Certificate: {f(r.certNo)}</Text>
-          <Text style={styles.footerText}>Page 2 of 2</Text>
-        </View>
       </Page>
     </Document>
   )

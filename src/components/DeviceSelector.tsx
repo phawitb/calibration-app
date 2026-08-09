@@ -13,6 +13,14 @@ interface AmedDevice {
   model?: string
   serialNo?: string
   hpNumber?: string
+  toSelect?: boolean
+  uc1?: string
+  uc2?: string
+  uc3?: string
+  uc4?: string
+  uc5?: string
+  uc6?: string
+  ucT?: string
 }
 
 interface Props {

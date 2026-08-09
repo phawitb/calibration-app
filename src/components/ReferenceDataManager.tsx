@@ -122,6 +122,14 @@ const SUBTABS: {
       { key: 'model', label: 'รุ่น' },
       { key: 'serialNo', label: 'Serial No.' },
       { key: 'hpNumber', label: 'HP Number' },
+      { key: 'toSelect', label: 'ToSelect' },
+      { key: 'uc1', label: 'UC1' },
+      { key: 'uc2', label: 'UC2' },
+      { key: 'uc3', label: 'UC3' },
+      { key: 'uc4', label: 'UC4' },
+      { key: 'uc5', label: 'UC5' },
+      { key: 'uc6', label: 'UC6' },
+      { key: 'ucT', label: 'UcT' },
     ],
   },
 ]
@@ -200,6 +208,7 @@ export default function ReferenceDataManager() {
   const [refUnits, setRefUnits] = useState<string[]>([])
   const [refSections, setRefSections] = useState<string[]>([])
   const [refBrands, setRefBrands] = useState<{ name: string; model: string }[]>([])
+  const [refStdNos, setRefStdNos] = useState<{ no: string; name: string }[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -226,11 +235,12 @@ export default function ReferenceDataManager() {
     if (sub.key !== 'ameddevices') return
     let mounted = true
     const loadRefs = async () => {
-      const [devRes, unitRes, secRes, brandRes] = await Promise.all([
+      const [devRes, unitRes, secRes, brandRes, stdRes] = await Promise.all([
         fetch('/api/reference?type=devices'),
         fetch('/api/reference?type=units'),
         fetch('/api/reference?type=sections'),
         fetch('/api/reference?type=brands'),
+        fetch('/api/reference?type=stdinstruments'),
       ])
       if (!mounted) return
       if (devRes.ok) {
@@ -249,6 +259,10 @@ export default function ReferenceDataManager() {
         const j = await brandRes.json()
         setRefBrands((j.data || []).filter((d: any) => d.name))
       }
+      if (stdRes.ok) {
+        const j = await stdRes.json()
+        setRefStdNos((j.data || []).map((d: any) => ({ no: String(d.no || ''), name: String(d.name || '') })).filter((d: any) => d.no))
+      }
     }
     loadRefs()
     return () => { mounted = false }
@@ -257,7 +271,7 @@ export default function ReferenceDataManager() {
   const openAdd = () => {
     setEditId(null)
     const o: Record<string, any> = {}
-    for (const f of sub.fields) o[f.key] = ''
+    for (const f of sub.fields) o[f.key] = f.key === 'toSelect' ? false : ''
     setEditing(o)
     setModal('add')
   }
@@ -1006,7 +1020,9 @@ export default function ReferenceDataManager() {
                     <tr key={r._id} className="border-b border-gray-100 hover:bg-military-50/40">
                       {tableFields.map((f) => (
                         <td key={f.key} className="px-2 py-1.5 text-gray-800 max-w-[200px] truncate" title={String(r[f.key] ?? '')}>
-                          {r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—'}
+                          {f.key === 'toSelect'
+                            ? (r[f.key] ? '✓' : '—')
+                            : (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—')}
                         </td>
                       ))}
                       <td className="px-2 py-1.5 text-center whitespace-nowrap">
@@ -1117,6 +1133,39 @@ export default function ReferenceDataManager() {
                           ))}
                         </select>
                         <p className="text-[10px] text-gray-400 mt-0.5">ถ้าไม่มีในรายการ ให้ไปเพิ่มที่ &quot;ยี่ห้อ / แบรนด์&quot; ก่อน</p>
+                      </div>
+                    )
+                  }
+
+                  if (f.key === 'toSelect') {
+                    return (
+                      <div key={f.key} className="flex items-center gap-2 py-1">
+                        <input
+                          type="checkbox"
+                          id="amed-toSelect"
+                          checked={!!editing[f.key]}
+                          onChange={(e) => setEditing((o) => ({ ...o, [f.key]: e.target.checked }))}
+                          className="h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                        />
+                        <label htmlFor="amed-toSelect" className="text-sm text-gray-700">{fieldLabel(f)}</label>
+                      </div>
+                    )
+                  }
+
+                  if (['uc1','uc2','uc3','uc4','uc5','uc6','ucT'].includes(f.key)) {
+                    return (
+                      <div key={f.key}>
+                        <label className="block text-xs text-gray-500 mb-0.5">{fieldLabel(f)}</label>
+                        <select
+                          className="input-field text-sm"
+                          value={editing[f.key] ?? ''}
+                          onChange={(e) => setEditing((o) => ({ ...o, [f.key]: e.target.value }))}
+                        >
+                          <option value="">— ไม่ใช้ —</option>
+                          {refStdNos.map((s) => (
+                            <option key={s.no} value={s.no}>{s.no} — {s.name}</option>
+                          ))}
+                        </select>
                       </div>
                     )
                   }

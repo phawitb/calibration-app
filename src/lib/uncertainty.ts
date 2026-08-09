@@ -58,6 +58,9 @@ export interface CalPointResult {
   uTRepSTD: number
   avgSTDRead: number
   correction: number
+  stdCorrection: number
+  uucReadings: number[]
+  stdReadings: number[]
   components: UncertaintyComponent[]
   uc: number
   veff: number
@@ -105,6 +108,74 @@ function stdev(values: number[]): number {
   return Math.sqrt(variance)
 }
 
+// ── Numerical inverse t-distribution (matches Excel T.INV.2T) ──
+
+/** Lanczos approximation for ln(Γ(x)) */
+function lgamma(x: number): number {
+  const c = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+  ]
+  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - lgamma(1 - x)
+  x -= 1
+  let a = c[0]
+  const t = x + 7.5
+  for (let i = 1; i < c.length; i++) a += c[i] / (x + i)
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a)
+}
+
+/** Continued fraction for regularized incomplete beta function */
+function betacf(x: number, a: number, b: number): number {
+  const qab = a + b, qap = a + 1, qam = a - 1
+  let c = 1, d = 1 - qab * x / qap
+  if (Math.abs(d) < 1e-30) d = 1e-30
+  d = 1 / d
+  let h = d
+  for (let m = 1; m <= 200; m++) {
+    const m2 = 2 * m
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+    d = 1 + aa * d; if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + aa / c; if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d; h *= d * c
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+    d = 1 + aa * d; if (Math.abs(d) < 1e-30) d = 1e-30
+    c = 1 + aa / c; if (Math.abs(c) < 1e-30) c = 1e-30
+    d = 1 / d
+    const del = d * c; h *= del
+    if (Math.abs(del - 1) < 1e-14) break
+  }
+  return h
+}
+
+/** Regularized incomplete beta function I_x(a, b) */
+function betai(a: number, b: number, x: number): number {
+  if (x <= 0) return 0
+  if (x >= 1) return 1
+  const bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x))
+  return x < (a + 1) / (a + b + 2)
+    ? bt * betacf(x, a, b) / a
+    : 1 - bt * betacf(1 - x, b, a) / b
+}
+
+/** Two-tailed inverse t-distribution: find t such that P(|T| > t | df) = p */
+function tInv2T(p: number, df: number): number {
+  if (df <= 0 || !isFinite(df)) return 2.0
+  if (df === 1) return Math.cos(p / 2 * Math.PI) / Math.sin(p / 2 * Math.PI)
+
+  const target = 1 - p / 2 // one-tail CDF target
+  // Bisection on t-distribution CDF
+  let lo = 0, hi = 1000
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2
+    const x = df / (df + mid * mid)
+    const cdf = 1 - 0.5 * betai(df / 2, 0.5, x) // P(T <= mid)
+    if (cdf < target) lo = mid; else hi = mid
+    if (hi - lo < 1e-10) break
+  }
+  return (lo + hi) / 2
+}
+
 function tInv(confidenceLevel: number, veff: number): number {
   if (!isFinite(veff) || veff <= 0) {
     if (confidenceLevel >= 0.9999) return 3.291
@@ -113,40 +184,9 @@ function tInv(confidenceLevel: number, veff: number): number {
     if (confidenceLevel >= 0.95) return 1.960
     return 2.000
   }
-
-  const table9545: [number, number][] = [
-    [1, 13.97], [2, 4.303], [3, 3.182], [4, 2.776], [5, 2.571],
-    [6, 2.447], [7, 2.365], [8, 2.306], [9, 2.262], [10, 2.228],
-    [12, 2.179], [15, 2.131], [20, 2.086], [25, 2.060], [30, 2.042],
-    [40, 2.021], [60, 2.000], [120, 1.980], [Infinity, 1.960],
-  ]
-  const table95: [number, number][] = [
-    [1, 12.706], [2, 4.303], [3, 3.182], [4, 2.776], [5, 2.571],
-    [6, 2.447], [7, 2.365], [8, 2.306], [9, 2.262], [10, 2.228],
-    [12, 2.179], [15, 2.131], [20, 2.086], [25, 2.060], [30, 2.042],
-    [40, 2.021], [60, 2.000], [120, 1.980], [Infinity, 1.960],
-  ]
-  const table99: [number, number][] = [
-    [1, 63.657], [2, 9.925], [3, 5.841], [4, 4.604], [5, 4.032],
-    [6, 3.707], [7, 3.499], [8, 3.355], [9, 3.250], [10, 3.169],
-    [12, 3.055], [15, 2.947], [20, 2.845], [25, 2.787], [30, 2.750],
-    [40, 2.704], [60, 2.660], [120, 2.617], [Infinity, 2.576],
-  ]
-
-  let table: [number, number][]
-  if (confidenceLevel >= 0.985) table = table99
-  else if (confidenceLevel >= 0.952) table = table9545
-  else table = table95
-
-  for (let i = 0; i < table.length - 1; i++) {
-    const [v0, k0] = table[i]
-    const [v1, k1] = table[i + 1]
-    if (veff >= v0 && veff <= v1) {
-      const t = (veff - v0) / (v1 - v0)
-      return k0 + t * (k1 - k0)
-    }
-  }
-  return 2.000
+  const p = 1 - confidenceLevel // two-tailed p-value (e.g. 0.0455 for 95.45%)
+  // Floor veff to integer (GUM standard: conservative k-factor lookup)
+  return tInv2T(p, Math.floor(veff))
 }
 
 export function calculateCalPointBudget(
@@ -215,6 +255,9 @@ export function calculateCalPointBudget(
   return {
     point,
     avgUUC, uTRepUUC, avgSTD, uTRepSTD, avgSTDRead, correction,
+    stdCorrection,
+    uucReadings,
+    stdReadings,
     components,
     uc, veff, k, U,
     formulaCode: formula.code,

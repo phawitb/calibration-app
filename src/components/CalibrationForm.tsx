@@ -33,12 +33,19 @@ function toDateInputValue(value: unknown): string {
 function normalizeInitialData(initialData?: any) {
   if (!initialData) return initialData
   const today = new Date().toISOString().slice(0, 10)
+  // Default location to English-only customer name when empty or "outside"
+  let location = initialData.location
+  if (!location || location === 'outside') {
+    const en = String(initialData.unitName || '').replace(/\(.*\)$/, '').trim()
+    location = en || initialData.unitName || ''
+  }
   return {
     ...initialData,
     issuedDate: toDateInputValue(initialData.issuedDate),
     receivedDate: toDateInputValue(initialData.receivedDate) || today,
     calDate: toDateInputValue(initialData.calDate) || today,
-    select: true,
+    select: initialData.select != null ? initialData.select : true,
+    location,
   }
 }
 
@@ -168,6 +175,22 @@ function UcSection({
   // Cal point config tables fetched from reference
   const [calPointConfigs, setCalPointConfigs] = useState<any[]>([])
   const [selectedConfigIdx, setSelectedConfigIdx] = useState(0)
+
+  // Auto-resolve std from reference when UC has std.no but no full data (e.g. created from AmedDevice registry)
+  const autoResolvedRef = useRef(false)
+  useEffect(() => {
+    if (autoResolvedRef.current || !stdRefs.length) return
+    const no = String(uc.std?.no ?? '').trim()
+    if (!no) return
+    // Only auto-resolve if std data is incomplete (no manufacture/model/serialNo)
+    if (uc.std?.manufacture || uc.std?.model || uc.std?.serialNo) return
+    const ref = stdRefs.find((r) => String(r?.no ?? '').trim() === no)
+    if (ref) {
+      autoResolvedRef.current = true
+      applyUcFromRef(ref)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stdRefs])
 
   const updateStd = (field: string, val: any) =>
     onChange({ ...uc, std: { ...(uc.std || {}), [field]: val } })
@@ -1324,8 +1347,16 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                 <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
                   value={data[f.field] || ''} readOnly />
               ) : f.field === 'location' ? (
-                <select className="input-field" value={data[f.field] || 'outside'}
-                  onChange={e => set(f.field, e.target.value)}>
+                <select className="input-field" value={String(data[f.field] || '').toLowerCase() === 'lab' ? 'lab' : 'outside'}
+                  onChange={e => {
+                    if (e.target.value === 'outside') {
+                      // Use English-only part of unitName
+                      const en = String(data.unitName || '').replace(/\(.*\)$/, '').trim()
+                      set(f.field, en || data.unitName || 'outside')
+                    } else {
+                      set(f.field, 'lab')
+                    }
+                  }}>
                   <option value="outside">Outside (นอกสถานที่)</option>
                   <option value="lab">Lab (ห้องปฏิบัติการ)</option>
                 </select>
