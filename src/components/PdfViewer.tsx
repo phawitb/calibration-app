@@ -77,9 +77,11 @@ const s = StyleSheet.create({
   footerText: { fontSize: 7, color: '#666' },
 })
 
-function fmtVal(n: number | undefined | null, decimals = 1) {
+/** Format value — decimals is set per-PDF via CalibrationPDF prop */
+let _pdfDecimals = 4
+function fmtVal(n: number | undefined | null, decimals?: number) {
   if (n == null || Number.isNaN(Number(n))) return '-'
-  return fmt(Number(n), decimals)
+  return fmt(Number(n), decimals ?? _pdfDecimals)
 }
 
 function fmtDate(d: any) {
@@ -139,12 +141,15 @@ function CalibrationPDF({
   summaryRows,
   calibratorSignature,
   approverSignature,
+  decimals = 4,
 }: {
   record: any
   summaryRows: SummaryRow[] | null
   calibratorSignature?: string | null
   approverSignature?: string | null
+  decimals?: number
 }) {
+  _pdfDecimals = decimals
   const r = record
   const f = (v: any) => (v === null || v === undefined || v === '' ? '-' : String(v))
   const certApproved = r.approvalStatus === 'approved'
@@ -233,7 +238,7 @@ function CalibrationPDF({
             </View>
             <View style={s.infoRight}>
               <Text style={[s.infoLabel, { width: 70 }]}>Temperature</Text>
-              <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapTemp)}</Text>
+              <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapTemp, 1)}</Text>
               <Text style={[s.infoValue, { marginLeft: 4 }]}>°C</Text>
             </View>
           </View>
@@ -244,7 +249,7 @@ function CalibrationPDF({
             </View>
             <View style={s.infoRight}>
               <Text style={[s.infoLabel, { width: 70 }]}>Humidity</Text>
-              <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapHumid)}</Text>
+              <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapHumid, 1)}</Text>
               <Text style={[s.infoValue, { marginLeft: 4 }]}>%RH</Text>
             </View>
           </View>
@@ -322,11 +327,11 @@ function CalibrationPDF({
           </View>
           <View style={s.tRowLast}>
             <Text style={[s.td, { width: '20%' }]}></Text>
-            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.tMin)}</Text>
-            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.tMax)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.tMin, 1)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.tMax, 1)}</Text>
             <Text style={[s.td, { width: '20%' }]}></Text>
-            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.hMin)}</Text>
-            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.hMax)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.hMin, 1)}</Text>
+            <Text style={[s.td, { width: '15%' }]}>{fmtVal(std1.hMax, 1)}</Text>
           </View>
         </View>
 
@@ -451,6 +456,7 @@ class PdfRenderErrorBoundary extends Component<
 export default function PdfViewer({ record, recordId }: { record: any; recordId: string }) {
   const [mounted, setMounted] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [decimals, setDecimals] = useState(4)
   const [summaryRows, setSummaryRows] = useState<SummaryRow[] | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryError, setSummaryError] = useState(false)
@@ -567,6 +573,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
             summaryRows={summaryRows}
             calibratorSignature={calibratorSignature}
             approverSignature={approverSignature}
+            decimals={decimals}
           />
         ).toBlob()
         const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -609,12 +616,29 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
       summaryRows={summaryRows}
       calibratorSignature={calibratorSignature}
       approverSignature={approverSignature}
+      decimals={decimals}
     />
   )
   const fileName = `calibration-${record?.certNo || recordId}.pdf`
 
   return (
     <div className="space-y-2">
+      {/* Decimal selector */}
+      <div className="flex items-center gap-3 text-sm">
+        <span className="text-gray-600 font-medium">ทศนิยม:</span>
+        {[1, 2, 3, 4].map((d) => (
+          <label key={d} className="flex items-center gap-1 cursor-pointer">
+            <input
+              type="radio"
+              name="pdf-decimals"
+              checked={decimals === d}
+              onChange={() => setDecimals(d)}
+              className="text-military-600 focus:ring-military-500"
+            />
+            <span className={decimals === d ? 'font-semibold text-military-800' : 'text-gray-500'}>{d}</span>
+          </label>
+        ))}
+      </div>
       {summaryLoading && (
         <p className="text-sm text-gray-500">กำลังคำนวณ uncertainty สำหรับตารางสรุป (หน้า 2)…</p>
       )}
