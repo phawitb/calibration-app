@@ -690,8 +690,8 @@ export default function ReferenceDataManager() {
         <div>
           <h4 className="text-sm font-semibold text-military-800 mb-2">ใบเซอร์ (Certificate PDF)</h4>
 
-          {/* Upload form */}
-          <div className="flex gap-3 mb-3 items-end flex-wrap bg-white p-3 rounded-lg border border-dashed border-gray-300">
+          {/* Upload form — only in edit mode */}
+          {stdEditing && <div className="flex gap-3 mb-3 items-end flex-wrap bg-white p-3 rounded-lg border border-dashed border-gray-300">
             <div>
               <label className="text-[11px] text-gray-500 block mb-0.5">ปี พ.ศ.</label>
               <input type="number" id={`cert-year-${r._id}`} className="input-field text-sm w-24 py-1" placeholder="2567" />
@@ -726,7 +726,7 @@ export default function ReferenceDataManager() {
               />
             </div>
             {certUploading && <span className="text-xs text-gray-500">กำลังอัปโหลด...</span>}
-          </div>
+          </div>}
 
           {/* Cert list */}
           {sortedCerts.length > 0 ? (
@@ -752,8 +752,8 @@ export default function ReferenceDataManager() {
                         {c.expiryDate && ` (${new Date(c.expiryDate).toLocaleDateString('th-TH')})`}
                       </span>
                     )}
-                    <button type="button" onClick={() => handleStdCertDelete(r._id, c._id)}
-                      className="text-red-400 text-xs hover:text-red-600 shrink-0">ลบ</button>
+                    {stdEditing && <button type="button" onClick={() => handleStdCertDelete(r._id, c._id)}
+                      className="text-red-400 text-xs hover:text-red-600 shrink-0">ลบ</button>}
                   </div>
                 )
               })}
