@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { ISO_METHODS } from '@/lib/isoMethods'
@@ -31,6 +31,7 @@ interface AmedDevice {
 
 export default function NewRecordPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [creating, setCreating] = useState(false)
   const [selectedIsoCode, setSelectedIsoCode] = useState<string | null>(null)
 
@@ -66,6 +67,16 @@ export default function NewRecordPage() {
         if (user.role === 'hospital_user' && user.hospitalUnit) {
           setSelectedUnit(user.hospitalUnit)
           setUnitSearch(user.hospitalUnit)
+        }
+        // Pre-select from query params (e.g. after บันทึกและส่งอนุมัติ)
+        const qUnit = searchParams.get('unit')
+        const qCalType = searchParams.get('calType')
+        if (qUnit && user.role !== 'hospital_user') {
+          setSelectedUnit(qUnit)
+          setUnitSearch(qUnit)
+        }
+        if (qCalType === 'sbcal' || qCalType === 'iso') {
+          setCalType(qCalType)
         }
       }
     }

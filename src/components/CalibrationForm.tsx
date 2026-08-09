@@ -1150,11 +1150,19 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         return
       }
     }
-    if (saveAction === 'request_approval' && canSubmitForApproval && !data.requestedApproverId) {
-      toast.error('กรุณาเลือกผู้อนุมัติ')
-      return
+    // request_approval: validate calculation data before submitting
+    if (saveAction === 'request_approval') {
+      const calcErrors = validateForCalculation()
+      if (Object.keys(calcErrors).length > 0) {
+        setFieldErrors((prev) => ({ ...prev, ...calcErrors }))
+        toast.error(Object.values(calcErrors)[0])
+        return
+      }
+      if (canSubmitForApproval && !data.requestedApproverId) {
+        toast.error('กรุณาเลือกผู้อนุมัติ')
+        return
+      }
     }
-    // request_approval: save + calculate + submit in one step
     setSaving(true)
     const payload = buildPayload(saveAction)
     const url = mode === 'create' ? '/api/records' : `/api/records/${id}`
@@ -1175,8 +1183,11 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       if (mode === 'create') {
         router.push(`/records/${json.record._id}?justSaved=1`)
       } else if (saveAction === 'request_approval') {
-        // After submit for approval, go to preview then return to new
-        router.push(`/records/${id}?tab=preview`)
+        // After submit for approval, go to new record page with same hospital + cal type pre-selected
+        const params = new URLSearchParams()
+        if (data.unitName) params.set('unit', data.unitName)
+        if (data.calibrationType) params.set('calType', data.calibrationType)
+        router.push(`/records/new?${params.toString()}`)
         return
       } else if (json.record) {
         setData((d: any) => ({ ...d, ...json.record }))
