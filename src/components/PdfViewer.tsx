@@ -456,7 +456,7 @@ class PdfRenderErrorBoundary extends Component<
 export default function PdfViewer({ record, recordId }: { record: any; recordId: string }) {
   const [mounted, setMounted] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
-  const [decimals, setDecimals] = useState(4)
+  const [decimals, setDecimals] = useState(1)
   const [summaryRows, setSummaryRows] = useState<SummaryRow[] | null>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryError, setSummaryError] = useState(false)

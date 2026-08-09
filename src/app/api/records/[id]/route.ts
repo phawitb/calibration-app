@@ -157,6 +157,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 
   delete (patch as any).saveAction
+  patch.savedOnce = true
   const record = await CalibrationRecord.findByIdAndUpdate(
     params.id,
     { $set: patch },

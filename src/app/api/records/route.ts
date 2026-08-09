@@ -57,8 +57,8 @@ export async function GET(req: NextRequest) {
   const hospitalUnit = (session.user as any)?.hospitalUnit
 
   const query: any = {
-    // ซ่อน record ที่ยังไม่ได้กรอกข้อมูล (สร้างจากหน้าเลือกประเภทแต่ยังไม่บันทึก)
-    deviceName: { $exists: true, $ne: '' },
+    // ซ่อน record ที่ยังไม่เคยกดบันทึก
+    savedOnce: { $ne: false },
   }
   if (role === 'hospital_user' && hospitalUnit) {
     const unitVariants = await getUnitVariants(hospitalUnit)

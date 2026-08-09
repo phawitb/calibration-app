@@ -129,6 +129,7 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
   createdBy: string
 
   lastStep?: 'edit' | 'calc' | 'preview'
+  savedOnce?: boolean
   deviceFromRegistry?: boolean
   calibrationType: 'sbcal' | 'iso'
   isoMethodCode?: string
@@ -254,6 +255,7 @@ const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   createdBy: { type: String },
 
   lastStep: { type: String, enum: ['edit', 'calc', 'preview'], default: 'edit' },
+  savedOnce: { type: Boolean, default: false },
   deviceFromRegistry: { type: Boolean, default: false },
 
   calibrationType: { type: String, enum: ['sbcal', 'iso'], default: 'sbcal', index: true },

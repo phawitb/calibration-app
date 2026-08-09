@@ -228,10 +228,15 @@ function UcSection({
   }
 
   const tryApplyFromReference = () => {
-    if (!stdRefs.length) return
     const n = (uc.std?.no ?? '').toString().trim()
     const na = (uc.std?.name ?? '').toString().trim()
-    if (!n && !na) return
+    // If both key fields are empty, clear all std data
+    if (!n && !na) {
+      setFromRef(false)
+      onChange({ ...uc, std: {} })
+      return
+    }
+    if (!stdRefs.length) return
     const ref =
       (n && stdRefs.find((r) => (r?.no ?? '').toString().trim() === n)) ||
       (na && stdRefs.find((r) => (r?.name ?? '').toString().trim() === na)) ||
@@ -305,6 +310,12 @@ function UcSection({
     <div className="border border-gray-200 rounded-lg p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="font-medium text-military-700 text-sm">{label}</h4>
+        {(uc.std?.no || uc.std?.name) && (
+          <button type="button" onClick={() => { setFromRef(false); onChange({ ...uc, std: {}, calPoints: [] }) }}
+            className="text-[11px] px-2 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">
+            ล้างเครื่องมือ
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
@@ -904,7 +915,14 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         const res = await fetch('/api/users/approvers')
         if (!res.ok) return
         const json = await res.json()
-        if (mounted) setApprovers(Array.isArray(json.users) ? json.users : [])
+        if (mounted) {
+          const list = Array.isArray(json.users) ? json.users : []
+          setApprovers(list)
+          // Default to first approver if none selected
+          if (list.length > 0 && !data.requestedApproverId) {
+            setData((d: any) => ({ ...d, requestedApproverId: list[0]._id }))
+          }
+        }
       } catch {
         // Keep form usable when approver API fails
       }
@@ -981,12 +999,16 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
 
   /** หลุดโฟกัสที่ รหัส/ชื่อ ของ std1: เติมค่าจาก StdInstrumentRef ถ้าแมตช์ (เก็บ tMin–hMax เดิม) */
   const tryApplyStd1FromRef = () => {
-    if (!stdInstruments.length) return
     setData((d: any) => {
       const s = d.std1 || {}
       const n = (s.no ?? '').toString().trim()
       const na = (s.name ?? '').toString().trim()
-      if (!n && !na) return d
+      // If both key fields are empty, clear std1 data (keep tMin/tMax/hMin/hMax)
+      if (!n && !na) {
+        setStd1FromRef(false)
+        return { ...d, std1: { tMin: s.tMin, tMax: s.tMax, hMin: s.hMin, hMax: s.hMax } }
+      }
+      if (!stdInstruments.length) return d
       const ref =
         (n && stdInstruments.find((r) => (r?.no ?? '').toString().trim() === n)) ||
         (na && stdInstruments.find((r) => (r?.name ?? '').toString().trim() === na)) ||
@@ -1099,6 +1121,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     const selectedApprover = approvers.find((a) => String(a._id) === String(data.requestedApproverId || ''))
     return {
       ...data,
+      savedOnce: true,
       saveAction,
       requestedApproverName:
         saveAction === 'request_approval' && selectedApprover
@@ -1131,10 +1154,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       toast.error('กรุณาเลือกผู้อนุมัติ')
       return
     }
-    if (saveAction === 'request_approval' && mode === 'edit' && !canRequestApprovalNow) {
-      toast.error('กรุณากดอัพเดทค่า ก่อน')
-      return
-    }
+    // request_approval: save + calculate + submit in one step
     setSaving(true)
     const payload = buildPayload(saveAction)
     const url = mode === 'create' ? '/api/records' : `/api/records/${id}`
@@ -1391,6 +1411,15 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="section-title">เครื่องมือมาตรฐานสภาพแวดล้อม (Std1)</h3>
+          {(data.std1?.no || data.std1?.name) && (
+            <button type="button" onClick={() => {
+              setStd1FromRef(false)
+              setData((d: any) => ({ ...d, std1: { tMin: d.std1?.tMin, tMax: d.std1?.tMax, hMin: d.std1?.hMin, hMax: d.std1?.hMax } }))
+            }}
+              className="text-[11px] px-2 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">
+              ล้างเครื่องมือ
+            </button>
+          )}
         </div>
         <p className="text-xs text-gray-500 -mt-1">
           พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (สามารถเลือกใหม่ได้)
@@ -1545,40 +1574,28 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       )}
 
       <div className="card bg-gray-50 border border-gray-200">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <button type="button" onClick={() => router.back()} className="btn-secondary text-sm">ยกเลิก</button>
+        <div className="flex flex-wrap items-center justify-end gap-3">
           {!isReadOnly && (
-            <div className="flex flex-wrap gap-3">
+            <>
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => submit('draft')}
                 className="btn-secondary px-5"
               >
-                {saving && !pendingContinueRef.current ? 'กำลังบันทึก...' : 'บันทึก'}
+                {saving ? 'กำลังบันทึก...' : 'บันทึก'}
               </button>
-              {mode === 'edit' && (
+              {canSubmitForApproval && (
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => { pendingContinueRef.current = true; submit('draft') }}
-                  className="btn-primary px-6 flex items-center gap-1.5"
-                >
-                  {saving && pendingContinueRef.current ? 'กำลังบันทึก...' : <>บันทึกและไปต่อ <span>&rarr;</span></>}
-                </button>
-              )}
-              {mode === 'edit' && canSubmitForApproval && (
-                <button
-                  type="button"
-                  disabled={saving || !canRequestApprovalNow}
                   onClick={() => submit('request_approval')}
                   className="px-6 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5"
-                  title={!canRequestApprovalNow ? 'กรุณาบันทึกข้อมูลก่อน' : ''}
                 >
                   บันทึกและส่งอนุมัติ
                 </button>
               )}
-            </div>
+            </>
           )}
         </div>
       </div>

@@ -42,7 +42,13 @@ export default function RecordApprovalPanel({
     fetch('/api/users/approvers')
       .then(r => r.ok ? r.json() : null)
       .then(json => {
-        if (mounted && json?.users) setApprovers(json.users)
+        if (mounted && json?.users) {
+          setApprovers(json.users)
+          // Default to first approver if none selected
+          if (!selectedApproverId && json.users.length > 0) {
+            setSelectedApproverId(json.users[0]._id)
+          }
+        }
       })
       .catch(() => {})
     return () => { mounted = false }
