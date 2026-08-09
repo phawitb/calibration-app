@@ -114,8 +114,8 @@ function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
 
     idx++
     const ucSummary = summaryRows?.filter((sr) => sr.ucName === key) || []
-    const calPoints = pts.map((pt: any) => {
-      const matchRow = ucSummary.find((sr) => String(sr.point) === String(pt.point))
+    const calPoints = pts.map((pt: any, ptIdx: number) => {
+      const matchRow = ptIdx < ucSummary.length ? ucSummary[ptIdx] : undefined
       const readings = (pt.readings || []).filter((v: any) => v !== '' && v != null).map(Number)
       const standards = (pt.standards || []).filter((v: any) => v !== '' && v != null).map(Number)
       const avgUUC = matchRow ? matchRow.avgUUC : readings.length ? readings.reduce((a: number, b: number) => a + b, 0) / readings.length : NaN
