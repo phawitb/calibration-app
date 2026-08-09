@@ -38,6 +38,7 @@ export async function POST(
   const formData = await req.formData()
   const file = formData.get('file') as File | null
   const year = Number(formData.get('year'))
+  const certNo = (formData.get('certNo') as string | null) || undefined
   const expiryDate = formData.get('expiryDate') as string | null
   const isLatest = formData.get('isLatest') === 'true'
 
@@ -66,6 +67,7 @@ export async function POST(
     {
       $set: {
         fileName: file.name,
+        certNo,
         pdfData: buffer,
         expiryDate: expiryDate ? new Date(expiryDate) : undefined,
         isLatest,
@@ -76,7 +78,7 @@ export async function POST(
   )
 
   return NextResponse.json(
-    { data: { _id: cert._id, year: cert.year, fileName: cert.fileName, isLatest: cert.isLatest, expiryDate: cert.expiryDate } },
+    { data: { _id: cert._id, year: cert.year, certNo: cert.certNo, fileName: cert.fileName, isLatest: cert.isLatest, expiryDate: cert.expiryDate } },
     { status: 201 }
   )
 }

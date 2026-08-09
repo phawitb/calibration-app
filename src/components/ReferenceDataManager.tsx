@@ -481,11 +481,12 @@ export default function ReferenceDataManager() {
     }
   }
 
-  const handleStdCertUpload = async (instId: string, file: File, year: number, expiryDate: string) => {
+  const handleStdCertUpload = async (instId: string, file: File, year: number, expiryDate: string, certNo: string) => {
     setCertUploading(true)
     const fd = new FormData()
     fd.append('file', file)
     fd.append('year', String(year))
+    if (certNo) fd.append('certNo', certNo)
     if (expiryDate) fd.append('expiryDate', expiryDate)
     fd.append('isLatest', 'true')
     const res = await fetch(`/api/admin/stdinstruments/${instId}/certificates`, { method: 'POST', body: fd })
@@ -696,6 +697,10 @@ export default function ReferenceDataManager() {
               <input type="number" id={`cert-year-${r._id}`} className="input-field text-sm w-24 py-1" placeholder="2567" />
             </div>
             <div>
+              <label className="text-[11px] text-gray-500 block mb-0.5">เลขที่ใบรับรอง</label>
+              <input type="text" id={`cert-no-${r._id}`} className="input-field text-sm w-40 py-1" placeholder="เลขที่ใบรับรอง" />
+            </div>
+            <div>
               <label className="text-[11px] text-gray-500 block mb-0.5">วันหมดอายุ</label>
               <input type="date" id={`cert-expiry-${r._id}`} className="input-field text-sm w-40 py-1" />
             </div>
@@ -711,10 +716,11 @@ export default function ReferenceDataManager() {
                   const file = e.target.files?.[0]
                   if (!file) return
                   const yearEl = document.getElementById(`cert-year-${r._id}`) as HTMLInputElement
+                  const certNoEl = document.getElementById(`cert-no-${r._id}`) as HTMLInputElement
                   const expiryEl = document.getElementById(`cert-expiry-${r._id}`) as HTMLInputElement
                   const year = Number(yearEl?.value)
                   if (!year) { toast.error('กรุณาระบุปี'); e.target.value = ''; return }
-                  handleStdCertUpload(r._id, file, year, expiryEl?.value || '')
+                  handleStdCertUpload(r._id, file, year, expiryEl?.value || '', certNoEl?.value || '')
                   e.target.value = ''
                 }}
               />
@@ -733,6 +739,7 @@ export default function ReferenceDataManager() {
                     isActive ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100'
                   }`}>
                     <span className="font-medium text-gray-700 w-16 shrink-0">ปี {c.year}</span>
+                    {c.certNo && <span className="text-gray-600 text-xs shrink-0">เลขที่ {c.certNo}</span>}
                     <span className="text-gray-500 truncate flex-1">{c.fileName}</span>
                     {isActive && (
                       <span className="text-[10px] px-1.5 py-0.5 bg-blue-600 text-white rounded font-medium shrink-0">

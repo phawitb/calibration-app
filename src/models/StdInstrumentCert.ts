@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from 'mongoose'
 export interface IStdInstrumentCert extends Document {
   instrumentRefId: string
   year: number
+  certNo?: string
   fileName: string
   pdfData: Buffer
   expiryDate?: Date
@@ -13,6 +14,7 @@ export interface IStdInstrumentCert extends Document {
 const StdInstrumentCertSchema = new Schema<IStdInstrumentCert>({
   instrumentRefId: { type: String, required: true, index: true },
   year:            { type: Number, required: true },
+  certNo:          { type: String },
   fileName:        { type: String, required: true },
   pdfData:         { type: Buffer, required: true },
   expiryDate:      { type: Date },
