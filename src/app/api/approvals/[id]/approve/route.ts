@@ -22,13 +22,7 @@ export async function POST(
   if (record.approvalStatus !== 'pending_approval') {
     return NextResponse.json({ error: 'Record is not pending approval' }, { status: 400 })
   }
-  if (
-    role === 'approver' &&
-    String(record.requestedApproverId || '') !== String((session.user as any).id || '')
-  ) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
-
+  // Any admin or approver can approve (not restricted to requested approver)
   const approverId = String((session.user as any).id || '')
   const approver = await User.findById(approverId).select('name fullName fullNameEn').lean()
   const approverName = String(

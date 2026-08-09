@@ -8,10 +8,9 @@ function canSeeApprovals(role: string | undefined) {
   return role === 'admin' || role === 'approver'
 }
 
-function buildScope(sessionUser: any) {
-  const role = sessionUser?.role
-  if (role === 'admin') return {}
-  return { requestedApproverId: String(sessionUser?.id || '') }
+function buildScope() {
+  // All admins and approvers can see all pending approvals
+  return {}
 }
 
 export async function GET() {
@@ -23,7 +22,7 @@ export async function GET() {
   await connectDB()
   const rows = await CalibrationRecord.find({
     approvalStatus: 'pending_approval',
-    ...buildScope(session.user as any),
+    ...buildScope(),
   })
     .select('amedNo certNo deviceName brand model serialNo unitName calDate requestedApproverName')
     .sort({ updatedAt: -1 })
