@@ -48,6 +48,8 @@ export default function HospitalDevicesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [historyMap, setHistoryMap] = useState<Record<string, CalRecord[]>>({})
   const [historyLoading, setHistoryLoading] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<string>('amedNo')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const hospitalUnit = (session?.user as any)?.hospitalUnit || ''
 
@@ -81,16 +83,50 @@ export default function HospitalDevicesPage() {
   }, [hospitalUnit])
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return devices
-    const q = search.toLowerCase()
-    return devices.filter(d =>
-      (d.amedNo || '').toLowerCase().includes(q) ||
-      (d.deviceName || '').toLowerCase().includes(q) ||
-      (d.deviceNameTh || '').toLowerCase().includes(q) ||
-      (d.brand || '').toLowerCase().includes(q) ||
-      (d.section || '').toLowerCase().includes(q)
-    )
-  }, [devices, search])
+    let list = devices
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(d =>
+        (d.amedNo || '').toLowerCase().includes(q) ||
+        (d.deviceName || '').toLowerCase().includes(q) ||
+        (d.deviceNameTh || '').toLowerCase().includes(q) ||
+        (d.brand || '').toLowerCase().includes(q) ||
+        (d.section || '').toLowerCase().includes(q)
+      )
+    }
+    const sorted = [...list].sort((a, b) => {
+      let va = '', vb = ''
+      switch (sortKey) {
+        case 'amedNo': va = a.amedNo || ''; vb = b.amedNo || ''; break
+        case 'deviceName': va = a.deviceName || a.deviceNameTh || ''; vb = b.deviceName || b.deviceNameTh || ''; break
+        case 'brandModel': va = [a.brand, a.model].filter(Boolean).join(' '); vb = [b.brand, b.model].filter(Boolean).join(' '); break
+        case 'serialNo': va = a.serialNo || ''; vb = b.serialNo || ''; break
+        case 'section': va = a.section || ''; vb = b.section || ''; break
+        case 'calDate': {
+          const la = latestCals[a.amedNo]?.calDate || ''
+          const lb = latestCals[b.amedNo]?.calDate || ''
+          va = la; vb = lb; break
+        }
+      }
+      const cmp = va.localeCompare(vb, 'th', { numeric: true })
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+    return sorted
+  }, [devices, search, sortKey, sortDir, latestCals])
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const SortIcon = ({ col }: { col: string }) => {
+    if (sortKey !== col) return <span className="ml-1 text-military-400 opacity-40">&#8597;</span>
+    return <span className="ml-1">{sortDir === 'asc' ? '&#9650;' : '&#9660;'}</span>
+  }
 
   const toggleExpand = useCallback(async (amedNo: string) => {
     if (expandedId === amedNo) {
@@ -156,15 +192,27 @@ export default function HospitalDevicesPage() {
       <div className="card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-military-800 text-white">
+            <thead className="bg-military-800 text-white select-none">
               <tr>
                 <th className="py-3 px-3 text-left font-medium w-8"></th>
-                <th className="py-3 px-3 text-left font-medium">AmedNo</th>
-                <th className="py-3 px-3 text-left font-medium">ชื่อเครื่อง</th>
-                <th className="py-3 px-3 text-left font-medium hidden md:table-cell">ยี่ห้อ / รุ่น</th>
-                <th className="py-3 px-3 text-left font-medium hidden lg:table-cell">S/N</th>
-                <th className="py-3 px-3 text-left font-medium hidden lg:table-cell">แผนก</th>
-                <th className="py-3 px-3 text-left font-medium hidden md:table-cell">สอบเทียบล่าสุด</th>
+                <th className="py-3 px-3 text-left font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('amedNo')}>
+                  AmedNo<SortIcon col="amedNo" />
+                </th>
+                <th className="py-3 px-3 text-left font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('deviceName')}>
+                  ชื่อเครื่อง<SortIcon col="deviceName" />
+                </th>
+                <th className="py-3 px-3 text-left font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('brandModel')}>
+                  ยี่ห้อ / รุ่น<SortIcon col="brandModel" />
+                </th>
+                <th className="py-3 px-3 text-left font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('serialNo')}>
+                  S/N<SortIcon col="serialNo" />
+                </th>
+                <th className="py-3 px-3 text-left font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('section')}>
+                  แผนก<SortIcon col="section" />
+                </th>
+                <th className="py-3 px-3 text-left font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('calDate')}>
+                  สอบเทียบล่าสุด<SortIcon col="calDate" />
+                </th>
                 <th className="py-3 px-3 text-center font-medium hidden md:table-cell">สถานะ</th>
               </tr>
             </thead>
