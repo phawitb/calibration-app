@@ -17,15 +17,6 @@ export default function RecordPreviewPanel({ recordId, record }: { recordId: str
     <div className="card space-y-4">
       <h3 className="section-title">ตรวจสอบใบรับรอง (Preview)</h3>
       <PdfViewer record={record} recordId={recordId} />
-      <div className="flex justify-center">
-        <Link
-          href={`/records/${recordId}/pdf`}
-          target="_blank"
-          className="btn-secondary text-sm flex items-center gap-2"
-        >
-          เปิด PDF ในหน้าใหม่
-        </Link>
-      </div>
     </div>
   )
 }
