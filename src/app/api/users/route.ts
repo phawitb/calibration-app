@@ -75,9 +75,6 @@ export async function POST(req: NextRequest) {
   if (signaturePng != null && String(signaturePng).length > 1_200_000) {
     return NextResponse.json({ error: 'รูปลายเซ็นใหญ่เกินไป' }, { status: 400 })
   }
-  if (signaturePng && !['technician', 'approver'].includes(role)) {
-    return NextResponse.json({ error: 'ลายเซ็นใช้ได้เฉพาะจนท.สอบเทียบและผู้อนุมัติ' }, { status: 400 })
-  }
   const user = new User({
     username,
     password: hashed,
@@ -143,13 +140,6 @@ export async function PATCH(req: NextRequest) {
   }
   if (body.signaturePng !== undefined) {
     const u = await User.findById(id).lean()
-    const effRole = body.role != null ? String(body.role) : (u as any)?.role
-    if (body.signaturePng && !['technician', 'approver'].includes(effRole)) {
-      return NextResponse.json(
-        { error: 'ลายเซ็นใช้ได้เฉพาะจนท.สอบเทียบและผู้อนุมัติ' },
-        { status: 400 }
-      )
-    }
     if (body.signaturePng === null) update.signaturePng = undefined
     else {
       const s = String(body.signaturePng)
