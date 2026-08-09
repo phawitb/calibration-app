@@ -149,6 +149,7 @@ function UcSection({
   stdRefs = [],
   stdFieldOptions,
   formulaOptions = [],
+  isTimeUnit = false,
 }: {
   label: string
   value: any
@@ -156,6 +157,7 @@ function UcSection({
   stdRefs?: StdRef[]
   stdFieldOptions?: StdFieldOptions
   formulaOptions?: FormulaOption[]
+  isTimeUnit?: boolean
 }) {
   const uc = value || {}
   // Track if std fields came from reference (lock non-key fields)
@@ -176,16 +178,22 @@ function UcSection({
     const prev = { ...emptyRow, ...pts[idx] }
     if (field === 'point') {
       const raw = val === '' || val == null ? '' : String(val)
-      const p = raw === '' ? NaN : parseFloat(raw)
-      const corrRaw = uc.std?.correction
-      const c =
-        corrRaw != null && corrRaw !== ''
-          ? parseFloat(String(corrRaw))
-          : 0
-      const co = Number.isNaN(c) ? 0 : c
-      const stds: (number | string)[] =
-        raw === '' || Number.isNaN(p) ? ['', '', '', ''] : [p + co, p + co, p + co, p + co]
-      pts[idx] = { ...prev, point: raw, standards: stds }
+      if (isTimeUnit) {
+        // Time format: just set point and auto-fill STD with same value
+        const stds: (number | string)[] = raw === '' ? ['', '', '', ''] : [raw, raw, raw, raw]
+        pts[idx] = { ...prev, point: raw, standards: stds }
+      } else {
+        const p = raw === '' ? NaN : parseFloat(raw)
+        const corrRaw = uc.std?.correction
+        const c =
+          corrRaw != null && corrRaw !== ''
+            ? parseFloat(String(corrRaw))
+            : 0
+        const co = Number.isNaN(c) ? 0 : c
+        const stds: (number | string)[] =
+          raw === '' || Number.isNaN(p) ? ['', '', '', ''] : [p + co, p + co, p + co, p + co]
+        pts[idx] = { ...prev, point: raw, standards: stds }
+      }
     } else if (field === 'readings') {
       pts[idx] = { ...prev, readings: val }
     } else if (field === 'standards') {
@@ -407,27 +415,30 @@ function UcSection({
                   <tr key={i}>
                     <td className="border border-gray-200 px-2 py-1 text-center font-medium">{i + 1}</td>
                     <td className="border border-gray-200 p-0.5">
-                      <input type="number" className="w-full px-1 py-0.5 text-center outline-none"
+                      <input type={isTimeUnit ? 'text' : 'number'} className="w-full px-1 py-0.5 text-center outline-none"
+                        placeholder={isTimeUnit ? '21:00:00.000' : ''}
                         value={pt.point || ''} onChange={e => updatePoint(i, 'point', e.target.value)} />
                     </td>
                     {[0, 1, 2, 3].map(r => (
                       <td key={r} className="border border-gray-200 p-0.5">
-                        <input type="number" className="w-full px-1 py-0.5 text-center outline-none"
+                        <input type={isTimeUnit ? 'text' : 'number'} className="w-full px-1 py-0.5 text-center outline-none"
+                          placeholder={isTimeUnit ? '00:00:00.000' : ''}
                           value={pt.readings?.[r] || ''}
                           onChange={e => {
                             const arr = [...(pt.readings || [])]
-                            arr[r] = Number(e.target.value)
+                            arr[r] = isTimeUnit ? e.target.value : Number(e.target.value)
                             updatePoint(i, 'readings', arr)
                           }} />
                       </td>
                     ))}
                     {[0, 1, 2, 3].map(s => (
                       <td key={s} className="border border-gray-200 p-0.5">
-                        <input type="number" className="w-full px-1 py-0.5 text-center outline-none"
+                        <input type={isTimeUnit ? 'text' : 'number'} className="w-full px-1 py-0.5 text-center outline-none"
+                          placeholder={isTimeUnit ? '00:00:00.000' : ''}
                           value={pt.standards?.[s] || ''}
                           onChange={e => {
                             const arr = [...(pt.standards || [])]
-                            arr[s] = Number(e.target.value)
+                            arr[s] = isTimeUnit ? e.target.value : Number(e.target.value)
                             updatePoint(i, 'standards', arr)
                           }} />
                       </td>
@@ -1462,6 +1473,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                   label="เครื่องมือสอบเทียบเวลา (UcT)"
                   value={data.ucT}
                   onChange={(v) => set('ucT', v)}
+                  isTimeUnit
                 />
               </div>
             )}

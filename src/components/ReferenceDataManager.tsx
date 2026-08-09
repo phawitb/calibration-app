@@ -418,10 +418,13 @@ export default function ReferenceDataManager() {
       }
 
       // 3) Update existing cal point tables (points + stdValues may have been edited)
+      const isTimeUnit = isExpandedTimeUnit
       const existingCps = pendingCalPoints.filter((cp: any) => !cp._isNew && !pendingCpDeleted.includes(cp._id))
       for (const cp of existingCps) {
         const cleanPoints = (cp.points || []).filter((p: any) => p.pointValue !== '' && p.pointValue != null)
-        const stdArr = (cp.stdValues || []).map((v: any) => v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : 0)
+        const stdArr = isTimeUnit
+          ? (cp.stdValues || []).map((v: any) => v != null && v !== '' ? String(v) : '')
+          : (cp.stdValues || []).map((v: any) => v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : 0)
         await fetch(`/api/admin/stdinstruments/${id}/calpoints`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -433,7 +436,9 @@ export default function ReferenceDataManager() {
       const newCps = pendingCalPoints.filter((cp: any) => cp._isNew && !pendingCpDeleted.includes(cp._id))
       for (const cp of newCps) {
         const cleanPoints = (cp.points || []).filter((p: any) => p.pointValue !== '' && p.pointValue != null)
-        const stdArr = (cp.stdValues || []).map((v: any) => v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : 0)
+        const stdArr = isTimeUnit
+          ? (cp.stdValues || []).map((v: any) => v != null && v !== '' ? String(v) : '')
+          : (cp.stdValues || []).map((v: any) => v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : 0)
         await fetch(`/api/admin/stdinstruments/${id}/calpoints`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -487,18 +492,24 @@ export default function ReferenceDataManager() {
     else toast.error('ลบไม่สำเร็จ')
   }
 
+  // Check if currently expanded row is time-based measurement
+  const expandedRow = rows.find((r: any) => r._id === expandedId)
+  const isExpandedTimeUnit = String(expandedRow?.measurement || '').toLowerCase() === 'time'
+
   // --- Pending cal point operations (local state, saved on main save) ---
   const addPendingCalPoint = () => {
     const points = cpForm.points.split(',').map(s => s.trim()).filter(Boolean).map(s => ({
-      pointValue: Number(s),
+      pointValue: isExpandedTimeUnit ? s : Number(s),
       unit: '',
     }))
-    if (points.length === 0 || points.some(p => isNaN(p.pointValue))) {
-      toast.error('กรุณาระบุ cal points เป็นตัวเลขคั่นด้วยจุลภาค')
+    if (points.length === 0 || (!isExpandedTimeUnit && points.some(p => isNaN(p.pointValue as number)))) {
+      toast.error('กรุณาระบุ cal points คั่นด้วยจุลภาค')
       return
     }
     const stdValues = cpForm.stdValues
-      ? cpForm.stdValues.split(',').map(s => s.trim()).filter(Boolean).map(Number).filter(n => !isNaN(n))
+      ? isExpandedTimeUnit
+        ? cpForm.stdValues.split(',').map(s => s.trim()).filter(Boolean)
+        : cpForm.stdValues.split(',').map(s => s.trim()).filter(Boolean).map(Number).filter(n => !isNaN(n))
       : []
     const tempId = `_new_${Date.now()}`
     const existingCount = pendingCalPoints.length
@@ -590,6 +601,8 @@ export default function ReferenceDataManager() {
   // Render expanded detail for stdinstruments
   const renderStdDetail = (r: any) => {
     if (stdDetailLoading) return <p className="text-sm text-gray-500 py-4">กำลังโหลด...</p>
+
+    const isTimeMeasurement = String(r.measurement || '').toLowerCase() === 'time'
 
     // Sort certs by year desc (latest first)
     const sortedCerts = [...stdCerts].sort((a, b) => (b.year || 0) - (a.year || 0))
@@ -805,11 +818,12 @@ export default function ReferenceDataManager() {
                               <td className="px-3 py-1 text-gray-400">{i + 1}</td>
                               <td className="px-3 py-1 text-right font-mono text-gray-800">
                                 {stdEditing ? (
-                                  <input type="number" step="any"
-                                    className="w-20 text-right text-xs font-mono px-1 py-0.5 border border-gray-200 rounded ml-auto block"
+                                  <input type={isTimeMeasurement ? 'text' : 'number'} step="any"
+                                    className={`${isTimeMeasurement ? 'w-28' : 'w-20'} text-right text-xs font-mono px-1 py-0.5 border border-gray-200 rounded ml-auto block`}
+                                    placeholder={isTimeMeasurement ? '21:00:00' : ''}
                                     value={pts[i]?.pointValue ?? ''}
                                     onChange={e => {
-                                      const val = e.target.value === '' ? '' : Number(e.target.value)
+                                      const val = isTimeMeasurement ? e.target.value : (e.target.value === '' ? '' : Number(e.target.value))
                                       setPendingCalPoints(prev => prev.map((c, ci) => {
                                         if (ci !== idx) return c
                                         const newPts = [...(c.points || [])]
@@ -825,11 +839,12 @@ export default function ReferenceDataManager() {
                               </td>
                               <td className="px-3 py-1 text-right font-mono text-blue-700">
                                 {stdEditing ? (
-                                  <input type="number" step="any"
-                                    className="w-20 text-right text-xs font-mono px-1 py-0.5 border border-blue-200 rounded ml-auto block text-blue-700"
+                                  <input type={isTimeMeasurement ? 'text' : 'number'} step="any"
+                                    className={`${isTimeMeasurement ? 'w-28' : 'w-20'} text-right text-xs font-mono px-1 py-0.5 border border-blue-200 rounded ml-auto block text-blue-700`}
+                                    placeholder={isTimeMeasurement ? '21:00:00' : ''}
                                     value={stds[i] ?? ''}
                                     onChange={e => {
-                                      const val = e.target.value === '' ? undefined : Number(e.target.value)
+                                      const val = isTimeMeasurement ? e.target.value : (e.target.value === '' ? undefined : Number(e.target.value))
                                       setPendingCalPoints(prev => prev.map((c, ci) => {
                                         if (ci !== idx) return c
                                         const newStds = [...(c.stdValues || [])]

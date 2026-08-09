@@ -3,8 +3,8 @@ import mongoose, { Schema, Document } from 'mongoose'
 export interface IStdCalPointConfig extends Document {
   instrumentRefId: string
   tableName: string
-  points: { pointValue: number; unit: string }[]
-  stdValues: number[]
+  points: { pointValue: number | string; unit: string }[]
+  stdValues: (number | string)[]
   order: number
   createdAt: Date
   updatedAt: Date
@@ -16,12 +16,12 @@ const StdCalPointConfigSchema = new Schema<IStdCalPointConfig>(
     tableName:       { type: String, required: true },
     points: [
       {
-        pointValue: { type: Number, required: true },
+        pointValue: { type: Schema.Types.Mixed, required: true },
         unit:       { type: String, default: '' },
         _id: false,
       },
     ],
-    stdValues:       [{ type: Number }],
+    stdValues:       [{ type: Schema.Types.Mixed }],
     order:           { type: Number, default: 0 },
   },
   { timestamps: true }
