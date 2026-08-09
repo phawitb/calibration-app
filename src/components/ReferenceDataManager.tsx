@@ -151,6 +151,39 @@ function fieldLabel(f: { key: string; label?: string }) {
   return f.label || f.key
 }
 
+/** Parse a CSV line respecting quoted fields with commas and escaped quotes */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"'
+          i++ // skip escaped quote
+        } else {
+          inQuotes = false
+        }
+      } else {
+        current += ch
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true
+      } else if (ch === ',') {
+        result.push(current.trim())
+        current = ''
+      } else {
+        current += ch
+      }
+    }
+  }
+  result.push(current.trim())
+  return result
+}
+
 function getCertStatus(expiryDate: string | Date | undefined) {
   if (!expiryDate) return null
   const exp = new Date(expiryDate)
@@ -198,6 +231,105 @@ export default function ReferenceDataManager() {
   const [refSections, setRefSections] = useState<string[]>([])
   const [refBrands, setRefBrands] = useState<{ name: string; model: string }[]>([])
   const [refStdNos, setRefStdNos] = useState<{ no: string; name: string }[]>([])
+  const [importing, setImporting] = useState(false)
+
+  // ---- Export CSV ----
+  const exportCsv = () => {
+    if (!rows.length) { toast.error('ไม่มีข้อมูลให้ export'); return }
+    const fields = sub.fields
+    const headers = ['_id', ...fields.map(f => f.key)]
+    const csvRows = rows.map(r =>
+      headers.map(h => `"${String(r[h] ?? '').replace(/"/g, '""')}"`).join(',')
+    )
+    const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${sub.key}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ---- Import CSV ----
+  const handleImportCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = '' // reset input
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      const text = String(ev.target?.result || '')
+      // Remove BOM
+      const clean = text.replace(/^\uFEFF/, '')
+      const lines = clean.split(/\r?\n/).filter(l => l.trim())
+      if (lines.length < 2) {
+        toast.error('CSV ต้องมีอย่างน้อย 1 header + 1 data row')
+        return
+      }
+
+      // Parse header
+      const headerLine = lines[0]
+      const csvHeaders = parseCSVLine(headerLine)
+
+      // Validate columns strictly
+      const expectedFields = sub.fields.map(f => f.key)
+      const allowedHeaders = ['_id', ...expectedFields]
+      const unknownCols = csvHeaders.filter(h => !allowedHeaders.includes(h))
+      if (unknownCols.length > 0) {
+        toast.error(`Column ไม่ถูกต้อง: ${unknownCols.join(', ')}\n\nColumn ที่อนุญาต: ${allowedHeaders.join(', ')}`)
+        return
+      }
+      // All field keys must be present (except _id which is optional)
+      const missingCols = expectedFields.filter(f => !csvHeaders.includes(f))
+      if (missingCols.length > 0) {
+        toast.error(`ขาด column ที่จำเป็น: ${missingCols.join(', ')}`)
+        return
+      }
+
+      // Parse data rows
+      const dataRows: Record<string, any>[] = []
+      for (let i = 1; i < lines.length; i++) {
+        const values = parseCSVLine(lines[i])
+        if (values.length !== csvHeaders.length) {
+          toast.error(`แถวที่ ${i + 1}: จำนวน column ไม่ตรง (ได้ ${values.length}, ต้องการ ${csvHeaders.length})`)
+          return
+        }
+        const row: Record<string, any> = {}
+        csvHeaders.forEach((h, idx) => {
+          const val = values[idx]
+          // Convert number fields
+          const fieldDef = sub.fields.find(f => f.key === h)
+          if (fieldDef?.input === 'number' && val !== '') {
+            const num = Number(val)
+            row[h] = isNaN(num) ? val : num
+          } else {
+            row[h] = val
+          }
+        })
+        dataRows.push(row)
+      }
+
+      if (!confirm(`ยืนยันนำเข้า ${dataRows.length} รายการ เข้า "${sub.label}"?\n\n• แถวที่มี _id ตรงกัน → อัพเดทข้อมูล\n• แถวใหม่ → เพิ่มเข้าระบบ\n• ข้อมูลเดิมที่ไม่อยู่ใน CSV จะไม่ถูกลบ`)) return
+
+      setImporting(true)
+      try {
+        const res = await fetch('/api/admin/reference/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: sub.type, rows: dataRows, expectedColumns: csvHeaders }),
+        })
+        const j = await res.json()
+        if (!res.ok) { toast.error(j.error || 'Import ไม่สำเร็จ'); return }
+        toast.success(`Import สำเร็จ: เพิ่ม ${j.created} / อัพเดท ${j.updated} รายการ`)
+        load()
+      } catch {
+        toast.error('เกิดข้อผิดพลาดในการ import')
+      } finally {
+        setImporting(false)
+      }
+    }
+    reader.readAsText(file, 'UTF-8')
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -920,9 +1052,26 @@ export default function ReferenceDataManager() {
           />
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">&#128269;</span>
         </div>
-        <button type="button" onClick={openAdd} className="btn-primary text-sm whitespace-nowrap">
-          + เพิ่มรายการ
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={exportCsv} className="btn-secondary text-xs whitespace-nowrap flex items-center gap-1" title="Export CSV">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z" />
+              <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+            </svg>
+            Export
+          </button>
+          <label className={`btn-secondary text-xs whitespace-nowrap flex items-center gap-1 cursor-pointer ${importing ? 'opacity-50 pointer-events-none' : ''}`} title="Import CSV">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+              <path d="M9.25 13.25a.75.75 0 001.5 0V4.636l2.955 3.129a.75.75 0 001.09-1.03l-4.25-4.5a.75.75 0 00-1.09 0l-4.25 4.5a.75.75 0 101.09 1.03L9.25 4.636v8.614z" />
+              <path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z" />
+            </svg>
+            {importing ? 'กำลัง Import...' : 'Import'}
+            <input type="file" accept=".csv" className="hidden" onChange={handleImportCsv} disabled={importing} />
+          </label>
+          <button type="button" onClick={openAdd} className="btn-primary text-sm whitespace-nowrap">
+            + เพิ่มรายการ
+          </button>
+        </div>
       </div>
 
       <div className="card p-0 overflow-hidden">
