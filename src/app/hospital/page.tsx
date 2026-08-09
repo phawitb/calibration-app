@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
-import Link from 'next/link'
 
 interface AmedDevice {
   _id: string
@@ -23,12 +22,32 @@ interface LatestCal {
   approvalStatus?: string
 }
 
+interface CalRecord {
+  _id: string
+  amedNo: string
+  certNo?: string
+  deviceName?: string
+  brand?: string
+  model?: string
+  serialNo?: string
+  calDate?: string
+  calibrate?: string
+  approve?: string
+  calibratedById?: string
+  approvedById?: string
+  calibrationType?: string
+  isoMethodCode?: string
+}
+
 export default function HospitalDevicesPage() {
   const { data: session } = useSession()
   const [devices, setDevices] = useState<AmedDevice[]>([])
   const [latestCals, setLatestCals] = useState<Record<string, LatestCal>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [historyMap, setHistoryMap] = useState<Record<string, CalRecord[]>>({})
+  const [historyLoading, setHistoryLoading] = useState<string | null>(null)
 
   const hospitalUnit = (session?.user as any)?.hospitalUnit || ''
 
@@ -73,109 +92,228 @@ export default function HospitalDevicesPage() {
     )
   }, [devices, search])
 
+  const toggleExpand = useCallback(async (amedNo: string) => {
+    if (expandedId === amedNo) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(amedNo)
+
+    // Load history if not cached
+    if (!historyMap[amedNo]) {
+      setHistoryLoading(amedNo)
+      try {
+        const res = await fetch(`/api/hospital/history?amedNo=${encodeURIComponent(amedNo)}`)
+        const j = await res.json()
+        setHistoryMap(prev => ({ ...prev, [amedNo]: Array.isArray(j.data) ? j.data : [] }))
+      } catch {
+        setHistoryMap(prev => ({ ...prev, [amedNo]: [] }))
+      }
+      setHistoryLoading(null)
+    }
+  }, [expandedId, historyMap])
+
+  const openCert = async (userId: string, label: string) => {
+    const res = await fetch(`/api/users/${userId}/certificates`)
+    if (!res.ok) return
+    const j = await res.json()
+    const certs = j.data || []
+    if (certs.length === 0) {
+      alert(`${label}ยังไม่มีใบเซอร์`)
+      return
+    }
+    window.open(`/api/users/${userId}/certificates/${certs[0]._id}`, '_blank')
+  }
+
   if (!hospitalUnit) {
     return (
       <div className="flex flex-col items-center justify-center py-16 space-y-3">
-        <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center text-3xl">🏥</div>
         <p className="text-gray-500 text-center">ไม่พบข้อมูลหน่วยงานของคุณ<br />กรุณาติดต่อผู้ดูแลระบบ</p>
       </div>
     )
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold text-military-900">เครื่องมือของหน่วย</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {hospitalUnit} — {filtered.length} เครื่อง
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-military-900">เครื่องมือของหน่วย</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          {hospitalUnit} — {filtered.length} เครื่อง
+        </p>
       </div>
 
       {/* Search */}
-      <div className="relative max-w-md">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none">
-          <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clipRule="evenodd" />
-        </svg>
-        <input
-          type="text"
-          className="input-field pl-9 w-full"
-          placeholder="ค้นหา AmedNo, ชื่อเครื่อง, ยี่ห้อ..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
+      <input
+        type="text"
+        className="input-field max-w-md"
+        placeholder="ค้นหา AmedNo, ชื่อเครื่อง, ยี่ห้อ..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
 
-      {/* Device cards */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin h-8 w-8 border-4 border-military-300 border-t-military-700 rounded-full" />
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 space-y-2">
-          <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-2xl">📋</div>
-          <p className="text-gray-400">{search ? 'ไม่พบเครื่องมือที่ค้นหา' : 'ยังไม่มีเครื่องมือในระบบ'}</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map(d => {
-            const latest = latestCals[d.amedNo]
-            return (
-              <Link
-                key={d._id}
-                href={`/hospital/${encodeURIComponent(d.amedNo)}`}
-                className="block card border border-gray-200 hover:border-military-400 hover:shadow-md transition-all group"
-              >
-                {/* Device header */}
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <span className="inline-block text-xs font-mono font-semibold px-2 py-0.5 rounded bg-military-100 text-military-800">
-                      {d.amedNo}
-                    </span>
-                  </div>
-                  <span className="text-military-400 group-hover:text-military-700 transition-colors text-lg">&rarr;</span>
-                </div>
+      {/* Table */}
+      <div className="card p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-military-800 text-white">
+              <tr>
+                <th className="py-3 px-3 text-left font-medium w-8"></th>
+                <th className="py-3 px-3 text-left font-medium">AmedNo</th>
+                <th className="py-3 px-3 text-left font-medium">ชื่อเครื่อง</th>
+                <th className="py-3 px-3 text-left font-medium hidden md:table-cell">ยี่ห้อ / รุ่น</th>
+                <th className="py-3 px-3 text-left font-medium hidden lg:table-cell">S/N</th>
+                <th className="py-3 px-3 text-left font-medium hidden lg:table-cell">แผนก</th>
+                <th className="py-3 px-3 text-left font-medium hidden md:table-cell">สอบเทียบล่าสุด</th>
+                <th className="py-3 px-3 text-center font-medium hidden md:table-cell">สถานะ</th>
+              </tr>
+            </thead>
+            {loading ? (
+              <tbody>
+                <tr><td colSpan={8} className="py-12 text-center text-gray-400">กำลังโหลด...</td></tr>
+              </tbody>
+            ) : filtered.length === 0 ? (
+              <tbody>
+                <tr><td colSpan={8} className="py-12 text-center text-gray-400">
+                  {search ? 'ไม่พบเครื่องมือที่ค้นหา' : 'ยังไม่มีเครื่องมือในระบบ'}
+                </td></tr>
+              </tbody>
+            ) : filtered.map((d, i) => {
+              const latest = latestCals[d.amedNo]
+              const isExpanded = expandedId === d.amedNo
+              const history = historyMap[d.amedNo]
+              const isLoadingHistory = historyLoading === d.amedNo
 
-                {/* Device name */}
-                <h3 className="font-semibold text-gray-900 mb-1 leading-snug">
-                  {d.deviceName || d.deviceNameTh || '-'}
-                </h3>
+              return (
+                <tbody key={d._id}>
+                    {/* Main row */}
+                    <tr
+                      className={`border-b border-gray-100 cursor-pointer transition-colors ${isExpanded ? 'bg-military-50' : i % 2 === 0 ? '' : 'bg-gray-50/50'} hover:bg-military-50`}
+                      onClick={() => toggleExpand(d.amedNo)}
+                    >
+                      <td className="py-3 px-3 text-center">
+                        <span className={`inline-block transition-transform text-gray-400 text-xs ${isExpanded ? 'rotate-90' : ''}`}>
+                          &#9654;
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 font-mono font-semibold text-military-800">{d.amedNo}</td>
+                      <td className="py-3 px-3">
+                        <div className="font-medium text-gray-800">{d.deviceName || d.deviceNameTh || '-'}</div>
+                        <div className="text-xs text-gray-400 md:hidden">
+                          {[d.brand, d.model].filter(Boolean).join(' / ')}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-gray-600 hidden md:table-cell">
+                        {[d.brand, d.model].filter(Boolean).join(' / ') || '-'}
+                      </td>
+                      <td className="py-3 px-3 text-gray-600 hidden lg:table-cell">{d.serialNo || '-'}</td>
+                      <td className="py-3 px-3 text-gray-600 hidden lg:table-cell">{d.section || '-'}</td>
+                      <td className="py-3 px-3 text-gray-600 hidden md:table-cell whitespace-nowrap">
+                        {latest?.calDate ? new Date(latest.calDate).toLocaleDateString('th-TH') : '-'}
+                      </td>
+                      <td className="py-3 px-3 text-center hidden md:table-cell">
+                        {latest?.approvalStatus === 'approved' ? (
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">อนุมัติแล้ว</span>
+                        ) : (
+                          <span className="text-xs text-gray-400">-</span>
+                        )}
+                      </td>
+                    </tr>
 
-                {/* Details */}
-                <div className="text-xs text-gray-500 space-y-0.5">
-                  {(d.brand || d.model) && (
-                    <p>{[d.brand, d.model].filter(Boolean).join(' / ')}</p>
-                  )}
-                  {d.serialNo && <p>S/N: {d.serialNo}</p>}
-                  {d.section && <p>แผนก: {d.section}</p>}
-                </div>
+                    {/* Expanded detail */}
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={8} className="bg-gray-50 border-b border-gray-200 p-0">
+                          <div className="px-6 py-4 space-y-4">
+                            {/* Device info summary (visible on mobile) */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm md:hidden">
+                              <div><span className="text-gray-400">ยี่ห้อ:</span> {d.brand || '-'}</div>
+                              <div><span className="text-gray-400">รุ่น:</span> {d.model || '-'}</div>
+                              <div><span className="text-gray-400">S/N:</span> {d.serialNo || '-'}</div>
+                              <div><span className="text-gray-400">แผนก:</span> {d.section || '-'}</div>
+                            </div>
 
-                {/* Latest calibration info */}
-                {latest && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-                    <div className="text-xs text-gray-500">
-                      สอบเทียบล่าสุด: {latest.calDate ? new Date(latest.calDate).toLocaleDateString('th-TH') : '-'}
-                    </div>
-                    {latest.approvalStatus === 'approved' && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                        อนุมัติแล้ว
-                      </span>
+                            <h4 className="text-sm font-semibold text-military-800">
+                              ประวัติการสอบเทียบ
+                            </h4>
+
+                            {isLoadingHistory ? (
+                              <div className="flex items-center gap-2 py-4 text-sm text-gray-400">
+                                <div className="animate-spin h-4 w-4 border-2 border-military-300 border-t-military-700 rounded-full" />
+                                กำลังโหลด...
+                              </div>
+                            ) : !history || history.length === 0 ? (
+                              <p className="text-sm text-gray-400 py-2">ยังไม่มีประวัติการสอบเทียบที่อนุมัติแล้ว</p>
+                            ) : (
+                              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                                <table className="w-full text-sm">
+                                  <thead className="bg-gray-100">
+                                    <tr>
+                                      <th className="py-2 px-3 text-left font-medium text-gray-600">วันที่สอบเทียบ</th>
+                                      <th className="py-2 px-3 text-left font-medium text-gray-600">เลขที่ใบรับรอง</th>
+                                      <th className="py-2 px-3 text-left font-medium text-gray-600 hidden sm:table-cell">ผู้สอบเทียบ</th>
+                                      <th className="py-2 px-3 text-left font-medium text-gray-600 hidden sm:table-cell">ผู้อนุมัติ</th>
+                                      <th className="py-2 px-3 text-center font-medium text-gray-600">เอกสาร</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {history.map((r, rIdx) => (
+                                      <tr key={r._id} className={`border-t border-gray-100 ${rIdx % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
+                                        <td className="py-2 px-3 whitespace-nowrap">
+                                          {r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}
+                                          {rIdx === 0 && (
+                                            <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">ล่าสุด</span>
+                                          )}
+                                        </td>
+                                        <td className="py-2 px-3">{r.certNo || '-'}</td>
+                                        <td className="py-2 px-3 hidden sm:table-cell text-gray-600">{r.calibrate || '-'}</td>
+                                        <td className="py-2 px-3 hidden sm:table-cell text-gray-600">{r.approve || '-'}</td>
+                                        <td className="py-2 px-3">
+                                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                            <a
+                                              href={`/records/${r._id}/pdf`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-xs px-2 py-1 rounded border border-military-300 text-military-700 hover:bg-military-50 font-medium whitespace-nowrap"
+                                            >
+                                              ใบรับรอง
+                                            </a>
+                                            {r.calibratedById && (
+                                              <button
+                                                type="button"
+                                                className="text-xs px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 font-medium whitespace-nowrap"
+                                                onClick={(e) => { e.stopPropagation(); openCert(r.calibratedById!, 'ผู้สอบเทียบ') }}
+                                              >
+                                                เซอร์ผู้สอบ
+                                              </button>
+                                            )}
+                                            {r.approvedById && (
+                                              <button
+                                                type="button"
+                                                className="text-xs px-2 py-1 rounded border border-green-300 text-green-700 hover:bg-green-50 font-medium whitespace-nowrap"
+                                                onClick={(e) => { e.stopPropagation(); openCert(r.approvedById!, 'ผู้อนุมัติ') }}
+                                              >
+                                                เซอร์ผู้อนุมัติ
+                                              </button>
+                                            )}
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </div>
-                )}
-                {!latest && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <span className="text-xs text-gray-400">ยังไม่มีประวัติสอบเทียบ</span>
-                  </div>
-                )}
-              </Link>
-            )
-          })}
+                </tbody>
+              )
+            })}
+          </table>
         </div>
-      )}
+      </div>
     </div>
   )
 }
