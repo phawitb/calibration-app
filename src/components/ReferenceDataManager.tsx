@@ -98,17 +98,6 @@ const SUBTABS: {
     ].map((f) => ({ key: f.key, label: f.label || f.key })),
   },
   {
-    key: 'calnames',
-    label: 'ชื่อผู้สอบเทียบ / Cal.',
-    type: 'calnames',
-    desc: 'รายชื่ออ้างอิง สำหรับ Suggest ผู้สอบ',
-    fields: [
-      { key: 'no', label: 'ลำดับ', input: 'number' as const },
-      { key: 'name', label: 'ชื่อ' },
-      { key: 'thaiName', label: 'ชื่อ (ไทย)' },
-    ],
-  },
-  {
     key: 'ameddevices',
     label: 'ทะเบียน AmedNo',
     type: 'ameddevices',
