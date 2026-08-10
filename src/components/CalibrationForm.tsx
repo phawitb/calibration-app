@@ -5,6 +5,8 @@ import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
 import { useStepNav } from '@/lib/stepNavContext'
+import { formatPersonName } from '@/lib/personName'
+import { parseCalibrationValue } from '@/lib/uncertainty'
 
 interface Props {
   initialData?: any
@@ -107,6 +109,16 @@ function buildStdFromRef(ref: StdRef) {
 
 function inferPointCountFromStdNo(no: any): number {
   return String(no ?? '').trim().startsWith('4') ? 4 : 6
+}
+
+/** Time entries are stored as text and converted to seconds only for calculation. */
+function isTimeFormat(value: unknown): boolean {
+  const text = String(value ?? '').trim()
+  return /^\d{1,3}:[0-5]\d:[0-5]\d(?:\.\d+)?$/.test(text)
+}
+
+function isTimeStandard(ref: StdRef): boolean {
+  return String(ref?.measurement ?? '').trim().toLowerCase() === 'time'
 }
 
 /** หลังเลือกจากฐานอ้างอิง: จุดว่าง — STD คำนวณตอนกรอก Cal.Point (point + correction) */
@@ -301,6 +313,7 @@ function UcSection({
     return m
   }, [stdRefs])
   const resolvedStdFieldOptions = stdFieldOptions || localStdFieldOptions
+  const timeFormatHint = 'รูปแบบเวลา hh:mm:ss หรือ hh:mm:ss.ffff เช่น 00:05:00.1241'
 
   const pointCount = uc.std?.no
     ? parseInt(String(uc.std.no).startsWith('4') ? '4' : '6', 10) || 4
@@ -394,6 +407,7 @@ function UcSection({
                     : undefined
                 }
                 onBlur={isKeyField ? tryApplyFromReference : undefined}
+                restrictToList={isTimeUnit && isKeyField}
               />
             )}
           </div>
@@ -405,6 +419,9 @@ function UcSection({
       <div>
         <div className="flex items-center gap-3 mb-2 flex-wrap">
           <p className="text-xs text-gray-500">จุดสอบเทียบ (Cal Points)</p>
+          {isTimeUnit && (
+            <p className="text-xs text-gray-500">กรอกเวลาเป็น hh:mm:ss หรือ hh:mm:ss.ffff เช่น 00:05:00.1241</p>
+          )}
           {calPointConfigs.length > 1 && (
             <div className="flex items-center gap-2">
               {calPointConfigs.map((cfg: any, i: number) => (
@@ -450,13 +467,19 @@ function UcSection({
                     <td className="border border-gray-200 px-2 py-1 text-center font-medium">{i + 1}</td>
                     <td className="border border-gray-200 p-0.5">
                       <input type={isTimeUnit ? 'text' : 'number'} className="w-full px-1 py-0.5 text-center outline-none"
-                        placeholder={isTimeUnit ? '21:00:00.000' : ''}
+                        placeholder={isTimeUnit ? '00:05:00.1241' : ''}
+                        pattern={isTimeUnit ? '\\d{1,3}:[0-5]\\d:[0-5]\\d(\\.\\d+)?' : undefined}
+                        title={isTimeUnit ? timeFormatHint : undefined}
+                        aria-invalid={isTimeUnit && !!pt.point && !isTimeFormat(pt.point)}
                         value={pt.point || ''} onChange={e => updatePoint(i, 'point', e.target.value)} />
                     </td>
                     {[0, 1, 2, 3].map(r => (
                       <td key={r} className="border border-gray-200 p-0.5">
                         <input type={isTimeUnit ? 'text' : 'number'} className="w-full px-1 py-0.5 text-center outline-none"
-                          placeholder={isTimeUnit ? '00:00:00.000' : ''}
+                          placeholder={isTimeUnit ? '00:05:00.1241' : ''}
+                          pattern={isTimeUnit ? '\\d{1,3}:[0-5]\\d:[0-5]\\d(\\.\\d+)?' : undefined}
+                          title={isTimeUnit ? timeFormatHint : undefined}
+                          aria-invalid={isTimeUnit && !!pt.readings?.[r] && !isTimeFormat(pt.readings[r])}
                           value={pt.readings?.[r] || ''}
                           onChange={e => {
                             const arr = [...(pt.readings || [])]
@@ -468,7 +491,10 @@ function UcSection({
                     {[0, 1, 2, 3].map(s => (
                       <td key={s} className="border border-gray-200 p-0.5">
                         <input type={isTimeUnit ? 'text' : 'number'} className="w-full px-1 py-0.5 text-center outline-none"
-                          placeholder={isTimeUnit ? '00:00:00.000' : ''}
+                          placeholder={isTimeUnit ? '00:05:00.1241' : ''}
+                          pattern={isTimeUnit ? '\\d{1,3}:[0-5]\\d:[0-5]\\d(\\.\\d+)?' : undefined}
+                          title={isTimeUnit ? timeFormatHint : undefined}
+                          aria-invalid={isTimeUnit && !!pt.standards?.[s] && !isTimeFormat(pt.standards[s])}
                           value={pt.standards?.[s] || ''}
                           onChange={e => {
                             const arr = [...(pt.standards || [])]
@@ -848,7 +874,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
         const rankEn = String(user.rankEn || '').trim()
         const fullTh = String(user.fullName || user.name || '').trim()
         const rankTh = String(user.rank || '').trim()
-        updates.calibrate = fullEn ? `${rankEn ? `${rankEn} ` : ''}${fullEn}`.trim() : `${rankTh ? `${rankTh} ` : ''}${fullTh}`.trim()
+        updates.calibrate = fullEn ? formatPersonName({ rank: rankEn, fullName: fullEn }) : formatPersonName({ rank: rankTh, fullName: fullTh })
       }
       if (user.amedNo && !String(d.amedNo || '').trim()) {
         updates.amedNo = user.amedNo
@@ -982,6 +1008,24 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
     m.correction = Array.from(new Set(corr)).sort((a, b) => Number(a) - Number(b))
     return m
   }, [stdInstruments])
+  const timeStdInstruments = useMemo(
+    () => stdInstruments.filter(isTimeStandard),
+    [stdInstruments],
+  )
+  const timeUcStdFieldOptions = useMemo(() => {
+    const m: StdFieldOptions = {}
+    for (const k of UC_STD_TEXT_FIELDS) {
+      m[k] = Array.from(
+        new Set(timeStdInstruments.map((r) => String((r as any)?.[k] ?? '').trim()).filter(Boolean))
+      ).sort((a, b) => a.localeCompare(b, 'th'))
+    }
+    const corr = timeStdInstruments
+      .map((r) => r?.correction)
+      .filter((c) => c != null && c !== '' && !Number.isNaN(Number(c)))
+      .map((c) => String(Number(c)))
+    m.correction = Array.from(new Set(corr)).sort((a, b) => Number(a) - Number(b))
+    return m
+  }, [timeStdInstruments])
 
   const applyStd1FromRef = (ref: StdRef) => {
     setData((d: any) => ({
@@ -1073,13 +1117,27 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       if (!uc) continue
       const stdNo = String(uc?.std?.no || '').trim()
       const hasReadings = Array.isArray(uc?.calPoints) && uc.calPoints.some(
-        (p: any) => Array.isArray(p.readings) && p.readings.some((r: any) => r !== '' && r != null && !isNaN(Number(r)) && Number(r) !== 0)
+        (p: any) => Array.isArray(p.readings) && p.readings.some((r: any) => {
+          const parsed = parseCalibrationValue(r)
+          return Number.isFinite(parsed) && parsed !== 0
+        })
       )
       if (stdNo || hasReadings) {
         // This Uc section has data — validate it's complete
         if (!stdNo) errors[`${key}.std`] = `${key.toUpperCase()}: กรุณาเลือกเครื่องมือมาตรฐาน`
         if (!hasReadings) errors[`${key}.readings`] = `${key.toUpperCase()}: กรุณากรอกค่า Readings อย่างน้อย 1 จุด`
         if (stdNo && hasReadings) hasAnyUc = true
+      }
+
+      if (key === 'ucT' && Array.isArray(uc?.calPoints)) {
+        const hasInvalidTime = uc.calPoints.some((p: any) =>
+          [p?.point, ...(p?.readings || []), ...(p?.standards || [])].some(
+            (value) => String(value ?? '').trim() !== '' && !isTimeFormat(value)
+          )
+        )
+        if (hasInvalidTime) {
+          errors['ucT.timeFormat'] = 'UcT: กรุณากรอกค่าเวลาเป็น hh:mm:ss หรือ hh:mm:ss.ffff เช่น 00:05:00.1241'
+        }
       }
     }
 
@@ -1238,13 +1296,13 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             <div>
               <p className="text-xs text-gray-500">ชื่อ-สกุล (ไทย)</p>
               <p className="text-sm font-medium text-gray-900">
-                {`${(session.user as any).rank || ''} ${(session.user as any).fullName || (session.user as any).name || ''}`.trim() || '-'}
+                {formatPersonName({ rank: (session.user as any).rank, fullName: (session.user as any).fullName || (session.user as any).name }) || '-'}
               </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">ชื่อ-สกุล (English)</p>
               <p className="text-sm font-medium text-gray-900">
-                {`${(session.user as any).rankEn || ''} ${(session.user as any).fullNameEn || ''}`.trim() || '-'}
+                {formatPersonName({ rank: (session.user as any).rankEn, fullName: (session.user as any).fullNameEn }) || '-'}
               </p>
             </div>
             <div>
@@ -1556,8 +1614,8 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             {ucExpanded.ucT && (
               <div className="p-4 pt-0">
                 <UcSection
-                  stdRefs={stdInstruments}
-                  stdFieldOptions={ucStdFieldOptions}
+                  stdRefs={timeStdInstruments}
+                  stdFieldOptions={timeUcStdFieldOptions}
                   formulaOptions={formulaOptions}
                   label="เครื่องมือสอบเทียบเวลา (UcT)"
                   value={data.ucT}

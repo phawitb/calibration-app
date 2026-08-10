@@ -94,6 +94,35 @@ export interface SummaryRow {
   formulaName: string
 }
 
+export function parseCalibrationValue(value: unknown): number {
+  if (typeof value === 'number') return value
+  const text = String(value ?? '').trim()
+  if (!text) return NaN
+  const numeric = Number(text)
+  if (Number.isFinite(numeric)) return numeric
+
+  const match = text.match(/^(\d{1,3}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?$/)
+  if (!match) return NaN
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  const seconds = Number(match[3] || 0)
+  const fraction = match[4] ? Number(`0.${match[4]}`) : 0
+  if (minutes >= 60 || seconds >= 60) return NaN
+  return hours * 3600 + minutes * 60 + seconds + fraction
+}
+
+export function formatCalibrationValue(value: number | null | undefined, time = false, decimals = 3): string {
+  if (value == null || !Number.isFinite(value)) return '-'
+  if (!time) return value.toFixed(decimals)
+  const sign = value < 0 ? '-' : ''
+  const absolute = Math.abs(value)
+  const hours = Math.floor(absolute / 3600)
+  const minutes = Math.floor((absolute % 3600) / 60)
+  const seconds = absolute % 60
+  const secondText = seconds.toFixed(decimals).padStart(decimals === 0 ? 2 : 2 + decimals + 1, '0')
+  return `${sign}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${secondText}`
+}
+
 function avg(values: number[]): number {
   const valid = values.filter(v => v != null && !isNaN(v) && isFinite(v))
   if (valid.length === 0) return 0
@@ -268,9 +297,9 @@ export function calculateCalPointBudget(
 function toCalPointInputs(calPoints: any[]): CalPointInput[] {
   if (!Array.isArray(calPoints)) return []
   return calPoints.map(p => ({
-    point: Number(p.point ?? 0),
-    uucReadings: (p.readings ?? []).map(Number),
-    stdReadings: (p.standards ?? []).map(Number),
+    point: parseCalibrationValue(p.point),
+    uucReadings: (p.readings ?? []).map(parseCalibrationValue),
+    stdReadings: (p.standards ?? []).map(parseCalibrationValue),
   }))
 }
 

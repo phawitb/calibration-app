@@ -2,6 +2,7 @@ import AdminUsers from '@/components/AdminUsers'
 import ReferenceDataManager from '@/components/ReferenceDataManager'
 import AdminCertNumberConfig from '@/components/AdminCertNumberConfig'
 import AdminFormulaManager from '@/components/AdminFormulaManager'
+import AdminIsoMethods from '@/components/AdminIsoMethods'
 
 export default function AdminPage({
   searchParams,
@@ -24,6 +25,7 @@ export default function AdminPage({
       )}
       {tab === 'cert' && <AdminCertNumberConfig />}
       {tab === 'formulas' && <AdminFormulaManager />}
+      {tab === 'iso-methods' && <AdminIsoMethods />}
     </div>
   )
 }

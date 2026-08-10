@@ -151,19 +151,53 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
     probeCount?: number
     calPoints: {
       point: any
-      sensorReadings: number[][]  // [reading_index][sensor_index]
+      uucSetting?: any
+      uucReadings?: any[]
+      sensorReadings: any[][]  // [reading_index][sensor_index]
+      stdReadings?: any[][]
+      verticalReadings?: {
+        center: any[]
+        top: any[]
+        bottom: any[]
+      }
+      standardCorrection?: number
+    }[]
+    calRefPoints?: {
+      point: any
+      uucSetting?: any
+      sensorReadings: any[][]
+      stdReadings?: any[][]
       standardCorrection?: number
     }[]
     timeCheck?: {
       uucTime: string[]
       stdTime: string[]
     }
+    envTemp?: { max: number; min: number }
+    envHumidity?: { max: number; min: number }
+    envVoltage?: { max: number; min: number }
+    methodFields?: Record<string, any>
+    probeCorrections?: {
+      probeId: string
+      moduleId: string
+      coefficients: { a: number; b: number; c: number; d: number }
+      residual: number
+    }[]
+    results?: any
   }
 }
 
 const IsoCalPointSchema = new Schema({
   point: mongoose.Schema.Types.Mixed,
-  sensorReadings: [[Number]],
+  uucSetting: mongoose.Schema.Types.Mixed,
+  uucReadings: [mongoose.Schema.Types.Mixed],
+  sensorReadings: [[mongoose.Schema.Types.Mixed]],
+  stdReadings: [[mongoose.Schema.Types.Mixed]],
+  verticalReadings: {
+    center: [mongoose.Schema.Types.Mixed],
+    top: [mongoose.Schema.Types.Mixed],
+    bottom: [mongoose.Schema.Types.Mixed],
+  },
   standardCorrection: Number,
 }, { _id: false })
 
@@ -180,10 +214,26 @@ const IsoDataSchema = new Schema({
   sensorType: String,
   probeCount: Number,
   calPoints: [IsoCalPointSchema],
+  calRefPoints: [IsoCalPointSchema],
   timeCheck: {
     uucTime: [String],
     stdTime: [String],
   },
+  // Extended environment
+  envTemp: { max: Number, min: Number },
+  envHumidity: { max: Number, min: Number },
+  envVoltage: { max: Number, min: Number },
+  // Method-specific fields (dynamic key-value)
+  methodFields: { type: Map, of: mongoose.Schema.Types.Mixed },
+  // Probe corrections snapshot
+  probeCorrections: [{
+    probeId: String,
+    moduleId: String,
+    coefficients: { a: Number, b: Number, c: Number, d: Number },
+    residual: Number,
+  }],
+  // Calculated results (stored after calculation)
+  results: mongoose.Schema.Types.Mixed,
 }, { _id: false })
 
 const CalibrationRecordSchema = new Schema<ICalibrationRecord>({

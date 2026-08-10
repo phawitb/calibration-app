@@ -11,6 +11,8 @@ import {
   STANDARD_FORMULA,
   FormulaConfig,
 } from '@/lib/uncertainty'
+import IsoMethodTemplate from '@/models/IsoMethodTemplate'
+import { calculateIsoUncertainty, type IsoCalcInput } from '@/lib/isoUncertainty'
 
 export async function GET(
   _req: NextRequest,
@@ -67,6 +69,67 @@ export async function GET(
 
   // ISO records: use ISO-specific calculation
   if ((record as any).calibrationType === 'iso') {
+    const isoMethodCode = (record as any).isoMethodCode
+    const isoData = (record as any).isoData || {}
+
+    // Try to load method template from DB for advanced calculation
+    const methodTemplate = isoMethodCode
+      ? await IsoMethodTemplate.findOne({ code: isoMethodCode, isActive: true }).lean()
+      : null
+
+    if (methodTemplate) {
+      const toNumber = (value: any) => {
+        if (value === '' || value == null || (typeof value === 'string' && !value.trim())) return null
+        const number = Number(value)
+        return Number.isFinite(number) ? number : null
+      }
+      const toMatrix = (matrix: any) => Array.isArray(matrix)
+        ? matrix.map((row: any) => Array.isArray(row) ? row.map(toNumber) : [])
+        : []
+      const toVector = (values: any) => Array.isArray(values) ? values.map(toNumber).filter((v: number | null): v is number => v !== null) : []
+      // Use new universal ISO engine with method template
+      const calcInput: IsoCalcInput = {
+        methodTemplate: methodTemplate as any,
+        calPoints: (isoData.calPoints || []).map((cp: any) => ({
+          point: Number(cp.point ?? 0),
+          uucSetting: cp.uucSetting,
+          sensorReadings: toMatrix(cp.sensorReadings),
+          stdReadings: cp.stdReadings ? toMatrix(cp.stdReadings) : undefined,
+          uucReadings: toVector(cp.uucReadings),
+          verticalReadings: cp.verticalReadings
+            ? {
+                center: toVector(cp.verticalReadings.center),
+                top: toVector(cp.verticalReadings.top),
+                bottom: toVector(cp.verticalReadings.bottom),
+              }
+            : undefined,
+          standardCorrection: cp.standardCorrection,
+        })),
+        calRefPoints: isoData.calRefPoints,
+        std1: (record as any).std1 || {},
+        uucResolution: Number(isoData.uucResolution ?? isoData.methodFields?.uucResolution ?? 0),
+        probeCorrections: isoData.probeCorrections,
+        methodFields: isoData.methodFields || {},
+        envTemp: isoData.envTemp,
+        envTempScope: (methodTemplate as any).envTempScope,
+        confidenceLevel: 0.9545,
+      }
+      const isoResult = calculateIsoUncertainty(calcInput)
+      return NextResponse.json({
+        recordId: params.id,
+        calibrationType: 'iso',
+        isoResult,
+        methodTemplate: {
+          code: (methodTemplate as any).code,
+          name: (methodTemplate as any).name,
+          nameTh: (methodTemplate as any).nameTh,
+          measurementPattern: (methodTemplate as any).measurementPattern,
+          unit: (methodTemplate as any).unit,
+        },
+      })
+    }
+
+    // Fallback: use legacy ISO calculation (for records without method template)
     const isoResult = calculateIsoRecord(record)
     return NextResponse.json({ recordId: params.id, calibrationType: 'iso', isoResult })
   }

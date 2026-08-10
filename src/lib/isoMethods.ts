@@ -135,12 +135,14 @@ export const ISO_METHODS: IsoMethodConfig[] = [
     deviceType: 'Autoclave',
     measurementType: 'temperature_multi_sensor',
     unit: '°C',
-    sensorCount: 5,
+    sensorCount: 3,
     readingsPerPoint: 30,
     defaultCalPoints: 1,
     hasTimeCheck: false,
     referenceStandards: ['W_TEM_005', 'W_TEM_006', 'W_TEM_007'],
-    formFields: []
+    formFields: [
+      { key: 'sterilizationTime', label: 'Sterilization Time (min)', labelTh: 'เวลาทำลายเชื้อ (นาที)', type: 'number' },
+    ]
   },
 ]
 

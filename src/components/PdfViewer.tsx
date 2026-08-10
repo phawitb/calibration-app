@@ -1,7 +1,7 @@
 'use client'
 import { PDFViewer, BlobProvider, Document, Page, Text, View, Image, StyleSheet, Font, pdf } from '@react-pdf/renderer'
 import { Component, useEffect, useState, type ReactNode } from 'react'
-import { fmt } from '@/lib/uncertainty'
+import { fmt, formatCalibrationValue, parseCalibrationValue } from '@/lib/uncertainty'
 
 /** WOFF จาก /public/fonts — โหลด same-origin กว่า woff2 แบบ remote (มักทำให้ @react-pdf ไม่ render) */
 if (typeof window !== 'undefined') {
@@ -103,7 +103,7 @@ function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
     std: any
     measurement: string
     unit: string
-    calPoints: { point: any; avgUUC: number; avgSTD: number; correction: number; uncertainty: number }[]
+    calPoints: { point: any; avgUUC: number; avgSTD: number; correction: number; uncertainty: number; isTime?: boolean }[]
   }[] = []
 
   let idx = 0
@@ -115,15 +115,16 @@ function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
 
     idx++
     const ucSummary = summaryRows?.filter((sr) => sr.ucName === key) || []
+    const isTime = String(uc.std?.measurement || '').toLowerCase() === 'time' || String(uc.std?.unit || '').toLowerCase() === 'h:mm:ss'
     const calPoints = pts.map((pt: any, ptIdx: number) => {
       const matchRow = ptIdx < ucSummary.length ? ucSummary[ptIdx] : undefined
-      const readings = (pt.readings || []).filter((v: any) => v !== '' && v != null).map(Number)
-      const standards = (pt.standards || []).filter((v: any) => v !== '' && v != null).map(Number)
+      const readings = (pt.readings || []).map(parseCalibrationValue).filter(Number.isFinite)
+      const standards = (pt.standards || []).map(parseCalibrationValue).filter(Number.isFinite)
       const avgUUC = matchRow ? matchRow.avgUUC : readings.length ? readings.reduce((a: number, b: number) => a + b, 0) / readings.length : NaN
       const avgSTD = matchRow ? matchRow.avgSTDRead : standards.length ? standards.reduce((a: number, b: number) => a + b, 0) / standards.length : NaN
       const correction = matchRow ? matchRow.correction : NaN
       const uncertainty = matchRow ? matchRow.U : NaN
-      return { point: pt.point, avgUUC, avgSTD, correction, uncertainty }
+      return { point: pt.point, avgUUC, avgSTD, correction, uncertainty, isTime }
     })
 
     sections.push({
@@ -137,15 +138,36 @@ function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
   return sections
 }
 
+function buildIsoSections(record: any, isoResult: any) {
+  if (!Array.isArray(isoResult?.calPointResults)) return []
+  const std = record.std1 || record.standardInstrument || {}
+  return isoResult.calPointResults.map((point: any, index: number) => ({
+    index: index + 1,
+    std,
+    measurement: isoResult.isoMethodCode || 'ISO calibration',
+    unit: isoResult.unit || record.unit || '-',
+    calPoints: [{
+      point: point.point,
+      avgUUC: point.indicatingReading,
+      avgSTD: point.uniformity,
+      correction: point.overallVariation,
+      uncertainty: point.reportedU,
+      isTime: false,
+    }],
+  }))
+}
+
 function CalibrationPDF({
   record,
   summaryRows,
+  isoResult,
   calibratorSignature,
   approverSignature,
   decimals = 4,
 }: {
   record: any
   summaryRows: SummaryRow[] | null
+  isoResult?: any
   calibratorSignature?: string | null
   approverSignature?: string | null
   decimals?: number
@@ -158,7 +180,9 @@ function CalibrationPDF({
   const approvedDisplayName = certApproved ? f(r.approve) : requestedApproverName
   const std1 = r.std1 || {}
   const ucSections = buildUcSections(r, summaryRows)
-  const totalPages = ucSections.length > 4 ? 3 : 2
+  const isoSections = buildIsoSections(r, isoResult)
+  const resultSections: any[] = [...ucSections, ...isoSections]
+  const totalPages = resultSections.length > 4 ? 3 : 2
   // Extract English-only from unitName: "Fort Surasi Hospital(รพ.ค่ายสุรสีห์)" → "Fort Surasi Hospital"
   const customerEn = String(r.unitName || '').replace(/\(.*\)$/, '').trim() || f(r.unitName)
   const locationDisplay = (r.location === 'lab' || r.location === 'Lab') ? 'Medical Depot Division of Royal Thai Army Medical Department' : (r.location === 'outside' ? customerEn : f(r.location))
@@ -353,7 +377,7 @@ function CalibrationPDF({
         </Text>
 
         {/* Per-UC result tables */}
-        {ucSections.map((sec) => {
+        {resultSections.map((sec) => {
           const colW = { left: '48%', model: '12%', serial: '13%', cert: '14%', caldt: '13%' }
           return (
           <View key={sec.index} wrap={false} style={{ marginBottom: 10 }}>
@@ -404,13 +428,13 @@ function CalibrationPDF({
                 <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
               </View>
               {/* Data rows */}
-              {sec.calPoints.map((cp, i) => (
+              {sec.calPoints.map((cp: any, i: number) => (
                 <View key={i} style={i === sec.calPoints.length - 1 ? s.tRowLast : s.tRow}>
-                  <Text style={[s.td, { width: '20%' }]}>{cp.point != null ? String(cp.point) : '-'}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.avgUUC)}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.avgSTD)}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.correction)}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{fmtVal(cp.uncertainty)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(parseCalibrationValue(cp.point), true) : (cp.point != null ? String(cp.point) : '-')}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgUUC, true) : fmtVal(cp.avgUUC)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgSTD, true) : fmtVal(cp.avgSTD)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.correction, true) : fmtVal(cp.correction)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.uncertainty, true, 1) : fmtVal(cp.uncertainty)}</Text>
                 </View>
               ))}
             </View>
@@ -463,6 +487,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
   const [isMobile, setIsMobile] = useState(false)
   const [decimals, setDecimals] = useState(1)
   const [summaryRows, setSummaryRows] = useState<SummaryRow[] | null>(null)
+  const [isoResult, setIsoResult] = useState<any>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryError, setSummaryError] = useState(false)
   const [calibratorSignature, setCalibratorSignature] = useState<string | null | undefined>(undefined)
@@ -482,6 +507,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
   useEffect(() => {
     if (!recordId) {
       setSummaryRows(null)
+      setIsoResult(null)
       return
     }
     let cancel = false
@@ -493,6 +519,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error('calculate failed'))))
       .then((data) => {
         if (cancel) return
+        setIsoResult(data.isoResult || null)
         if (Array.isArray(data.summary) && data.summary.length > 0) {
           // SbCal: use summary directly
           setSummaryRows(data.summary)
@@ -576,6 +603,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
           <CalibrationPDF
             record={record}
             summaryRows={summaryRows}
+            isoResult={isoResult}
             calibratorSignature={calibratorSignature}
             approverSignature={approverSignature}
             decimals={decimals}
@@ -605,7 +633,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
     return () => {
       disposed = true
     }
-  }, [mounted, recordId, archiveDone, record, summaryRows, calibratorSignature, approverSignature])
+  }, [mounted, recordId, archiveDone, record, summaryRows, isoResult, calibratorSignature, approverSignature])
 
   if (!mounted) {
     return (
@@ -619,6 +647,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
     <CalibrationPDF
       record={record}
       summaryRows={summaryRows}
+      isoResult={isoResult}
       calibratorSignature={calibratorSignature}
       approverSignature={approverSignature}
       decimals={decimals}

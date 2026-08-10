@@ -10,6 +10,7 @@ import User from '@/models/User'
 import { generateNextAmedCertKey } from '@/lib/amedKey'
 import { generateNextCertNo } from '@/lib/certNo'
 import { calcRecalibrationDates, getRecalibrationSettings } from '@/lib/recalibration'
+import { formatPersonName } from '@/lib/personName'
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -185,13 +186,13 @@ export async function POST(req: NextRequest) {
     : null
   const approverName = selectedApprover
     ? String(
-        `${(selectedApprover as any).rankEn || (selectedApprover as any).rank || ''} ${(selectedApprover as any).fullNameEn || (selectedApprover as any).fullName || (selectedApprover as any).name || ''}`.trim()
+        formatPersonName({ rank: (selectedApprover as any).rankEn || (selectedApprover as any).rank, fullName: (selectedApprover as any).fullNameEn || (selectedApprover as any).fullName || (selectedApprover as any).name })
       )
     : String(rawBody?.requestedApproverName || '')
 
   const me = await User.findById((session.user as any).id).select('name fullName rank fullNameEn rankEn').lean()
   const calibratedName = String(
-    `${(me as any)?.rankEn || (me as any)?.rank || ''} ${(me as any)?.fullNameEn || (me as any)?.fullName || (me as any)?.name || rawBody?.calibrate || ''}`.trim()
+    formatPersonName({ rank: (me as any)?.rankEn || (me as any)?.rank, fullName: (me as any)?.fullNameEn || (me as any)?.fullName || (me as any)?.name || rawBody?.calibrate })
   )
 
   let approvalStatus: 'draft' | 'pending_approval' = 'draft'

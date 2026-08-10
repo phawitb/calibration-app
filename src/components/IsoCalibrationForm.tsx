@@ -6,6 +6,8 @@ import toast from 'react-hot-toast'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
 import { getIsoMethod, type IsoMethodConfig } from '@/lib/isoMethods'
 import { useStepNav } from '@/lib/stepNavContext'
+import ExcelPasteInput from '@/components/ExcelPasteInput'
+import { formatPersonName } from '@/lib/personName'
 
 interface Props {
   mode: 'create' | 'edit'
@@ -154,6 +156,8 @@ function buildInitialIsoData(method: IsoMethodConfig) {
     probeCount: 1,
     calPoints: Array.from({ length: method.defaultCalPoints }, () => ({
       point: '',
+      uucSetting: '',
+      uucReadings: Array(method.readingsPerPoint).fill(''),
       sensorReadings: Array.from({ length: method.readingsPerPoint }, () =>
         Array(method.sensorCount).fill('')
       ),
@@ -197,6 +201,34 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const isDeviceFromRegistry = !!(initialData?.deviceFromRegistry)
 
   const method = getIsoMethod(methodCode)
+
+  // Load method template from DB (universal ISO design)
+  const [methodTemplate, setMethodTemplate] = useState<any>(null)
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      try {
+        const res = await fetch('/api/iso-methods')
+        if (!res.ok) return
+        const json = await res.json()
+        const templates = Array.isArray(json.data) ? json.data : []
+        const match = templates.find((t: any) => t.code === methodCode)
+        if (mounted && match) setMethodTemplate(match)
+      } catch { /* ignore */ }
+    }
+    load()
+    return () => { mounted = false }
+  }, [methodCode])
+
+  // Use template's gridConfig for sensor count / readings when available
+  const effectiveSensorCount = methodTemplate?.gridConfig?.sensorCountFixed
+    ?? methodTemplate?.gridConfig?.sensorCountMin
+    ?? method?.sensorCount ?? 1
+  const effectiveReadingsPerPoint = methodTemplate?.gridConfig?.readingsPerPoint
+    ?? method?.readingsPerPoint ?? 4
+  const sensorLabels = methodTemplate?.gridConfig?.sensorLabels || []
+  const templateFormFields = methodTemplate?.formFields || []
+  const isDynamicSensorCount = methodTemplate?.gridConfig?.sensorCountDynamic ?? false
 
   const [saving, setSaving] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -299,8 +331,8 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         const fullTh = String(user.fullName || user.name || '').trim()
         const rankTh = String(user.rank || '').trim()
         updates.calibrate = fullEn
-          ? `${rankEn ? `${rankEn} ` : ''}${fullEn}`.trim()
-          : `${rankTh ? `${rankTh} ` : ''}${fullTh}`.trim()
+          ? formatPersonName({ rank: rankEn, fullName: fullEn })
+          : formatPersonName({ rank: rankTh, fullName: fullTh })
       }
       if (user.amedNo && !String(d.amedNo || '').trim()) {
         updates.amedNo = user.amedNo
@@ -491,6 +523,13 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
       errors['iso.readings'] = 'กรุณากรอกค่า Readings อย่างน้อย 1 จุดสอบเทียบ'
     }
 
+    if (methodCode === 'TEM-002') {
+      const hasUucReadings = isoCalPoints.some((cp: any) =>
+        Array.isArray(cp?.uucReadings) && cp.uucReadings.some((v: any) => v !== '' && v != null && Number.isFinite(Number(v)) && Number(v) !== 0)
+      )
+      if (!hasUucReadings) errors['iso.uucReadings'] = 'กรุณากรอกค่า UUC Reading ของอ่างอย่างน้อย 1 จุดสอบเทียบ'
+    }
+
     // ต้องมี calPoint value
     const hasPoint = isoCalPoints.some((cp: any) => {
       const p = Number(cp?.point ?? NaN)
@@ -609,19 +648,48 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const updateSensorReading = (ptIdx: number, readingIdx: number, sensorIdx: number, value: string) => {
     const pts = [...calPoints]
     const pt = { ...pts[ptIdx] }
-    const readings = pt.sensorReadings.map((r: string[]) => [...r])
+    const readings = (pt.sensorReadings || []).map((r: string[]) => [...r])
+    while (readings.length <= readingIdx) readings.push(Array(effectiveSensorCount).fill(''))
     readings[readingIdx][sensorIdx] = value
     pt.sensorReadings = readings
     pts[ptIdx] = pt
     setIso('calPoints', pts)
   }
 
+  const updateUucReading = (ptIdx: number, readingIdx: number, value: string) => {
+    const pts = [...calPoints]
+    const pt = { ...pts[ptIdx] }
+    const readings = [...(pt.uucReadings || Array(effectiveReadingsPerPoint).fill(''))]
+    readings[readingIdx] = value
+    pt.uucReadings = readings
+    pts[ptIdx] = pt
+    setIso('calPoints', pts)
+  }
+
+  const updateVerticalReading = (ptIdx: number, readingIdx: number, position: 'center' | 'top' | 'bottom', value: string) => {
+    const pts = [...calPoints]
+    const pt = { ...pts[ptIdx] }
+    const verticalReadings = {
+      center: [...(pt.verticalReadings?.center || [])],
+      top: [...(pt.verticalReadings?.top || [])],
+      bottom: [...(pt.verticalReadings?.bottom || [])],
+    }
+    verticalReadings[position][readingIdx] = value
+    pt.verticalReadings = verticalReadings
+    pts[ptIdx] = pt
+    setIso('calPoints', pts)
+  }
+
   const addCalPoint = () => {
     if (!method) return
+    const sc = effectiveSensorCount
+    const rpp = effectiveReadingsPerPoint
     const pts = [...calPoints, {
       point: '',
-      sensorReadings: Array.from({ length: method.readingsPerPoint }, () =>
-        Array(method.sensorCount).fill('')
+      uucSetting: '',
+      uucReadings: Array(rpp).fill(''),
+      sensorReadings: Array.from({ length: rpp }, () =>
+        Array(sc).fill('')
       ),
       standardCorrection: 0,
     }]
@@ -710,16 +778,20 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
     if (method.measurementType === 'temperature_multi_sensor') {
       // Enclosure/Bath/Autoclave: readingsPerPoint rows x sensorCount columns per cal point
+      const sc = effectiveSensorCount
+      const rpp = effectiveReadingsPerPoint
       return (
         <div className="space-y-4">
           {calPoints.map((pt: any, ptIdx: number) => (
             <div key={ptIdx} className="border border-gray-200 rounded-lg p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <h5 className="text-sm font-medium text-military-700">จุดสอบเทียบที่ {ptIdx + 1}</h5>
-                {calPoints.length > 1 && (
-                  <button type="button" onClick={() => removeCalPoint(ptIdx)}
-                    className="text-xs text-red-500 hover:text-red-700">ลบ</button>
-                )}
+                <div className="flex items-center gap-2">
+                  {calPoints.length > 1 && (
+                    <button type="button" onClick={() => removeCalPoint(ptIdx)}
+                      className="text-xs text-red-500 hover:text-red-700">ลบ</button>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -729,29 +801,134 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                     onChange={(e) => updateCalPoint(ptIdx, 'point', e.target.value)} />
                 </div>
                 <div>
+                  <label className="block text-xs text-gray-500 mb-1">UUC Setting ({method.unit})</label>
+                  <input type="number" step="any" className="input-field text-sm"
+                    value={pt.uucSetting ?? ''}
+                    onChange={(e) => updateCalPoint(ptIdx, 'uucSetting', e.target.value)} />
+                </div>
+                <div>
                   <label className="block text-xs text-gray-500 mb-1">Std Correction</label>
                   <input type="number" step="any" className="input-field text-sm"
                     value={pt.standardCorrection ?? 0}
                     onChange={(e) => updateCalPoint(ptIdx, 'standardCorrection', Number(e.target.value) || 0)} />
                 </div>
               </div>
-              <div className="overflow-x-auto">
+              {method.code === 'TEM-002' && (
+                <div className="border border-blue-100 rounded p-2 bg-blue-50/40">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <p className="text-xs font-medium text-blue-800">UUC Reading</p>
+                    <ExcelPasteInput
+                      expectedCols={1}
+                      columnLabels={['UUC Reading']}
+                      buttonLabel="วาง UUC Reading"
+                      unit={method.unit}
+                      currentDataCount={pt.uucReadings?.filter((value: any) => value !== '' && value != null).length || 0}
+                      onImport={(matrix) => {
+                        const pts = [...calPoints]
+                        const updated = { ...pts[ptIdx] }
+                        updated.uucReadings = matrix.map(row => row[0] ?? '')
+                        pts[ptIdx] = updated
+                        setIso('calPoints', pts)
+                        toast.success(`นำเข้า UUC Reading ${matrix.length} แถว สำเร็จ`)
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-blue-700 mb-2">ใช้คำนวณค่าเฉลี่ยและ Repeatability ของ UUC (STDEV.S)</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-auto text-xs border-collapse">
+                      <thead><tr className="bg-white">
+                        <th className="border border-gray-200 px-2 py-1">No.</th>
+                        <th className="border border-gray-200 px-2 py-1">UUC Reading</th>
+                      </tr></thead>
+                      <tbody>{Array.from({ length: Math.max(11, pt.uucReadings?.length || 0) }).map((_, rIdx) => (
+                        <tr key={rIdx}>
+                          <td className="border border-gray-200 px-2 py-1 text-center">{rIdx + 1}</td>
+                          <td className="border border-gray-200 p-0.5"><input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none" value={pt.uucReadings?.[rIdx] || ''} onChange={(e) => updateUucReading(ptIdx, rIdx, e.target.value)} /></td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {method.code === 'TEM-002' && (
+                <div className="border border-violet-100 rounded p-2 bg-violet-50/40">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div>
+                      <p className="text-xs font-medium text-violet-800">Vertical Uniformity Readings</p>
+                      <p className="text-xs text-violet-700">Excel: MAX(|AVG(center) − AVG(top)|, |AVG(center) − AVG(bottom)|)</p>
+                    </div>
+                    <ExcelPasteInput
+                      expectedCols={3}
+                      columnLabels={['Center', 'Top (C−1 cm)', 'Bottom (C+1 cm)']}
+                      buttonLabel="วางค่า Vertical"
+                      unit={method.unit}
+                      currentDataCount={Math.max(pt.verticalReadings?.center?.length || 0, pt.verticalReadings?.top?.length || 0, pt.verticalReadings?.bottom?.length || 0)}
+                      onImport={(matrix) => {
+                        const pts = [...calPoints]
+                        const updated = { ...pts[ptIdx] }
+                        updated.verticalReadings = {
+                          center: matrix.map(row => row[0] ?? ''),
+                          top: matrix.map(row => row[1] ?? ''),
+                          bottom: matrix.map(row => row[2] ?? ''),
+                        }
+                        pts[ptIdx] = updated
+                        setIso('calPoints', pts)
+                        toast.success(`นำเข้าค่า Vertical ${matrix.length} แถว สำเร็จ`)
+                      }}
+                    />
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-auto text-xs border-collapse">
+                      <thead><tr className="bg-white"><th className="border border-gray-200 px-2 py-1">No.</th><th className="border border-gray-200 px-2 py-1">Center (°C)</th><th className="border border-gray-200 px-2 py-1">Top (C−1 cm) (°C)</th><th className="border border-gray-200 px-2 py-1">Bottom (C+1 cm) (°C)</th></tr></thead>
+                      <tbody>{Array.from({ length: Math.max(10, pt.verticalReadings?.center?.length || 0, pt.verticalReadings?.top?.length || 0, pt.verticalReadings?.bottom?.length || 0) }).map((_, rIdx) => (
+                        <tr key={rIdx}>
+                          <td className="border border-gray-200 px-2 py-1 text-center">{rIdx + 1}</td>
+                          {(['center', 'top', 'bottom'] as const).map(position => <td key={position} className="border border-gray-200 p-0.5"><input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none" value={pt.verticalReadings?.[position]?.[rIdx] || ''} onChange={(e) => updateVerticalReading(ptIdx, rIdx, position, e.target.value)} /></td>)}
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-gray-700">Sensor Readings</p>
+                <ExcelPasteInput
+                  expectedCols={sc}
+                  columnLabels={sensorLabels.length > 0
+                    ? sensorLabels
+                    : Array.from({ length: sc }, (_, i) => `Sensor ${i + 1}`)}
+                  buttonLabel="วางค่า Sensor"
+                  unit={method.unit}
+                  currentDataCount={pt.sensorReadings?.filter((r: any[]) => r?.some((v: any) => v !== '' && v != null)).length || 0}
+                  onImport={(matrix) => {
+                    const pts = [...calPoints]
+                    const updated = { ...pts[ptIdx] }
+                    updated.sensorReadings = matrix.map(row =>
+                      Array.from({ length: sc }, (_, sIdx) => row[sIdx] ?? '')
+                    )
+                    pts[ptIdx] = updated
+                    setIso('calPoints', pts)
+                    toast.success(`นำเข้าค่า Sensor ${matrix.length} แถว x ${matrix[0]?.length || 0} คอลัมน์ สำเร็จ`)
+                  }}
+                />
+              </div>
+              <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
                 <table className="w-full text-xs border-collapse">
-                  <thead>
+                  <thead className="sticky top-0 z-10">
                     <tr className="bg-gray-50">
                       <th className="border border-gray-200 px-2 py-1 text-left w-12">No.</th>
-                      {Array.from({ length: method.sensorCount }).map((_, sIdx) => (
+                      {Array.from({ length: sc }).map((_, sIdx) => (
                         <th key={sIdx} className="border border-gray-200 px-2 py-1">
-                          Sensor {sIdx + 1} ({method.unit})
+                          {sensorLabels[sIdx] || `Sensor ${sIdx + 1}`} ({method.unit})
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {Array.from({ length: method.readingsPerPoint }).map((_, rIdx) => (
+                    {Array.from({ length: Math.max(rpp, pt.sensorReadings?.length || 0) }).map((_, rIdx) => (
                       <tr key={rIdx}>
                         <td className="border border-gray-200 px-2 py-1 text-center font-medium">{rIdx + 1}</td>
-                        {Array.from({ length: method.sensorCount }).map((_, sIdx) => (
+                        {Array.from({ length: sc }).map((_, sIdx) => (
                           <td key={sIdx} className="border border-gray-200 p-0.5">
                             <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
                               value={pt.sensorReadings?.[rIdx]?.[sIdx] || ''}
@@ -903,13 +1080,13 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
             <div>
               <p className="text-xs text-gray-500">ชื่อ-สกุล (ไทย)</p>
               <p className="text-sm font-medium text-gray-900">
-                {`${(session.user as any).rank || ''} ${(session.user as any).fullName || (session.user as any).name || ''}`.trim() || '-'}
+                {formatPersonName({ rank: (session.user as any).rank, fullName: (session.user as any).fullName || (session.user as any).name }) || '-'}
               </p>
             </div>
             <div>
               <p className="text-xs text-gray-500">ชื่อ-สกุล (English)</p>
               <p className="text-sm font-medium text-gray-900">
-                {`${(session.user as any).rankEn || ''} ${(session.user as any).fullNameEn || ''}`.trim() || '-'}
+                {formatPersonName({ rank: (session.user as any).rankEn, fullName: (session.user as any).fullNameEn }) || '-'}
               </p>
             </div>
             <div>
@@ -1097,6 +1274,58 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 value={data.lapHumid || ''}
                 onChange={(e) => set('lapHumid', e.target.value)} />
             </div>
+          </div>
+
+          {/* Extended environment: Max/Min tracking (for ISO) */}
+          {methodTemplate && (
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <p className="text-xs text-gray-500 mb-2">สภาพแวดล้อม Max/Min (บันทึกระหว่างสอบเทียบ)</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Temp Max (°C)</label>
+                  <input type="number" step="any" className="input-field text-sm"
+                    value={isoData.envTemp?.max ?? ''}
+                    onChange={(e) => setIso('envTemp', { ...(isoData.envTemp || {}), max: Number(e.target.value) || 0 })} />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Temp Min (°C)</label>
+                  <input type="number" step="any" className="input-field text-sm"
+                    value={isoData.envTemp?.min ?? ''}
+                    onChange={(e) => setIso('envTemp', { ...(isoData.envTemp || {}), min: Number(e.target.value) || 0 })} />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">RH Max (%)</label>
+                  <input type="number" step="any" className="input-field text-sm"
+                    value={isoData.envHumidity?.max ?? ''}
+                    onChange={(e) => setIso('envHumidity', { ...(isoData.envHumidity || {}), max: Number(e.target.value) || 0 })} />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">RH Min (%)</label>
+                  <input type="number" step="any" className="input-field text-sm"
+                    value={isoData.envHumidity?.min ?? ''}
+                    onChange={(e) => setIso('envHumidity', { ...(isoData.envHumidity || {}), min: Number(e.target.value) || 0 })} />
+                </div>
+                {(methodTemplate.hasLineVoltage) && (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Voltage Max (V)</label>
+                      <input type="number" step="any" className="input-field text-sm"
+                        value={isoData.envVoltage?.max ?? ''}
+                        onChange={(e) => setIso('envVoltage', { ...(isoData.envVoltage || {}), max: Number(e.target.value) || 0 })} />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Voltage Min (V)</label>
+                      <input type="number" step="any" className="input-field text-sm"
+                        value={isoData.envVoltage?.min ?? ''}
+                        onChange={(e) => setIso('envVoltage', { ...(isoData.envVoltage || {}), min: Number(e.target.value) || 0 })} />
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">ผู้สอบเทียบ</label>
               <input type="text" className="input-field bg-gray-100 text-gray-500 cursor-not-allowed"
@@ -1136,34 +1365,88 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           </div>
         </div>
 
-        {/* Method-specific fields */}
-        {method.formFields.length > 0 && (
-          <div className="card space-y-4">
-            <h3 className="section-title">ข้อมูลเฉพาะวิธี ({method.name})</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {method.formFields.map((ff) => (
-                <div key={ff.key}>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">{ff.labelTh} ({ff.label})</label>
-                  {ff.type === 'select' ? (
-                    <select className="input-field"
-                      value={isoData[ff.key] || ''}
-                      onChange={(e) => setIso(ff.key, e.target.value)}>
-                      <option value="">-- เลือก --</option>
-                      {(ff.options || []).map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input type={ff.type} step={ff.type === 'number' ? 'any' : undefined}
-                      className="input-field"
-                      value={isoData[ff.key] || ''}
-                      onChange={(e) => setIso(ff.key, e.target.value)} />
-                  )}
+        {/* Method-specific fields — from DB template if available, else hardcoded */}
+        {(() => {
+          const fields = templateFormFields.length > 0 ? templateFormFields : method.formFields
+          if (!fields.length) return null
+          // Helper to get/set method field values (stored in isoData.methodFields when from template)
+          const getMethodFieldValue = (key: string) => {
+            if (templateFormFields.length > 0) {
+              const mf = isoData.methodFields || {}
+              return mf[key] ?? ''
+            }
+            return isoData[key] ?? ''
+          }
+          const setMethodFieldValue = (key: string, value: any) => {
+            if (templateFormFields.length > 0) {
+              const mf = { ...(isoData.methodFields || {}), [key]: value }
+              setIso('methodFields', mf)
+            } else {
+              setIso(key, value)
+            }
+          }
+          // Group fields
+          const groups = new Map<string, typeof fields>()
+          const ungrouped: typeof fields = []
+          for (const ff of fields) {
+            if (ff.group) {
+              if (!groups.has(ff.group)) groups.set(ff.group, [])
+              groups.get(ff.group)!.push(ff)
+            } else {
+              ungrouped.push(ff)
+            }
+          }
+          return (
+            <div className="card space-y-4">
+              <h3 className="section-title">ข้อมูลเฉพาะวิธี ({methodTemplate?.name || method.name})</h3>
+              {/* Grouped fields */}
+              {Array.from(groups.entries()).map(([groupName, groupFields]) => (
+                <div key={groupName}>
+                  <p className="text-xs text-gray-500 mb-2 capitalize">{groupName}</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {groupFields.map((ff: any) => (
+                      <div key={ff.key}>
+                        <label className="block text-xs text-gray-600 mb-1">{ff.labelTh}</label>
+                        <input type={ff.type === 'number' ? 'number' : 'text'}
+                          step={ff.type === 'number' ? 'any' : undefined}
+                          className="input-field text-sm"
+                          value={getMethodFieldValue(ff.key)}
+                          onChange={(e) => setMethodFieldValue(ff.key, e.target.value)} />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
+              {/* Ungrouped fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {ungrouped.map((ff: any) => (
+                  <div key={ff.key}>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{ff.labelTh} ({ff.label})</label>
+                    {ff.type === 'select' ? (
+                      <select className="input-field"
+                        value={getMethodFieldValue(ff.key)}
+                        onChange={(e) => setMethodFieldValue(ff.key, e.target.value)}>
+                        <option value="">-- เลือก --</option>
+                        {(ff.options || []).map((opt: string) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    ) : ff.type === 'checkbox' ? (
+                      <input type="checkbox" className="h-4 w-4"
+                        checked={!!getMethodFieldValue(ff.key)}
+                        onChange={(e) => setMethodFieldValue(ff.key, e.target.checked)} />
+                    ) : (
+                      <input type={ff.type} step={ff.type === 'number' ? 'any' : undefined}
+                        className="input-field"
+                        value={getMethodFieldValue(ff.key)}
+                        onChange={(e) => setMethodFieldValue(ff.key, e.target.value)} />
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Standard instrument (Std1) - for uncertainty calculation */}
         <div className="card space-y-4">
