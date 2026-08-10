@@ -20,9 +20,10 @@ function getModel(mongooseName: string) {
   return mongoose.models[mongooseName] || mongoose.model(mongooseName, baseSchema)
 }
 
-async function requireAdmin() {
+async function requireDataManager() {
   const s = await getServerSession(authOptions)
-  if (!s || (s.user as { role?: string }).role !== 'admin') return null
+  const role = (s?.user as { role?: string } | undefined)?.role
+  if (!s || (role !== 'admin' && role !== 'technician')) return null
   return s
 }
 
@@ -33,7 +34,7 @@ function resolveType(type: string | null) {
 
 /** สร้างเอกสารอ้างอิง (admin) */
 export async function POST(req: NextRequest) {
-  if (!(await requireAdmin())) {
+  if (!(await requireDataManager())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const body = await req.json()
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
 
 /** อัปเดต */
 export async function PUT(req: NextRequest) {
-  if (!(await requireAdmin())) {
+  if (!(await requireDataManager())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const body = await req.json()
@@ -76,7 +77,7 @@ export async function PUT(req: NextRequest) {
 
 /** ลบ */
 export async function DELETE(req: NextRequest) {
-  if (!(await requireAdmin())) {
+  if (!(await requireDataManager())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const { searchParams } = new URL(req.url)

@@ -4,15 +4,16 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import IsoMethodTemplate from '@/models/IsoMethodTemplate'
 
-async function requireAdmin() {
+async function requireDataManager() {
   const s = await getServerSession(authOptions)
-  if (!s || (s.user as { role?: string }).role !== 'admin') return null
+  const role = (s?.user as { role?: string } | undefined)?.role
+  if (!s || (role !== 'admin' && role !== 'technician')) return null
   return s
 }
 
 // GET /api/admin/iso-methods — list all method templates
 export async function GET() {
-  const s = await requireAdmin()
+  const s = await requireDataManager()
   if (!s) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   await connectDB()
@@ -22,7 +23,7 @@ export async function GET() {
 
 // POST /api/admin/iso-methods — create a new method template
 export async function POST(req: NextRequest) {
-  const s = await requireAdmin()
+  const s = await requireDataManager()
   if (!s) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   await connectDB()

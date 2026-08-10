@@ -4,9 +4,10 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import StdInstrumentCert from '@/models/StdInstrumentCert'
 
-async function requireAdmin() {
+async function requireDataManager() {
   const s = await getServerSession(authOptions)
-  if (!s || (s.user as { role?: string }).role !== 'admin') return null
+  const role = (s?.user as { role?: string } | undefined)?.role
+  if (!s || (role !== 'admin' && role !== 'technician')) return null
   return s
 }
 
@@ -15,7 +16,7 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!(await requireAdmin())) {
+  if (!(await requireDataManager())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   await connectDB()
@@ -31,7 +32,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!(await requireAdmin())) {
+  if (!(await requireDataManager())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   await connectDB()
@@ -88,7 +89,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!(await requireAdmin())) {
+  if (!(await requireDataManager())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const { searchParams } = new URL(req.url)

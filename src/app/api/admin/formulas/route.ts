@@ -32,7 +32,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
-  if (!session || (session.user as any).role !== 'admin')
+  if (!session || !['admin', 'technician'].includes((session.user as any).role))
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   await connectDB()
   const body = await req.json()
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions)
-  if (!session || (session.user as any).role !== 'admin')
+  if (!session || !['admin', 'technician'].includes((session.user as any).role))
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   await connectDB()
   const body = await req.json()
@@ -61,7 +61,7 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
-  if (!session || (session.user as any).role !== 'admin')
+  if (!session || !['admin', 'technician'].includes((session.user as any).role))
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   await connectDB()
   const { searchParams } = new URL(req.url)

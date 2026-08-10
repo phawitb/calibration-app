@@ -4,15 +4,16 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import IsoMethodTemplate from '@/models/IsoMethodTemplate'
 
-async function requireAdmin() {
+async function requireDataManager() {
   const s = await getServerSession(authOptions)
-  if (!s || (s.user as { role?: string }).role !== 'admin') return null
+  const role = (s?.user as { role?: string } | undefined)?.role
+  if (!s || (role !== 'admin' && role !== 'technician')) return null
   return s
 }
 
 // GET /api/admin/iso-methods/[id]
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const s = await requireAdmin()
+  const s = await requireDataManager()
   if (!s) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   await connectDB()
@@ -24,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 // PUT /api/admin/iso-methods/[id]
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const s = await requireAdmin()
+  const s = await requireDataManager()
   if (!s) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   await connectDB()
@@ -46,7 +47,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
 // DELETE /api/admin/iso-methods/[id]
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const s = await requireAdmin()
+  const s = await requireDataManager()
   if (!s) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   await connectDB()

@@ -24,6 +24,60 @@ function getWeekStart(date: Date) {
   return d
 }
 
+function StatusLabel({ status }: { status?: string }) {
+  const labels: Record<string, string> = {
+    draft: 'ฉบับร่าง',
+    rejected: 'ตีกลับให้แก้ไข',
+    pending_approval: 'รออนุมัติ',
+    approved: 'อนุมัติแล้ว',
+  }
+  return <span className="text-xs text-gray-600">{labels[status || ''] || '-'}</span>
+}
+
+function WorkList({
+  title,
+  rows,
+  emptyText,
+  actionHref,
+  actionText,
+}: {
+  title: string
+  rows: any[]
+  emptyText: string
+  actionHref: string
+  actionText: string
+}) {
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="font-semibold text-military-800">{title}</h2>
+        <Link href={actionHref} className="text-military-600 text-sm hover:underline">{actionText} →</Link>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-gray-100">
+            <th className="text-left py-2 px-3 text-gray-500 font-medium">เครื่องมือ</th>
+            <th className="text-left py-2 px-3 text-gray-500 font-medium">เลขที่ใบรับรอง</th>
+            <th className="text-left py-2 px-3 text-gray-500 font-medium">สถานะ</th>
+            <th className="text-left py-2 px-3 text-gray-500 font-medium">อัปเดต</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r: any) => (
+              <tr key={r._id} className="border-b border-gray-50 hover:bg-military-50">
+                <td className="py-2 px-3 font-medium text-military-800">{r.deviceName || r.amedNo || '-'}</td>
+                <td className="py-2 px-3 text-gray-600">{r.certNo || '-'}</td>
+                <td className="py-2 px-3"><StatusLabel status={r.approvalStatus} /></td>
+                <td className="py-2 px-3 text-gray-500 text-xs">{r.updatedAt ? new Date(r.updatedAt).toLocaleDateString('th-TH') : '-'}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={4} className="py-8 text-center text-gray-400">{emptyText}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 async function getStats() {
   const session = await getServerSession(authOptions)
   const role = (session?.user as any)?.role
@@ -158,7 +212,15 @@ async function getStats() {
     pendingListScope.requestedApproverId = String((session?.user as any)?.id || '')
   }
 
-  const [approverQueue, recent, thisWeekRecent, pendingList, expiringSoonList, overdueList] =
+  const workListScope: any = role === 'approver'
+    ? { ...scope, approvalStatus: 'pending_approval', requestedApproverId: String((session?.user as any)?.id || '') }
+    : role === 'technician'
+      ? { ...scope, ...technicianOwnScope, approvalStatus: { $in: ['draft', 'rejected', 'pending_approval'] } }
+      : role === 'hospital_user'
+        ? { ...scope, approvalStatus: 'approved' }
+        : { ...scope }
+
+  const [approverQueue, recent, thisWeekRecent, pendingList, workList, expiringSoonList, overdueList] =
     await Promise.all([
       approverQueuePromise,
       CalibrationRecord.find()
@@ -177,6 +239,11 @@ async function getStats() {
         .lean(),
       CalibrationRecord.find(pendingListScope)
         .select('deviceName certNo calDate unitName requestedApproverName updatedAt amedNo')
+        .sort({ updatedAt: -1, createdAt: -1 })
+        .limit(8)
+        .lean(),
+      CalibrationRecord.find(workListScope)
+        .select('deviceName certNo calDate unitName approvalStatus rejectionComment updatedAt amedNo')
         .sort({ updatedAt: -1, createdAt: -1 })
         .limit(8)
         .lean(),
@@ -327,6 +394,7 @@ async function getStats() {
     recent,
     thisWeekRecent,
     pendingList,
+    workList,
     weeklyTrend,
     monthlyTrend,
     expiringSoonList,
@@ -351,6 +419,7 @@ export default async function DashboardPage() {
   const stats = await getStats()
   const session = stats.session
   const role = stats.role as string | undefined
+  const isAdmin = role === 'admin'
   const canAddRecord = role === 'admin' || role === 'technician'
   const currency = (v: number) => new Intl.NumberFormat('th-TH').format(Number(v || 0))
 
@@ -365,9 +434,23 @@ export default async function DashboardPage() {
     { label: 'ฉบับร่าง', value: stats.draftCount, icon: '📝', color: 'bg-slate-600', cardFilter: 'draft' },
   ]
   const statCards =
-    role === 'hospital_user'
+    role === 'approver'
       ? [
-          ...defaultStatCards.slice(0, 6),
+          { label: 'คิวรออนุมัติของฉัน', value: stats.approverQueue, icon: '✅', color: 'bg-amber-500', cardFilter: 'pending' },
+          { label: 'คิวค้างเกิน 3 วัน', value: stats.pendingLong, icon: '⏳', color: 'bg-red-600', cardFilter: 'pending' },
+          { label: 'อนุมัติแล้วทั้งระบบ', value: stats.approvedCount, icon: '📄', color: 'bg-emerald-600', cardFilter: 'approved' },
+        ]
+      : role === 'technician'
+        ? [
+            { label: 'ร่างของฉัน', value: stats.myDraft, icon: '📝', color: 'bg-slate-600', cardFilter: 'draft' },
+            { label: 'รอผู้อนุมัติ', value: stats.myPending, icon: '⏳', color: 'bg-amber-500', cardFilter: 'pending' },
+            { label: 'ใกล้ครบอายุ', value: stats.expiringSoon, icon: '⏰', color: 'bg-orange-600', cardFilter: 'expiring' },
+          ]
+      : role === 'hospital_user'
+      ? [
+          { label: 'เครื่องมือของหน่วยงาน', value: stats.total, icon: '🏥', color: 'bg-military-600', cardFilter: '' },
+          { label: 'ใกล้ครบอายุ', value: stats.expiringSoon, icon: '⏰', color: 'bg-orange-600', cardFilter: 'expiring' },
+          { label: 'เกินกำหนดสอบใหม่', value: stats.overdueRecalibration, icon: '🚨', color: 'bg-red-600', cardFilter: 'overdue' },
           {
             label: 'ค่าสอบเทียบรวม (อนุมัติแล้ว)',
             value: `฿${currency(stats.calPriceTotal)}`,
@@ -384,6 +467,43 @@ export default async function DashboardPage() {
           },
         ]
       : defaultStatCards
+
+  if (!isAdmin) {
+    const workConfig = role === 'approver'
+      ? { title: 'คิวที่รอการอนุมัติของฉัน', emptyText: 'ไม่มีรายการรออนุมัติ', actionHref: '/approvals', actionText: 'เปิดคิวอนุมัติ' }
+      : role === 'technician'
+        ? { title: 'งานที่ต้องดำเนินการของฉัน', emptyText: 'ไม่มีงานร่าง งานตีกลับ หรือรายการรออนุมัติ', actionHref: '/records', actionText: 'ดูงานของฉัน' }
+        : { title: 'ใบเซอร์ล่าสุดของหน่วยงาน', emptyText: 'ยังไม่มีใบเซอร์ที่อนุมัติแล้ว', actionHref: '/hospital', actionText: 'ดูเครื่องมือของหน่วย' }
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-military-900">สวัสดี, {session?.user?.name}</h1>
+            <p className="text-gray-500 text-sm mt-1">
+              {role === 'approver' ? 'ตรวจสอบและอนุมัติรายการที่มอบหมายให้คุณ' : role === 'technician' ? 'ติดตามงานสอบเทียบและดำเนินการในขั้นตอนถัดไป' : 'ติดตามสถานะและกำหนดสอบเทียบของหน่วยงานคุณ'}
+            </p>
+          </div>
+          {canAddRecord && <Link href="/records/new" className="btn-primary">+ สร้างรายการใหม่</Link>}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {statCards.map((card) => (
+            <Link key={card.label} href={card.cardFilter ? `/records?cardFilter=${card.cardFilter}` : '/records'} className="card flex items-center gap-3 hover:ring-2 hover:ring-military-300 transition-all">
+              <div className={`${card.color} rounded-lg w-10 h-10 flex items-center justify-center text-xl`}>{card.icon}</div>
+              <div><p className="text-2xl font-bold text-military-900 leading-tight">{card.value}</p><p className="text-gray-500 text-xs">{card.label}</p></div>
+            </Link>
+          ))}
+        </div>
+        <WorkList {...workConfig} rows={stats.workList} />
+        {role !== 'approver' && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <WorkList title="ใกล้ครบกำหนดสอบเทียบใหม่" rows={stats.expiringSoonList} emptyText="ยังไม่มีรายการใกล้ครบกำหนด" actionHref="/records?cardFilter=expiring" actionText="ดูทั้งหมด" />
+            <WorkList title="เกินกำหนดสอบเทียบใหม่" rows={stats.overdueList} emptyText="ยังไม่มีรายการเกินกำหนด" actionHref="/records?cardFilter=overdue" actionText="ดูทั้งหมด" />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -430,52 +550,21 @@ export default async function DashboardPage() {
             เกณฑ์แจ้งเตือน: อายุใบเซอร์ {stats.certValidityMonths} เดือน / เตือนล่วงหน้า {stats.alertBeforeDays} วัน
           </p>
           <div className="space-y-2 text-sm">
-            {role === 'technician' && (
-              <>
-                <p>• ร่างของฉัน: <span className="font-semibold">{stats.myDraft}</span> รายการ</p>
-                <p>• รอผู้อนุมัติ: <span className="font-semibold">{stats.myPending}</span> รายการ</p>
-                <p>• งานค้างเกิน 3 วัน: <span className="font-semibold">{stats.pendingLong}</span> รายการ</p>
-                <p>• ใกล้ครบอายุสอบเทียบใหม่: <span className="font-semibold">{stats.expiringSoon}</span> รายการ</p>
-              </>
-            )}
-            {role === 'approver' && (
-              <>
-                <p>• คิวรออนุมัติของฉัน: <span className="font-semibold">{stats.approverQueue}</span> รายการ</p>
-                <p>• คิวรวมทั้งระบบ: <span className="font-semibold">{stats.pendingApproval}</span> รายการ</p>
-                <p>• รายการค้างเกิน 3 วัน: <span className="font-semibold">{stats.pendingLong}</span> รายการ</p>
-                <p>• ใบเซอร์ใกล้ครบอายุ: <span className="font-semibold">{stats.expiringSoon}</span> รายการ</p>
-              </>
-            )}
-            {role === 'admin' && (
-              <>
-                <p>• โรงพยาบาลที่ใช้งาน: <span className="font-semibold">{stats.hospitals}</span> หน่วย</p>
-                <p>• รายการปีนี้: <span className="font-semibold">{stats.thisYear}</span> รายการ</p>
-                <p>• รายการค้างเกิน 3 วัน: <span className="font-semibold">{stats.pendingLong}</span> รายการ</p>
-                <p>• ใกล้ครบอายุ/เกินกำหนด: <span className="font-semibold">{stats.expiringSoon + stats.overdueRecalibration}</span> รายการ</p>
-              </>
-            )}
-            {role === 'hospital_user' && (
-              <>
-                <p>• รายการทั้งหมดของหน่วยงานคุณ: <span className="font-semibold">{stats.total}</span> รายการ</p>
-                <p>• เพิ่มในสัปดาห์นี้: <span className="font-semibold">{stats.thisWeek}</span> รายการ</p>
-                <p>• ใกล้ครบอายุสอบเทียบใหม่: <span className="font-semibold">{stats.expiringSoon}</span> รายการ</p>
-              </>
-            )}
+            <p>• โรงพยาบาลที่ใช้งาน: <span className="font-semibold">{stats.hospitals}</span> หน่วย</p>
+            <p>• รายการปีนี้: <span className="font-semibold">{stats.thisYear}</span> รายการ</p>
+            <p>• รายการค้างเกิน 3 วัน: <span className="font-semibold">{stats.pendingLong}</span> รายการ</p>
+            <p>• ใกล้ครบอายุ/เกินกำหนด: <span className="font-semibold">{stats.expiringSoon + stats.overdueRecalibration}</span> รายการ</p>
           </div>
         </div>
         <div className="card">
           <h2 className="font-semibold text-military-800 mb-3">ทางลัด</h2>
           <div className="flex flex-wrap gap-2">
             <Link href="/records" className="btn-secondary text-sm">ดูข้อมูลสอบเทียบ</Link>
-            {(role === 'admin' || role === 'approver') && (
-              <Link href="/approvals" className="btn-secondary text-sm">งานรออนุมัติ</Link>
-            )}
+            <Link href="/approvals" className="btn-secondary text-sm">งานรออนุมัติ</Link>
             {canAddRecord && (
               <Link href="/records/new" className="btn-secondary text-sm">สร้างรายการใหม่</Link>
             )}
-            {role === 'admin' && (
-              <Link href="/admin" className="btn-secondary text-sm">จัดการระบบ</Link>
-            )}
+            <Link href="/admin?tab=data" className="btn-secondary text-sm">จัดการระบบ</Link>
           </div>
         </div>
       </div>

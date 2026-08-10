@@ -63,7 +63,7 @@ function StatusBadge({ status }: { status?: string }) {
 }
 
 export default function RecordsPage() {
-  const { data: session } = useSession()
+  const { data: session, status: sessionStatus } = useSession()
   const searchParams = useSearchParams()
   const cardFilter = String(searchParams.get('cardFilter') || '')
   const role = (session?.user as any)?.role
@@ -88,7 +88,7 @@ export default function RecordsPage() {
   const [fCalDateFrom, setFCalDateFrom] = useState('')
   const [fCalDateTo,   setFCalDateTo]   = useState('')
 
-  const { sorted: sortedRecords, sortKey, sortDir, toggle: toggleSort } = useTableSort(records)
+  const { sorted: sortedRecords, sortKey, sortDir, toggle: toggleSort } = useTableSort(records, 'calDate', 'desc')
 
   const hasActiveFilter = !!(fStatus || fCalType || fSection || fUnitName || fCalDateFrom || fCalDateTo)
   const activeFilterCount = [fStatus, fCalType, fSection, fUnitName, fCalDateFrom, fCalDateTo].filter(Boolean).length
@@ -123,11 +123,17 @@ export default function RecordsPage() {
     setLoading(false)
   }, [search, fSection, fStatus, fCalType, fUnitName, fCalDateFrom, fCalDateTo, page, cardFilter, myOnly])
 
-  useEffect(() => { fetchRecords() }, [fetchRecords])
+  // Do not fetch with the temporary default before the role determines the initial scope.
+  // Otherwise a late response for "งานของฉัน" can overwrite the approver's "ทั้งหมด" result.
+  useEffect(() => {
+    if (sessionStatus === 'loading' || !myOnlyInit) return
+    fetchRecords()
+  }, [fetchRecords, sessionStatus, myOnlyInit])
   useEffect(() => { setPage(1) }, [cardFilter])
   useEffect(() => {
     if (role && !myOnlyInit) {
-      setMyOnly(!isAdmin)
+      // Approvers review the whole queue by default; technicians keep their own work by default.
+      setMyOnly(!(isAdmin || role === 'approver'))
       setMyOnlyInit(true)
     }
   }, [role, isAdmin, myOnlyInit])

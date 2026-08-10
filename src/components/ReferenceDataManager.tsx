@@ -382,7 +382,14 @@ export default function ReferenceDataManager() {
       }
       if (stdRes.ok) {
         const j = await stdRes.json()
-        setRefStdNos((j.data || []).map((d: any) => ({ no: String(d.no || ''), name: String(d.name || '') })).filter((d: any) => d.no))
+        setRefStdNos(
+          (j.data || [])
+            .map((d: any) => ({ no: String(d.no || ''), name: String(d.name || '') }))
+            .filter((d: any) => d.no)
+            .sort((a: { no: string }, b: { no: string }) =>
+              a.no.localeCompare(b.no, undefined, { numeric: true })
+            )
+        )
       }
     }
     loadRefs()

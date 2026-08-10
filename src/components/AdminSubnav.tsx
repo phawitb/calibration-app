@@ -11,12 +11,12 @@ const TABS = [
   { href: '/admin?tab=iso-methods', label: 'วิธีการ ISO', tab: 'iso-methods' },
 ] as const
 
-export default function AdminSubnav() {
+export default function AdminSubnav({ canManageUsers }: { canManageUsers: boolean }) {
   const searchParams = useSearchParams()
-  const currentTab = searchParams.get('tab') || 'users'
+  const currentTab = searchParams.get('tab') || (canManageUsers ? 'users' : 'data')
   return (
     <div className="flex flex-wrap gap-1 border-b border-military-200 mb-6" role="tablist" aria-label="เมนูผู้ดูแล">
-      {TABS.map((t) => {
+      {TABS.filter((t) => canManageUsers || t.tab !== 'users').map((t) => {
         const active = currentTab === t.tab
         return (
           <Link

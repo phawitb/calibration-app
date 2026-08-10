@@ -8,7 +8,8 @@ import { ISO_METHOD_SEEDS } from '@/lib/isoMethodSeeds'
 // POST /api/admin/iso-methods/seed — seed/reset all method templates from Excel-derived data
 export async function POST() {
   const s = await getServerSession(authOptions)
-  if (!s || (s.user as { role?: string }).role !== 'admin') {
+  const role = (s?.user as { role?: string } | undefined)?.role
+  if (!s || (role !== 'admin' && role !== 'technician')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

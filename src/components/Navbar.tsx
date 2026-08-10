@@ -4,16 +4,15 @@ import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
 import { SiteLogoHeader } from '@/components/SiteLogo'
 import { useEffect, useMemo, useState } from 'react'
-import { useImpersonation } from '@/components/ImpersonationProvider'
 
 export default function Navbar() {
   const { data: session } = useSession()
-  const { isImpersonating, isRealAdmin } = useImpersonation()
   const pathname = usePathname()
   const role = (session?.user as any)?.role as string | undefined
   const canApprove = role === 'admin' || role === 'approver'
   const canSeeRecalibrationAlerts = role === 'admin' || role === 'approver' || role === 'technician'
-  const canManageUsers = role === 'admin' || isRealAdmin
+  // Use the active role only: an admin impersonating an approver must see the same menu as an approver.
+  const canManageSystemData = role === 'admin' || role === 'technician'
   const canAddRecord = role === 'admin' || role === 'technician'
   const [pendingCount, setPendingCount] = useState<number | null>(null)
   const [recalibrationAlertCount, setRecalibrationAlertCount] = useState<number | null>(null)
@@ -75,7 +74,7 @@ export default function Navbar() {
     ...(isHospitalUser ? [{ href: '/hospital', label: 'เครื่องมือของหน่วย', icon: '🏥' }] : []),
     ...(canAddRecord ? [{ href: '/records/new', label: 'เพิ่มข้อมูล', icon: '➕' }] : []),
     ...(canApprove ? [{ href: '/approvals', label: 'งานรออนุมัติ', icon: '✅' }] : []),
-    ...(!isHospitalUser && canManageUsers ? [{ href: '/admin', label: 'จัดการระบบ', icon: '⚙️' }] : []),
+    ...(!isHospitalUser && canManageSystemData ? [{ href: '/admin?tab=data', label: 'จัดการระบบ', icon: '⚙️' }] : []),
   ]
 
   return (

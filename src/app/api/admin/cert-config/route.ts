@@ -10,7 +10,8 @@ function isValidPattern(pattern: string) {
 
 export async function GET() {
   const session = await getServerSession(authOptions)
-  if (!session || (session.user as any)?.role !== 'admin') {
+  const role = (session?.user as any)?.role
+  if (!session || (role !== 'admin' && role !== 'technician')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   await connectDB()
@@ -30,7 +31,8 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
-  if (!session || (session.user as any)?.role !== 'admin') {
+  const role = (session?.user as any)?.role
+  if (!session || (role !== 'admin' && role !== 'technician')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const body = await req.json()
