@@ -40,11 +40,44 @@ const CORRECTION_LABELS: Record<string, string> = {
   polynomial: 'Polynomial (a·x³+b·x²+c·x+d)',
 }
 
+const LIQUID_BATH_FIELD_DEFAULTS: Record<string, number> = {
+  chamberWidth: 35,
+  chamberLength: 65,
+  chamberHeight: 22,
+  waterLevel: 19.6,
+}
+
+const LIQUID_BATH_VERTICAL_DEFAULTS = {
+  center: [95.04, 94.99, 95.03, 95.02, 95.04, 95.01, 95.04, 95.03, 95.02, 95.04],
+  top: [94.98, 95.00, 94.99, 95.00, 94.98, 95.00, 94.99, 94.98, 95.02, 95.00],
+  bottom: [94.98, 94.98, 95.02, 95.04, 95.02, 95.02, 95.03, 95.05, 95.02, 95.03],
+}
+
+function verticalReadingsToText(readings?: { center?: number[]; top?: number[]; bottom?: number[] }) {
+  const values = readings || LIQUID_BATH_VERTICAL_DEFAULTS
+  const count = Math.max(values.center?.length || 0, values.top?.length || 0, values.bottom?.length || 0)
+  return Array.from({ length: count }, (_, index) => [values.center?.[index] ?? '', values.top?.[index] ?? '', values.bottom?.[index] ?? ''].join('\t')).join('\n')
+}
+
+function parseVerticalReadings(value: string) {
+  const rows = value.trim().split(/\n+/).filter(Boolean).map((row) => row.trim().split(/[\t, ]+/).map(Number))
+  if (!rows.length || rows.some((row) => row.length !== 3 || row.some((reading) => !Number.isFinite(reading)))) return null
+  return {
+    center: rows.map((row) => row[0]),
+    top: rows.map((row) => row[1]),
+    bottom: rows.map((row) => row[2]),
+  }
+}
+
 export default function AdminIsoMethods() {
   const [methods, setMethods] = useState<MethodTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [seeding, setSeeding] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [editingDefaultsId, setEditingDefaultsId] = useState<string | null>(null)
+  const [defaultDraft, setDefaultDraft] = useState<Record<string, string>>({})
+  const [verticalDraft, setVerticalDraft] = useState('')
+  const [savingDefaults, setSavingDefaults] = useState(false)
 
   const fetchMethods = useCallback(async () => {
     try {
@@ -107,6 +140,46 @@ export default function AdminIsoMethods() {
       }
     } catch {
       toast.error('ลบไม่สำเร็จ')
+    }
+  }
+
+  const beginDefaultEdit = (method: MethodTemplate) => {
+    const existingValues = Object.fromEntries((method.formFields || []).map((field: any) => [field.key, field.defaultValue]))
+    setDefaultDraft(Object.fromEntries(Object.entries(LIQUID_BATH_FIELD_DEFAULTS).map(([key, fallback]) => [key, String(existingValues[key] ?? fallback)])))
+    setVerticalDraft(verticalReadingsToText(method.gridConfig?.defaultVerticalReadings))
+    setEditingDefaultsId(method._id)
+  }
+
+  const saveDefaults = async (method: MethodTemplate) => {
+    const verticalReadings = parseVerticalReadings(verticalDraft)
+    if (!verticalReadings) {
+      toast.error('Vertical Uniformity ต้องมี 3 ค่าในแต่ละบรรทัด และเป็นตัวเลขทั้งหมด')
+      return
+    }
+    const values = Object.fromEntries(Object.entries(defaultDraft).map(([key, value]) => [key, Number(value)]))
+    if (Object.values(values).some((value) => !Number.isFinite(value))) {
+      toast.error('กรุณากรอกค่าขนาดอ่างและระดับน้ำให้ถูกต้อง')
+      return
+    }
+    setSavingDefaults(true)
+    try {
+      const formFields = (method.formFields || []).map((field: any) => (
+        Object.prototype.hasOwnProperty.call(values, field.key) ? { ...field, defaultValue: values[field.key] } : field
+      ))
+      const res = await fetch(`/api/admin/iso-methods/${method._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formFields, gridConfig: { ...method.gridConfig, defaultVerticalReadings: verticalReadings } }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'บันทึกไม่สำเร็จ')
+      toast.success('บันทึกค่าเริ่มต้น Liquid Bath แล้ว')
+      setEditingDefaultsId(null)
+      fetchMethods()
+    } catch (error: any) {
+      toast.error(error.message || 'บันทึกไม่สำเร็จ')
+    } finally {
+      setSavingDefaults(false)
     }
   }
 
@@ -211,6 +284,71 @@ export default function AdminIsoMethods() {
                       <p className="text-gray-400 mt-1">Labels: {m.gridConfig.sensorLabels.join(', ')}</p>
                     )}
                   </div>
+
+                  {m.code === 'TEM-002' && (
+                    <div className="rounded border border-blue-100 bg-blue-50/50 p-3">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-blue-900">ค่าเริ่มต้นสำหรับรายการใหม่ (Liquid Bath)</p>
+                          <p className="mt-0.5 text-gray-500">ใช้เติมข้อมูลเฉพาะวิธีและ Vertical Uniformity เมื่อสร้างรายการใหม่</p>
+                        </div>
+                        {editingDefaultsId !== m._id && (
+                          <button onClick={() => beginDefaultEdit(m)} className="rounded border border-blue-300 bg-white px-3 py-1 text-blue-700 hover:bg-blue-50">
+                            แก้ไขค่าเริ่มต้น
+                          </button>
+                        )}
+                      </div>
+
+                      {editingDefaultsId === m._id ? (
+                        <div className="space-y-3">
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            {[
+                              ['chamberWidth', 'กว้าง (cm)'],
+                              ['chamberLength', 'ยาว (cm)'],
+                              ['chamberHeight', 'สูง (cm)'],
+                              ['waterLevel', 'ระดับน้ำ (cm)'],
+                            ].map(([key, label]) => (
+                              <label key={key} className="space-y-1 text-gray-600">
+                                <span>{label}</span>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={defaultDraft[key] || ''}
+                                  onChange={(event) => setDefaultDraft((current) => ({ ...current, [key]: event.target.value }))}
+                                  className="w-full rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                          <label className="block space-y-1 text-gray-600">
+                            <span>Vertical Uniformity Readings — 1 บรรทัดต่อ 1 ค่า, ลำดับ: Center, Top, Bottom (คั่นด้วย Tab, ช่องว่าง หรือ comma)</span>
+                            <textarea
+                              rows={10}
+                              value={verticalDraft}
+                              onChange={(event) => setVerticalDraft(event.target.value)}
+                              className="w-full rounded border border-gray-300 bg-white p-2 font-mono text-sm text-gray-900"
+                            />
+                          </label>
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => setEditingDefaultsId(null)} className="rounded border border-gray-300 bg-white px-3 py-1.5 text-gray-600">ยกเลิก</button>
+                            <button onClick={() => saveDefaults(m)} disabled={savingDefaults} className="rounded bg-military-700 px-3 py-1.5 text-white disabled:opacity-60">
+                              {savingDefaults ? 'กำลังบันทึก...' : 'บันทึกค่าเริ่มต้น'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 text-gray-700">
+                          <p>
+                            W: {m.formFields?.find((field: any) => field.key === 'chamberWidth')?.defaultValue ?? LIQUID_BATH_FIELD_DEFAULTS.chamberWidth} cm,
+                            {' '}L: {m.formFields?.find((field: any) => field.key === 'chamberLength')?.defaultValue ?? LIQUID_BATH_FIELD_DEFAULTS.chamberLength} cm,
+                            {' '}H: {m.formFields?.find((field: any) => field.key === 'chamberHeight')?.defaultValue ?? LIQUID_BATH_FIELD_DEFAULTS.chamberHeight} cm,
+                            {' '}Water Level: {m.formFields?.find((field: any) => field.key === 'waterLevel')?.defaultValue ?? LIQUID_BATH_FIELD_DEFAULTS.waterLevel} cm
+                          </p>
+                          <p>Vertical Uniformity: {m.gridConfig?.defaultVerticalReadings?.center?.length || LIQUID_BATH_VERTICAL_DEFAULTS.center.length} แถว (Center / Top / Bottom)</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Features */}
                   <div className="flex gap-2">

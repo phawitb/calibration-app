@@ -76,6 +76,12 @@ const GridConfigSchema = new Schema({
   defaultCalPoints:   { type: Number, default: 1 },
   hasStdReadingColumn: { type: Boolean, default: false },  // show STD column in UI
   hasDualChannel:     { type: Boolean, default: false },   // ascending/descending
+  // Optional defaults for Liquid Bath vertical uniformity: 10 readings at each position.
+  defaultVerticalReadings: {
+    center: [Number],
+    top: [Number],
+    bottom: [Number],
+  },
 }, { _id: false })
 
 // ── Main Schema ──
@@ -100,6 +106,7 @@ export interface IIsoMethodTemplate extends Document {
     defaultCalPoints: number
     hasStdReadingColumn: boolean
     hasDualChannel: boolean
+    defaultVerticalReadings?: { center: number[]; top: number[]; bottom: number[] }
   }
 
   formFields: {

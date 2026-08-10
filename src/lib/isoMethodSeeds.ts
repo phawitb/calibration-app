@@ -371,13 +371,18 @@ export const ISO_METHOD_SEEDS: Seed[] = [
       defaultCalPoints: 1,
       hasStdReadingColumn: false,
       hasDualChannel: false,
+      defaultVerticalReadings: {
+        center: [95.04, 94.99, 95.03, 95.02, 95.04, 95.01, 95.04, 95.03, 95.02, 95.04],
+        top: [94.98, 95.00, 94.99, 95.00, 94.98, 95.00, 94.99, 94.98, 95.02, 95.00],
+        bottom: [94.98, 94.98, 95.02, 95.04, 95.02, 95.02, 95.03, 95.05, 95.02, 95.03],
+      },
     },
 
     formFields: [
-      { key: 'chamberWidth', label: 'Chamber Width (cm)', labelTh: 'กว้าง (cm)', type: 'number', group: 'chamber' },
-      { key: 'chamberLength', label: 'Chamber Length (cm)', labelTh: 'ยาว (cm)', type: 'number', group: 'chamber' },
-      { key: 'chamberHeight', label: 'Chamber Height (cm)', labelTh: 'สูง (cm)', type: 'number', group: 'chamber' },
-      { key: 'waterLevel', label: 'Water Level (cm)', labelTh: 'ระดับน้ำ (cm)', type: 'number' },
+      { key: 'chamberWidth', label: 'Chamber Width (cm)', labelTh: 'กว้าง (cm)', type: 'number', group: 'chamber', defaultValue: 35 },
+      { key: 'chamberLength', label: 'Chamber Length (cm)', labelTh: 'ยาว (cm)', type: 'number', group: 'chamber', defaultValue: 65 },
+      { key: 'chamberHeight', label: 'Chamber Height (cm)', labelTh: 'สูง (cm)', type: 'number', group: 'chamber', defaultValue: 22 },
+      { key: 'waterLevel', label: 'Water Level (cm)', labelTh: 'ระดับน้ำ (cm)', type: 'number', defaultValue: 19.6 },
       { key: 'uucResolution', label: 'UUC Resolution (°C)', labelTh: 'ความละเอียด UUC (°C)', type: 'number', required: true },
     ],
 

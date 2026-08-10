@@ -189,6 +189,16 @@ function buildInitialState(method: IsoMethodConfig, methodCode: string) {
   }
 }
 
+/** Fallback for existing TEM-002 templates until their editable DB defaults are synced. */
+const LIQUID_BATH_DEFAULTS = {
+  methodFields: { chamberWidth: 35, chamberLength: 65, chamberHeight: 22, waterLevel: 19.6 },
+  verticalReadings: {
+    center: [95.04, 94.99, 95.03, 95.02, 95.04, 95.01, 95.04, 95.03, 95.02, 95.04],
+    top: [94.98, 95.00, 94.99, 95.00, 94.98, 95.00, 94.99, 94.98, 95.02, 95.00],
+    bottom: [94.98, 94.98, 95.02, 95.04, 95.02, 95.02, 95.03, 95.05, 95.02, 95.03],
+  },
+}
+
 /* ---------- main component ---------- */
 export default function IsoCalibrationForm({ mode, methodCode, recordId, initialData }: Props) {
   const router = useRouter()
@@ -251,6 +261,43 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     if (!method) return { calibrationType: 'iso', isoMethodCode: methodCode }
     return buildInitialState(method, methodCode)
   })
+  const templateDefaultsAppliedRef = useRef(false)
+  const [recordLoaded, setRecordLoaded] = useState(mode !== 'edit' || !!initialData)
+
+  // Fill blank fields in a new (or still-empty draft) record without overwriting actual readings.
+  useEffect(() => {
+    if (templateDefaultsAppliedRef.current || !recordLoaded || !methodTemplate) return
+    templateDefaultsAppliedRef.current = true
+    setData((current: any) => {
+      const templateDefaults = Object.fromEntries(
+        (methodTemplate.formFields || [])
+          .filter((field: any) => field.defaultValue !== undefined && field.defaultValue !== null)
+          .map((field: any) => [field.key, field.defaultValue])
+      )
+      const legacyDefaults = methodCode === 'TEM-002' ? LIQUID_BATH_DEFAULTS : null
+      const enteredMethodFields = Object.fromEntries(
+        Object.entries(current.isoData?.methodFields || {}).filter(([, value]) => value !== '' && value !== null && value !== undefined)
+      )
+      const methodFields = { ...(legacyDefaults?.methodFields || {}), ...templateDefaults, ...enteredMethodFields }
+      const configuredVertical = methodTemplate.gridConfig?.defaultVerticalReadings || legacyDefaults?.verticalReadings
+      const calPoints = (current.isoData?.calPoints || []).map((point: any) => {
+        const hasVertical = point.verticalReadings && ['center', 'top', 'bottom'].some((key) =>
+          point.verticalReadings[key]?.some((value: any) => value !== '' && value !== null && value !== undefined)
+        )
+        return hasVertical || !configuredVertical
+          ? point
+          : {
+              ...point,
+              verticalReadings: {
+                center: [...(configuredVertical.center || [])],
+                top: [...(configuredVertical.top || [])],
+                bottom: [...(configuredVertical.bottom || [])],
+              },
+            }
+      })
+      return { ...current, isoData: { ...(current.isoData || {}), methodFields, calPoints } }
+    })
+  }, [methodCode, methodTemplate, recordLoaded])
 
   const set = (field: string, value: any) => setData((d: any) => ({ ...d, [field]: value }))
   const setIso = (field: string, value: any) =>
@@ -267,7 +314,10 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         const json = await res.json()
         const rec = normalizeInitialData(json.record || json) || json.record || json
         if (!String(rec.deviceName || '').trim() && method) rec.deviceName = method.deviceType
-        if (mounted) setData(rec)
+        if (mounted) {
+          setData(rec)
+          setRecordLoaded(true)
+        }
       } catch { /* ignore */ }
     }
     load()
@@ -684,7 +734,10 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     if (!method) return
     const sc = effectiveSensorCount
     const rpp = effectiveReadingsPerPoint
-    const pts = [...calPoints, {
+    const verticalDefaults = methodCode === 'TEM-002'
+      ? (methodTemplate?.gridConfig?.defaultVerticalReadings || LIQUID_BATH_DEFAULTS.verticalReadings)
+      : undefined
+    const newPoint = {
       point: '',
       uucSetting: '',
       uucReadings: Array(rpp).fill(''),
@@ -692,7 +745,15 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         Array(sc).fill('')
       ),
       standardCorrection: 0,
-    }]
+      ...(verticalDefaults ? {
+        verticalReadings: {
+          center: [...(verticalDefaults.center || [])],
+          top: [...(verticalDefaults.top || [])],
+          bottom: [...(verticalDefaults.bottom || [])],
+        },
+      } : {}),
+    }
+    const pts = [...calPoints, newPoint]
     setIso('calPoints', pts)
   }
 
