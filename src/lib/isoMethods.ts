@@ -44,7 +44,7 @@ export const ISO_METHODS: IsoMethodConfig[] = [
     deviceType: 'Enclosure',
     measurementType: 'temperature_multi_sensor',
     unit: '°C',
-    sensorCount: 5,
+    sensorCount: 9,
     readingsPerPoint: 30,
     defaultCalPoints: 1,
     hasTimeCheck: false,
@@ -58,7 +58,7 @@ export const ISO_METHODS: IsoMethodConfig[] = [
     deviceType: 'Enclosure',
     measurementType: 'temperature_multi_sensor',
     unit: '°C',
-    sensorCount: 5,
+    sensorCount: 9,
     readingsPerPoint: 30,
     defaultCalPoints: 1,
     hasTimeCheck: false,
@@ -87,7 +87,7 @@ export const ISO_METHODS: IsoMethodConfig[] = [
     measurementType: 'temperature',
     unit: '°C',
     sensorCount: 1,  // per probe, but can have 1-10 probes
-    readingsPerPoint: 4,
+    readingsPerPoint: 5,
     defaultCalPoints: 3,
     hasTimeCheck: false,
     referenceStandards: ['S-TEM-001', 'W-TEM-001'],
@@ -104,7 +104,7 @@ export const ISO_METHODS: IsoMethodConfig[] = [
     measurementType: 'temperature',
     unit: '°C',
     sensorCount: 1,
-    readingsPerPoint: 4,
+    readingsPerPoint: 5,
     defaultCalPoints: 3,
     hasTimeCheck: false,
     referenceStandards: ['S-TEM-001', 'W-TEM-001'],
@@ -120,7 +120,7 @@ export const ISO_METHODS: IsoMethodConfig[] = [
     measurementType: 'temperature',
     unit: '°C',
     sensorCount: 1,
-    readingsPerPoint: 4,
+    readingsPerPoint: 5,
     defaultCalPoints: 3,
     hasTimeCheck: false,
     referenceStandards: ['S-TEM-001', 'W-TEM-001'],
@@ -142,6 +142,7 @@ export const ISO_METHODS: IsoMethodConfig[] = [
     referenceStandards: ['W_TEM_005', 'W_TEM_006', 'W_TEM_007'],
     formFields: [
       { key: 'sterilizationTime', label: 'Sterilization Time (min)', labelTh: 'เวลาทำลายเชื้อ (นาที)', type: 'number' },
+      { key: 'uucResolution', label: 'UUC Resolution (°C)', labelTh: 'ความละเอียด UUC (°C)', type: 'number' },
     ]
   },
 ]

@@ -236,7 +236,17 @@ function IsoResultPanel({ isoResult }: { isoResult?: IsoCalculationResult | null
   }
 
   const FormulaDetails = ({ point }: { point: any }) => {
+    const methodCode = (isoResult as any).methodCode || isoResult.isoMethodCode
+    const isComparison = point.stdMean != null || point.correction != null
+    const isEmptyChamber = methodCode === 'TEM-001-1'
+    const isLoadedChamber = methodCode === 'TEM-001-2'
+    const isChamber = isEmptyChamber || isLoadedChamber
+    const isAutoclave = methodCode === 'TEM-004'
+    const isDtmPermanent = methodCode === 'TEM-003-1'
+    const isDtmOnsite = methodCode === 'TEM-003-2'
+    const isTypeK = methodCode === 'TEM-003-3'
     const repeatability = point.uncertaintyBudget.find((source: any) => source.key === 'dT_Rep_UUC')
+    const repStd = point.uncertaintyBudget.find((source: any) => source.key === 'dT_Rep_Std')
     const vertical = point.uncertaintyBudget.find((source: any) => source.key === 'dT_Vert')
     const stability = point.uncertaintyBudget.find((source: any) => source.key === 'dT_Stab')
     const n = Number.isFinite(repeatability?.vi) ? repeatability.vi + 1 : undefined
@@ -247,14 +257,78 @@ function IsoResultPanel({ isoResult }: { isoResult?: IsoCalculationResult | null
           แสดงรายละเอียดการคำนวณตาม Excel
         </summary>
         <div className="px-4 pb-3 pt-1 space-y-2 text-xs text-gray-700">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <p><b>ค่าเฉลี่ยแต่ละ Sensor</b> = AVERAGE(ค่าของ Sensor นั้นทุกแถว)</p>
-            <p><b>Stability</b> = MAX[(MAX(Sensor) − MIN(Sensor)) ÷ 2] = <b>{fmt(point.stability, 8)}</b></p>
-            <p><b>Uniformity</b> = MAX|Sensor center − Sensor ตำแหน่งอื่น| ในทุกแถว = <b>{fmt(point.uniformity, 8)}</b></p>
-            <p><b>Vertical Uniformity</b> = MAX(|AVG(center) − AVG(top)|, |AVG(center) − AVG(bottom)|) = <b>{fmt(point.verticalUniformity ?? 0, 8)}</b></p>
-            <p><b>UUC Reading เฉลี่ย</b> = AVERAGE(UUC Reading) = <b>{fmt(point.indicatingReading ?? 0, 8)}</b></p>
-            <p><b>Repeatability UUC</b> = STDEV.S(UUC Reading){n ? `, n = ${n}` : ''} = <b>{fmt(repeatability?.value ?? 0, 8)}</b></p>
-          </div>
+          {isDtmPermanent ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <p><b>Avg STD</b> = AVERAGE(STD 5 ครั้ง) = <b>{fmt(point.stdMean ?? 0, 8)}</b></p>
+              <p><b>UUC แสดงผล</b> = CEILING.MATH(AVERAGE(UUC), resolution) = <b>{fmt(point.indicatingReading ?? 0, 8)}</b></p>
+              <p><b>Correction</b> = Avg STD − UUC แสดงผล = <b>{fmt(point.correction ?? 0, 8)}</b></p>
+              <p><b>Repeatability</b> = STDEV.S (ไม่หาร √n) STD = <b>{fmt(repStd?.value ?? 0, 8)}</b> · UUC = <b>{fmt(repeatability?.value ?? 0, 8)}</b></p>
+              <p><b>CMC</b> = ถ้าจุด &lt; 0°C ใช้ 0.04 ไม่เช่นนั้น 0.03 = <b>{fmt(point.cmc ?? 0, 2)}</b></p>
+              <p><b>Reported U</b> = ถ้า U &lt; CMC ใช้ CMC ไม่เช่นนั้น ROUNDUP(U, 3) = <b>{fmt(point.reportedU, 3)}</b></p>
+            </div>
+          ) : isDtmOnsite ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <p><b>Avg STD</b> = AVERAGE(STD 5 ครั้ง) = <b>{fmt(point.stdMean ?? 0, 8)}</b></p>
+              <p><b>Avg UUC</b> = AVERAGE(UUC 5 ครั้ง) = <b>{fmt(point.indicatingReading ?? 0, 8)}</b></p>
+              <p><b>Correction</b> = Avg STD − Avg UUC = <b>{fmt(point.correction ?? 0, 8)}</b></p>
+              <p><b>Repeatability</b> = STDEV.S (ไม่หาร √n) STD = <b>{fmt(repStd?.value ?? 0, 8)}</b> · UUC = <b>{fmt(repeatability?.value ?? 0, 8)}</b></p>
+              <p><b>CMC</b> = 0.05 °C = <b>{fmt(point.cmc ?? 0, 2)}</b></p>
+              <p><b>Reported U</b> = ถ้า U &lt; CMC ใช้ CMC ไม่เช่นนั้น CEILING(U, 0.001) = <b>{fmt(point.reportedU, 3)}</b></p>
+            </div>
+          ) : isTypeK ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <p><b>Avg STD</b> = AVERAGE(STD 5 ครั้ง) = <b>{fmt(point.stdMean ?? 0, 8)}</b></p>
+              <p><b>Avg UUC</b> = AVERAGE(UUC 5 ครั้ง) = <b>{fmt(point.indicatingReading ?? 0, 8)}</b></p>
+              <p><b>Correction</b> = Avg STD − Avg UUC = <b>{fmt(point.correction ?? 0, 8)}</b></p>
+              <p><b>Repeatability</b> = STDEV.S (ไม่หาร √n) STD = <b>{fmt(repStd?.value ?? 0, 8)}</b> · UUC = <b>{fmt(repeatability?.value ?? 0, 8)}</b></p>
+              <p><b>IRJ</b> = |(UUC−STD)₁ − (UUC−STD)₂| = <b>{fmt((point.uncertaintyBudget.find((s: any) => s.key === 'dT_IRJ')?.value) ?? 0, 8)}</b></p>
+              <p><b>Inhomogeneity</b> = สายใหม่ 0.1 / สายเก่า 0.44 = <b>{fmt((point.uncertaintyBudget.find((s: any) => s.key === 'dT_Inh')?.value) ?? 0, 8)}</b></p>
+              <p><b>CMC</b> = ถ้าจุด &gt; 50°C ใช้ 0.5 ไม่เช่นนั้น 0.4 = <b>{fmt(point.cmc ?? 0, 1)}</b></p>
+              <p><b>Reported U</b> = ถ้า U &lt; CMC ใช้ CMC ไม่เช่นนั้น ROUNDUP(U, 2) = <b>{fmt(point.reportedU, 2)}</b></p>
+            </div>
+          ) : isComparison ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <p><b>Avg UUC</b> = AVERAGE(UUC 4 ครั้ง) = <b>{fmt(point.indicatingReading ?? point.sensorResults?.[0]?.mean ?? 0, 8)}</b></p>
+              <p><b>Avg STD</b> = AVERAGE(STD tachometer + Std Correction) = <b>{fmt(point.stdMean ?? 0, 8)}</b></p>
+              <p><b>Correction</b> = Avg STD − Avg UUC = <b>{fmt(point.correction ?? 0, 8)}</b></p>
+              <p><b>Repeatability STD</b> = STDEV.S(STD+Corr) / √n = <b>{fmt(repStd?.value ?? 0, 8)}</b></p>
+              <p><b>Repeatability UUC</b> = STDEV.S(UUC) / √n{n ? `, n = ${n}` : ''} = <b>{fmt(repeatability?.value ?? 0, 8)}</b></p>
+              <p><b>CMC</b> (จากค่าเฉลี่ย UUC) = <b>{fmt(point.cmc ?? 0, 2)}</b></p>
+              <p><b>Reported U</b> = ถ้า U &lt; CMC ใช้ ROUNDUP(CMC, 2) ไม่เช่นนั้น ROUNDUP(U, 1) = <b>{fmt(point.reportedU, 2)}</b></p>
+            </div>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <p><b>ค่าเฉลี่ยแต่ละ Sensor</b> = AVERAGE(ค่าของ Sensor นั้นทุกแถว)</p>
+              <p><b>Stability</b> = MAX[(MAX(Sensor) − MIN(Sensor)) ÷ 2] = <b>{fmt(point.stability, 8)}</b></p>
+              <p><b>Uniformity</b> = MAX|Sensor {isAutoclave ? '#2 (P2 center)' : isChamber ? '#9 (center)' : 'center'} − Sensor ตำแหน่งอื่น| ในทุกแถว = <b>{fmt(point.uniformity, 8)}</b></p>
+              {vertical && (
+                <p><b>Vertical Uniformity</b> = MAX(|AVG(center) − AVG(top)|, |AVG(center) − AVG(bottom)|) = <b>{fmt(point.verticalUniformity ?? 0, 8)}</b></p>
+              )}
+              <p><b>UUC Reading เฉลี่ย</b> = AVERAGE(UUC Reading) = <b>{fmt(point.indicatingReading ?? 0, 8)}</b></p>
+              <p><b>Repeatability UUC</b> = STDEV.S(UUC Reading){n ? `, n = ${n}` : ''} = <b>{fmt(repeatability?.value ?? 0, 8)}</b></p>
+              {isEmptyChamber && (
+                <>
+                  <p><b>Loading</b> = Uniformity × 0.2 = <b>{fmt((point.uncertaintyBudget.find((s: any) => s.key === 'dT_Load')?.value) ?? 0, 8)}</b></p>
+                  <p><b>CMC</b> = <b>{fmt(point.cmc ?? 0, 2)}</b></p>
+                  <p><b>Reported U</b> = ถ้า U &lt; CMC ใช้ CMC; ถ้า U &gt; 1 ปัดขึ้น 1 ตำแหน่ง ไม่เช่นนั้นปัดขึ้น 2 ตำแหน่ง = <b>{fmt(point.reportedU, 2)}</b></p>
+                </>
+              )}
+              {isLoadedChamber && (
+                <>
+                  <p><b>Loading</b> = T no load × 0.2 = <b>{fmt((point.uncertaintyBudget.find((s: any) => s.key === 'dT_Load')?.value) ?? 0, 8)}</b></p>
+                  <p><b>CMC</b> = <b>{Number.isFinite(point.cmc) ? fmt(point.cmc, 2) : 'นอกช่วง (&gt; 40°C)'}</b></p>
+                  <p><b>Reported U</b> = ถ้า U &lt; CMC ใช้ CMC; ถ้า U &gt; 1 ปัดขึ้น 1 ตำแหน่ง ไม่เช่นนั้นปัดขึ้น 2 ตำแหน่ง = <b>{fmt(point.reportedU, 2)}</b></p>
+                </>
+              )}
+              {isAutoclave && (
+                <>
+                  <p><b>Loading</b> = Uniformity × 0.2 = <b>{fmt((point.uncertaintyBudget.find((s: any) => s.key === 'dT_Load')?.value) ?? 0, 8)}</b></p>
+                  <p><b>CMC</b> = 0.88 °C = <b>{fmt(point.cmc ?? 0, 2)}</b></p>
+                  <p><b>Reported U</b> = ถ้า U &lt; CMC ใช้ CMC ไม่เช่นนั้น CEILING(U, 0.01) = <b>{fmt(point.reportedU, 2)}</b></p>
+                </>
+              )}
+            </div>
+          )}
           {Array.isArray(point.sensorResults) && point.sensorResults.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full max-w-xl border-collapse text-xs">
@@ -287,28 +361,46 @@ function IsoResultPanel({ isoResult }: { isoResult?: IsoCalculationResult | null
       verticalUniformity?: number
       overallVariation: number
       indicatingReading?: number
+      stdMean?: number
+      correction?: number
+      cmc?: number
       uncertaintyBudget: Array<{ key: string; name: string; value: number; divisor: number; ci: number; ui: number; vi: number }>
       uc: number
       kp: number
       expandedU: number
       reportedU: number
     }>
+    timeCheckResult?: { avgUucTime: number; avgStdTime: number; timeDifference: number }
   }
   if (!Array.isArray((isoResult as any).sensorResults) && Array.isArray(newIsoResult.calPointResults)) {
+    const methodLabel = (isoResult as any).methodCode || isoResult.isoMethodCode
     return (
       <div className="min-w-0 space-y-6">
-        <h2 className="text-lg font-bold text-blue-800">ผลการคำนวณ ISO ({isoResult.isoMethodCode})</h2>
-        {newIsoResult.calPointResults.map((point) => (
+        <h2 className="text-lg font-bold text-blue-800">ผลการคำนวณ ISO ({methodLabel})</h2>
+        {newIsoResult.calPointResults.map((point) => {
+          const isComparison = point.stdMean != null || point.correction != null
+          return (
           <div key={point.point} className="card p-0 overflow-hidden">
             <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 text-sm font-semibold text-blue-800">
               Cal. point: {point.point} · U = {fmt(point.reportedU, 4)} · k = {fmt(point.kp, 4)} · u<sub>c</sub> = {fmt(point.uc, 4)}
             </div>
             <div className="p-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              <div>Stability: <b>{fmt(point.stability, 6)}</b></div>
-              <div>Uniformity: <b>{fmt(point.uniformity, 6)}</b></div>
-              <div>Vertical Uniformity: <b>{fmt(point.verticalUniformity ?? NaN, 6)}</b></div>
-              <div>Overall Variation: <b>{fmt(point.overallVariation, 6)}</b></div>
-              <div>UUC Reading: <b>{fmt(point.indicatingReading ?? NaN, 6)}</b></div>
+              {isComparison ? (
+                <>
+                  <div>Avg UUC: <b>{fmt(point.indicatingReading ?? point.sensorResults?.[0]?.mean ?? NaN, 4)}</b></div>
+                  <div>Avg STD: <b>{fmt(point.stdMean ?? NaN, 4)}</b></div>
+                  <div>Correction: <b>{fmt(point.correction ?? NaN, 4)}</b></div>
+                  <div>CMC: <b>{fmt(point.cmc ?? NaN, 2)}</b></div>
+                </>
+              ) : (
+                <>
+                  <div>Stability: <b>{fmt(point.stability, 6)}</b></div>
+                  <div>Uniformity: <b>{fmt(point.uniformity, 6)}</b></div>
+                  <div>Vertical Uniformity: <b>{fmt(point.verticalUniformity ?? NaN, 6)}</b></div>
+                  <div>Overall Variation: <b>{fmt(point.overallVariation, 6)}</b></div>
+                  <div>UUC Reading: <b>{fmt(point.indicatingReading ?? NaN, 6)}</b></div>
+                </>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -324,7 +416,20 @@ function IsoResultPanel({ isoResult }: { isoResult?: IsoCalculationResult | null
             </div>
             <FormulaDetails point={point} />
           </div>
-        ))}
+          )
+        })}
+        {newIsoResult.timeCheckResult && (
+          <div className="card p-0 overflow-hidden">
+            <div className="px-4 py-2 bg-blue-50 border-b border-blue-100 text-sm font-semibold text-blue-800">
+              ผลการตรวจสอบเวลา (Time Check)
+            </div>
+            <div className="p-4 text-sm space-y-1">
+              <div>Avg UUC Time: <span className="font-medium">{fmt(newIsoResult.timeCheckResult.avgUucTime, 2)} s</span></div>
+              <div>Avg STD Time: <span className="font-medium">{fmt(newIsoResult.timeCheckResult.avgStdTime, 2)} s</span></div>
+              <div>Time Difference: <span className="font-medium">{fmt(newIsoResult.timeCheckResult.timeDifference, 2)} s</span></div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }

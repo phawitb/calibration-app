@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import IsoMethodTemplate from '@/models/IsoMethodTemplate'
+import { applyIsoMethodSeedOverlay } from '@/lib/isoMethodSeeds'
 
 // GET /api/iso-methods — public endpoint to list active method templates
 // Used by the calibration form to load method configurations
@@ -15,5 +16,5 @@ export async function GET() {
     .sort({ sortOrder: 1, code: 1 })
     .lean()
 
-  return NextResponse.json({ data: methods })
+  return NextResponse.json({ data: methods.map((m: any) => applyIsoMethodSeedOverlay(m)) })
 }

@@ -161,7 +161,9 @@ function buildInitialIsoData(method: IsoMethodConfig) {
       sensorReadings: Array.from({ length: method.readingsPerPoint }, () =>
         Array(method.sensorCount).fill('')
       ),
+      stdReadings: Array.from({ length: method.readingsPerPoint }, () => ['']),
       standardCorrection: 0,
+      tNoLoad: '',
     })),
     timeCheck: method.hasTimeCheck
       ? { uucTime: Array(5).fill(''), stdTime: Array(5).fill('') }
@@ -197,6 +199,10 @@ const LIQUID_BATH_DEFAULTS = {
     top: [94.98, 95.00, 94.99, 95.00, 94.98, 95.00, 94.99, 94.98, 95.02, 95.00],
     bottom: [94.98, 94.98, 95.02, 95.04, 95.02, 95.02, 95.03, 95.05, 95.02, 95.03],
   },
+}
+
+function usesUucDisplayReadings(code?: string) {
+  return code === 'TEM-002' || code === 'TEM-001-1' || code === 'TEM-001-2' || code === 'TEM-004'
 }
 
 /* ---------- main component ---------- */
@@ -573,11 +579,19 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
       errors['iso.readings'] = 'กรุณากรอกค่า Readings อย่างน้อย 1 จุดสอบเทียบ'
     }
 
-    if (methodCode === 'TEM-002') {
+    if (usesUucDisplayReadings(methodCode)) {
       const hasUucReadings = isoCalPoints.some((cp: any) =>
         Array.isArray(cp?.uucReadings) && cp.uucReadings.some((v: any) => v !== '' && v != null && Number.isFinite(Number(v)) && Number(v) !== 0)
       )
-      if (!hasUucReadings) errors['iso.uucReadings'] = 'กรุณากรอกค่า UUC Reading ของอ่างอย่างน้อย 1 จุดสอบเทียบ'
+      if (!hasUucReadings) {
+        errors['iso.uucReadings'] = methodCode === 'TEM-001-1'
+          ? 'กรุณากรอกค่า UUC Reading ของตู้ว่างอย่างน้อย 1 จุดสอบเทียบ'
+          : methodCode === 'TEM-001-2'
+            ? 'กรุณากรอกค่า UUC Reading ของตู้มีโหลดอย่างน้อย 1 จุดสอบเทียบ'
+            : methodCode === 'TEM-004'
+              ? 'กรุณากรอกค่า UUC Reading ของหม้อแรงดันอย่างน้อย 1 จุดสอบเทียบ'
+              : 'กรุณากรอกค่า UUC Reading ของอ่างอย่างน้อย 1 จุดสอบเทียบ'
+      }
     }
 
     // ต้องมี calPoint value
@@ -706,6 +720,17 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     setIso('calPoints', pts)
   }
 
+  const updateStdReading = (ptIdx: number, readingIdx: number, value: string) => {
+    const pts = [...calPoints]
+    const pt = { ...pts[ptIdx] }
+    const readings = (pt.stdReadings || []).map((r: any) => Array.isArray(r) ? [...r] : [r])
+    while (readings.length <= readingIdx) readings.push([''])
+    readings[readingIdx][0] = value
+    pt.stdReadings = readings
+    pts[ptIdx] = pt
+    setIso('calPoints', pts)
+  }
+
   const updateUucReading = (ptIdx: number, readingIdx: number, value: string) => {
     const pts = [...calPoints]
     const pt = { ...pts[ptIdx] }
@@ -744,7 +769,9 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
       sensorReadings: Array.from({ length: rpp }, () =>
         Array(sc).fill('')
       ),
+      stdReadings: Array.from({ length: rpp }, () => ['']),
       standardCorrection: 0,
+      tNoLoad: '',
       ...(verticalDefaults ? {
         verticalReadings: {
           center: [...(verticalDefaults.center || [])],
@@ -775,17 +802,38 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   /* ---------- render calibration readings ---------- */
   const renderCalibrationReadings = () => {
     if (method.measurementType === 'speed') {
-      // Centrifuge: cal point + UUC readings + STD readings
+      // Centrifuge: 4 UUC + 4 STD tachometer readings; Excel E = STD + interpolation correction
       return (
         <div className="space-y-4">
           {calPoints.map((pt: any, ptIdx: number) => (
             <div key={ptIdx} className="border border-gray-200 rounded-lg p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <h5 className="text-sm font-medium text-military-700">จุดสอบเทียบที่ {ptIdx + 1}</h5>
-                {calPoints.length > 1 && (
-                  <button type="button" onClick={() => removeCalPoint(ptIdx)}
-                    className="text-xs text-red-500 hover:text-red-700">ลบ</button>
-                )}
+                <div className="flex items-center gap-2">
+                  <ExcelPasteInput
+                    expectedCols={2}
+                    columnLabels={['UUC', 'STD']}
+                    buttonLabel="วาง UUC+STD"
+                    unit={method.unit}
+                    currentDataCount={Math.max(
+                      pt.sensorReadings?.filter((row: any) => row?.[0] !== '' && row?.[0] != null).length || 0,
+                      pt.stdReadings?.filter((row: any) => (Array.isArray(row) ? row[0] : row) !== '' && (Array.isArray(row) ? row[0] : row) != null).length || 0,
+                    )}
+                    onImport={(matrix) => {
+                      const pts = [...calPoints]
+                      const updated = { ...pts[ptIdx] }
+                      updated.sensorReadings = matrix.map(row => [row[0] ?? ''])
+                      updated.stdReadings = matrix.map(row => [row[1] ?? ''])
+                      pts[ptIdx] = updated
+                      setIso('calPoints', pts)
+                      toast.success(`นำเข้า ${matrix.length} แถว สำเร็จ`)
+                    }}
+                  />
+                  {calPoints.length > 1 && (
+                    <button type="button" onClick={() => removeCalPoint(ptIdx)}
+                      className="text-xs text-red-500 hover:text-red-700">ลบ</button>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
@@ -795,7 +843,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                     onChange={(e) => updateCalPoint(ptIdx, 'point', e.target.value)} />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Std Correction</label>
+                  <label className="block text-xs text-gray-500 mb-1">Std Correction (ค่าแก้ interpolation)</label>
                   <input type="number" step="any" className="input-field text-sm"
                     value={pt.standardCorrection ?? 0}
                     onChange={(e) => updateCalPoint(ptIdx, 'standardCorrection', Number(e.target.value) || 0)} />
@@ -807,25 +855,33 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                     <tr className="bg-gray-50">
                       <th className="border border-gray-200 px-2 py-1 text-left">Reading</th>
                       <th className="border border-gray-200 px-2 py-1">UUC ({method.unit})</th>
-                      <th className="border border-gray-200 px-2 py-1">STD ({method.unit})</th>
+                      <th className="border border-gray-200 px-2 py-1">STD tachometer</th>
+                      <th className="border border-gray-200 px-2 py-1">STD + Corr</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {Array.from({ length: method.readingsPerPoint }).map((_, rIdx) => (
-                      <tr key={rIdx}>
-                        <td className="border border-gray-200 px-2 py-1 text-center font-medium">{rIdx + 1}</td>
-                        <td className="border border-gray-200 p-0.5">
-                          <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
-                            value={pt.sensorReadings?.[rIdx]?.[0] || ''}
-                            onChange={(e) => updateSensorReading(ptIdx, rIdx, 0, e.target.value)} />
-                        </td>
-                        <td className="border border-gray-200 p-0.5 bg-gray-50 text-center">
-                          {pt.point && !Number.isNaN(Number(pt.point))
-                            ? (Number(pt.point) + (pt.standardCorrection || 0)).toFixed(1)
-                            : '-'}
-                        </td>
-                      </tr>
-                    ))}
+                    {Array.from({ length: method.readingsPerPoint }).map((_, rIdx) => {
+                      const stdRaw = Number(Array.isArray(pt.stdReadings?.[rIdx]) ? pt.stdReadings[rIdx][0] : pt.stdReadings?.[rIdx])
+                      const corr = Number(pt.standardCorrection || 0)
+                      return (
+                        <tr key={rIdx}>
+                          <td className="border border-gray-200 px-2 py-1 text-center font-medium">{rIdx + 1}</td>
+                          <td className="border border-gray-200 p-0.5">
+                            <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
+                              value={pt.sensorReadings?.[rIdx]?.[0] || ''}
+                              onChange={(e) => updateSensorReading(ptIdx, rIdx, 0, e.target.value)} />
+                          </td>
+                          <td className="border border-gray-200 p-0.5">
+                            <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
+                              value={Array.isArray(pt.stdReadings?.[rIdx]) ? (pt.stdReadings[rIdx][0] ?? '') : (pt.stdReadings?.[rIdx] ?? '')}
+                              onChange={(e) => updateStdReading(ptIdx, rIdx, e.target.value)} />
+                          </td>
+                          <td className="border border-gray-200 p-0.5 bg-gray-50 text-center">
+                            {Number.isFinite(stdRaw) ? (stdRaw + corr).toFixed(1) : '-'}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -873,8 +929,17 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                     value={pt.standardCorrection ?? 0}
                     onChange={(e) => updateCalPoint(ptIdx, 'standardCorrection', Number(e.target.value) || 0)} />
                 </div>
+                {method.code === 'TEM-001-2' && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">T no load ({method.unit})</label>
+                    <input type="number" step="any" className="input-field text-sm"
+                      value={pt.tNoLoad ?? ''}
+                      onChange={(e) => updateCalPoint(ptIdx, 'tNoLoad', e.target.value === '' ? '' : Number(e.target.value))} />
+                    <p className="text-[11px] text-gray-400 mt-0.5">Excel: Loading = T no load × 0.2</p>
+                  </div>
+                )}
               </div>
-              {method.code === 'TEM-002' && (
+              {usesUucDisplayReadings(method.code) && (
                 <div className="border border-blue-100 rounded p-2 bg-blue-50/40">
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <p className="text-xs font-medium text-blue-800">UUC Reading</p>
@@ -894,14 +959,18 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                       }}
                     />
                   </div>
-                  <p className="text-xs text-blue-700 mb-2">ใช้คำนวณค่าเฉลี่ยและ Repeatability ของ UUC (STDEV.S)</p>
+                  <p className="text-xs text-blue-700 mb-2">
+                    {method.code === 'TEM-001-1' || method.code === 'TEM-001-2' || method.code === 'TEM-004'
+                      ? 'Excel: AVERAGE และ Repeatability = STDEV.S ของจอ UUC (ไม่หาร √n) — กรอก 30 ค่า'
+                      : 'ใช้คำนวณค่าเฉลี่ยและ Repeatability ของ UUC (STDEV.S)'}
+                  </p>
                   <div className="overflow-x-auto">
                     <table className="w-auto text-xs border-collapse">
                       <thead><tr className="bg-white">
                         <th className="border border-gray-200 px-2 py-1">No.</th>
                         <th className="border border-gray-200 px-2 py-1">UUC Reading</th>
                       </tr></thead>
-                      <tbody>{Array.from({ length: Math.max(11, pt.uucReadings?.length || 0) }).map((_, rIdx) => (
+                      <tbody>{Array.from({ length: Math.max(method.code === 'TEM-001-1' || method.code === 'TEM-001-2' || method.code === 'TEM-004' ? rpp : 11, pt.uucReadings?.length || 0) }).map((_, rIdx) => (
                         <tr key={rIdx}>
                           <td className="border border-gray-200 px-2 py-1 text-center">{rIdx + 1}</td>
                           <td className="border border-gray-200 p-0.5"><input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none" value={pt.uucReadings?.[rIdx] || ''} onChange={(e) => updateUucReading(ptIdx, rIdx, e.target.value)} /></td>
@@ -1005,6 +1074,108 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           ))}
           <button type="button" onClick={addCalPoint}
             className="text-sm text-blue-600 hover:text-blue-800">+ เพิ่มจุดสอบเทียบ</button>
+        </div>
+      )
+    }
+
+    if (method.code === 'TEM-003-1' || method.code === 'TEM-003-2' || method.code === 'TEM-003-3') {
+      const rpp = effectiveReadingsPerPoint
+      const renderPairTable = (
+        pt: any,
+        ptIdx: number,
+        onUuc: (rIdx: number, value: string) => void,
+        onStd: (rIdx: number, value: string) => void,
+      ) => (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-gray-50">
+                <th className="border border-gray-200 px-2 py-1 text-left">Reading</th>
+                <th className="border border-gray-200 px-2 py-1">UUC ({method.unit})</th>
+                <th className="border border-gray-200 px-2 py-1">STD ({method.unit})</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: rpp }).map((_, rIdx) => (
+                <tr key={rIdx}>
+                  <td className="border border-gray-200 px-2 py-1 text-center font-medium">{rIdx + 1}</td>
+                  <td className="border border-gray-200 p-0.5">
+                    <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
+                      value={pt.sensorReadings?.[rIdx]?.[0] || ''}
+                      onChange={(e) => onUuc(rIdx, e.target.value)} />
+                  </td>
+                  <td className="border border-gray-200 p-0.5">
+                    <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
+                      value={Array.isArray(pt.stdReadings?.[rIdx]) ? (pt.stdReadings[rIdx][0] ?? '') : (pt.stdReadings?.[rIdx] ?? '')}
+                      onChange={(e) => onStd(rIdx, e.target.value)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+      const calRef = (isoData.calRefPoints && isoData.calRefPoints[0]) || {
+        point: 0,
+        sensorReadings: Array.from({ length: rpp }, () => ['']),
+        stdReadings: Array.from({ length: rpp }, () => ['']),
+        standardCorrection: 0,
+      }
+      const setCalRef = (next: any) => setIso('calRefPoints', [next])
+      return (
+        <div className="space-y-4">
+          {calPoints.map((pt: any, ptIdx: number) => (
+            <div key={ptIdx} className="border border-gray-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <h5 className="text-sm font-medium text-military-700">จุดสอบเทียบที่ {ptIdx + 1}</h5>
+                {calPoints.length > 1 && (
+                  <button type="button" onClick={() => removeCalPoint(ptIdx)}
+                    className="text-xs text-red-500 hover:text-red-700">ลบ</button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Cal. Point ({method.unit})</label>
+                  <input type="number" step="any" className="input-field text-sm"
+                    value={pt.point || ''}
+                    onChange={(e) => updateCalPoint(ptIdx, 'point', e.target.value)} />
+                </div>
+              </div>
+              <p className="text-xs text-blue-700">
+                Excel: กรอก STD และ UUC อย่างละ 5 ครั้ง — Repeatability = STDEV.S (ไม่หาร √n)
+                {method.code === 'TEM-003-1' ? ' · ค่าแสดง UUC = CEILING.MATH ตามความละเอียด' : ' · ค่าแสดง UUC = AVERAGE (ไม่ปัด CEILING)'}
+                {method.code === 'TEM-003-3' ? ' · Inhomogeneity จากสภาพสาย · IRJ จากสภาวะแวดล้อม' : ''}
+              </p>
+              {renderPairTable(
+                pt,
+                ptIdx,
+                (rIdx, value) => updateSensorReading(ptIdx, rIdx, 0, value),
+                (rIdx, value) => updateStdReading(ptIdx, rIdx, value),
+              )}
+            </div>
+          ))}
+          <button type="button" onClick={addCalPoint}
+            className="text-sm text-blue-600 hover:text-blue-800">+ เพิ่มจุดสอบเทียบ</button>
+          <div className="border border-amber-200 rounded-lg p-3 space-y-2 bg-amber-50/40">
+            <h5 className="text-sm font-medium text-amber-900">Cal Ref — Repeat 0 °C (สำหรับ Short-term stability)</h5>
+            <p className="text-xs text-amber-800">Excel: STS = |(STD−UUC ที่จุดสอบเทียบ) − (STD−UUC ที่ 0 °C)|</p>
+            {renderPairTable(
+              calRef,
+              0,
+              (rIdx, value) => {
+                const sensorReadings = [...(calRef.sensorReadings || [])]
+                while (sensorReadings.length <= rIdx) sensorReadings.push([''])
+                sensorReadings[rIdx] = [value]
+                setCalRef({ ...calRef, sensorReadings })
+              },
+              (rIdx, value) => {
+                const stdReadings = [...(calRef.stdReadings || [])]
+                while (stdReadings.length <= rIdx) stdReadings.push([''])
+                stdReadings[rIdx] = [value]
+                setCalRef({ ...calRef, stdReadings })
+              },
+            )}
+          </div>
         </div>
       )
     }
@@ -1597,6 +1768,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 onChange={(e) => setStd1('uTInt', e.target.value === '' ? '' : Number(e.target.value))} />
             </div>
           </div>
+          {method.measurementType === 'speed' && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              ELC-001 ตาม Excel: ค่า Cal / Drift / Res ของ STD คำนวณอัตโนมัติจากรอบเฉลี่ยของ STD
+              (ไม่ใช้ช่อง uT STD, uT Drif, uT Res STD) — กรอกเฉพาะ <b>uT Int.</b> ถ้ามีค่า interpolation
+            </p>
+          )}
         </div>
 
         {/* Calibration readings */}
@@ -1604,9 +1781,21 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           <h3 className="section-title">ข้อมูลจุดสอบเทียบ (Calibration Readings)</h3>
           <p className="text-xs text-gray-500 -mt-1">
             {method.measurementType === 'speed'
-              ? `กรอกจุด Cal. Point แล้วค่า STD จะคำนวณอัตโนมัติจาก Cal.Point + Correction - กรอก UUC เอง`
+              ? 'กรอก UUC และ STD จาก tachometer อย่างละ 4 ครั้ง — ค่า STD+Corr = STD + Std Correction ตาม Excel'
+              : method.code === 'TEM-001-1'
+                ? 'กรอก Sensor 9 ตัว × 30 ครั้ง (#9 คือจุดกลาง) และ UUC Reading ของจอตู้ 30 ค่า'
+              : method.code === 'TEM-001-2'
+                ? 'กรอก Sensor 9 ตัว × 30 ครั้ง (#9 คือจุดกลาง), UUC Reading 30 ค่า และ T no load สำหรับ Loading'
+              : method.code === 'TEM-003-1'
+                ? 'กรอก STD และ UUC อย่างละ 5 ครั้งต่อจุด (เปรียบเทียบกับ SPRT) และ Cal Ref ที่ 0 °C ถ้ามี'
+              : method.code === 'TEM-003-2'
+                ? 'กรอก STD และ UUC อย่างละ 5 ครั้งต่อจุด (ออกสถานที่) และ Cal Ref ที่ 0 °C ถ้ามี'
+              : method.code === 'TEM-003-3'
+                ? 'กรอก STD และ UUC อย่างละ 5 ครั้งต่อจุด (Type K), Cal Ref ที่ 0 °C, สภาพสาย และ IRJ สภาวะแวดล้อม'
+              : method.code === 'TEM-004'
+                ? 'กรอก Sensor 3 ตัว × 30 ครั้ง (P2 คือจุดกลาง) และ UUC Reading ของจอหม้อแรงดัน 30 ค่า'
               : method.measurementType === 'temperature_multi_sensor'
-                ? `กรอกค่า ${method.sensorCount} Sensor x ${method.readingsPerPoint} readings ต่อจุด`
+                ? `กรอกค่า ${effectiveSensorCount} Sensor x ${effectiveReadingsPerPoint} readings ต่อจุด`
                 : `กรอก UUC ${method.readingsPerPoint} ครั้งต่อจุด - STD คำนวณจาก Cal.Point + Correction`
             }
           </p>

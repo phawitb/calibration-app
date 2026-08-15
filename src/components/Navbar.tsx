@@ -82,15 +82,21 @@ export default function Navbar() {
     },
   ]
 
-  const extraLinks = [
+  const utilityTabs = [
+    ...(!isHospitalUser ? [{ href: '/reports', label: 'รายงานผล', match: (p: string) => p.startsWith('/reports') }] : []),
+    ...(!isHospitalUser && canManageSystemData ? [{ href: '/admin?tab=data', label: 'จัดการระบบ', match: (p: string) => p.startsWith('/admin') }] : []),
+  ]
+  const profileLinks = [
+    { href: '/profile', label: 'โปรไฟล์ของฉัน' },
+    ...(!isHospitalUser ? [{ href: '/reports', label: 'รายงานผล' }] : []),
     ...(canApprove ? [{ href: '/approvals', label: 'งานรออนุมัติ' }] : []),
     ...(!isHospitalUser && canManageSystemData ? [{ href: '/admin?tab=data', label: 'จัดการระบบ' }] : []),
   ]
 
-  const tabActive = (tab: (typeof workspaceTabs)[number]) => tab.match(pathname)
+  const tabActive = (tab: { match: (p: string) => boolean }) => tab.match(pathname)
 
   return (
-    <header className="bg-white/90 backdrop-blur border-b border-military-200 z-30">
+    <header className="bg-white/90 backdrop-blur border-b border-military-200 z-30 print:hidden">
       <div className="px-3 sm:px-4 lg:px-6">
         <div className="flex items-center justify-between h-14 gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -140,10 +146,7 @@ export default function Navbar() {
                     <p className="text-sm font-medium">{(session?.user as any)?.fullName || session?.user?.name}</p>
                     <p className="text-xs text-gray-500">{roleText}</p>
                   </div>
-                  <Link href="/profile" onClick={() => setProfileOpen(false)} className="block px-3 py-2 text-sm hover:bg-gray-50">
-                    โปรไฟล์ของฉัน
-                  </Link>
-                  {extraLinks.map((link) => (
+                  {profileLinks.map((link) => (
                     <Link
                       key={link.href}
                       href={link.href}
@@ -183,22 +186,26 @@ export default function Navbar() {
               </Link>
             )
           })}
-          {extraLinks.map((link) => {
-            const active = pathname.startsWith(link.href.split('?')[0])
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`hidden xl:inline-flex whitespace-nowrap px-3 py-2.5 text-sm border-b-2 transition-colors ${
-                  active
-                    ? 'border-military-600 text-military-900 font-semibold'
-                    : 'border-transparent text-gray-400 hover:text-military-800 hover:border-military-200'
-                }`}
-              >
-                {link.label}
-              </Link>
-            )
-          })}
+          {utilityTabs.length > 0 && (
+            <div className="ml-auto flex items-end gap-1 pl-3">
+              {utilityTabs.map((tab) => {
+                const active = tabActive(tab)
+                return (
+                  <Link
+                    key={tab.href}
+                    href={tab.href}
+                    className={`whitespace-nowrap px-3 sm:px-4 py-2.5 text-sm border-b-2 transition-colors ${
+                      active
+                        ? 'border-gold-500 text-military-900 font-semibold'
+                        : 'border-transparent text-gray-500 hover:text-military-800 hover:border-military-200'
+                    }`}
+                  >
+                    {tab.label}
+                  </Link>
+                )
+              })}
+            </div>
+          )}
         </nav>
       </div>
     </header>

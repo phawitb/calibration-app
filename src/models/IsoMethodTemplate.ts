@@ -59,6 +59,7 @@ const UncertaintySourceSchema = new Schema({
     }],
     expression:     String,        // for formula type
     multiplier:     Number,        // optional multiplier (e.g. 0.2 for loading effect)
+    halfRange:      Boolean,       // from_uuc_resolution: default true (value/2). Excel ELC-001 uses full resolution.
   },
 
   degreesOfFreedom: Schema.Types.Mixed,  // number | 'n-1' | 'infinity'
@@ -137,6 +138,7 @@ export interface IIsoMethodTemplate extends Document {
       conditions?: { condition: string; value: number }[]
       expression?: string
       multiplier?: number
+      halfRange?: boolean
     }
     degreesOfFreedom: number | string
     enabled: boolean

@@ -107,14 +107,14 @@ export default function HospitalSidebar() {
       {sidebarOpen && (
         <button
           type="button"
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          className="print:hidden fixed inset-0 z-40 bg-black/50 lg:hidden"
           aria-label="ปิดแถบโรงพยาบาล"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-[280px] bg-military-900 text-white shadow-2xl transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
+        className={`print:hidden fixed inset-y-0 left-0 z-50 w-[280px] bg-military-900 text-white shadow-2xl transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } ${sidebarCollapsed ? 'lg:w-[72px]' : 'lg:w-[280px]'}`}
       >

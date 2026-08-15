@@ -161,6 +161,7 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
         bottom: any[]
       }
       standardCorrection?: number
+      tNoLoad?: number
     }[]
     calRefPoints?: {
       point: any
@@ -199,6 +200,7 @@ const IsoCalPointSchema = new Schema({
     bottom: [mongoose.Schema.Types.Mixed],
   },
   standardCorrection: Number,
+  tNoLoad: Number,
 }, { _id: false })
 
 const IsoDataSchema = new Schema({

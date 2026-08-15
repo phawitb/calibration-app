@@ -11,7 +11,7 @@ export interface IsoCalPointData {
   point: number
   uucSetting?: number
   sensorReadings: (number | null)[][]  // [readingIdx][sensorIdx]
-  stdReadings?: (number | null)[][]    // for comparison_with_ref_bath
+  stdReadings?: (number | null)[][]    // tachometer / STD raw readings (ELC-001: AU + BU12)
   uucReadings?: number[]              // UUC display readings (e.g. bath indicator)
   verticalReadings?: {                // vertical uniformity data (Liquid Bath)
     center: number[]
@@ -19,6 +19,7 @@ export interface IsoCalPointData {
     bottom: number[]
   }
   standardCorrection?: number
+  tNoLoad?: number                    // TEM-001-2 Excel BB7 (T no load)
 }
 
 export interface ProbeCorrection {
@@ -47,6 +48,7 @@ export interface IsoCalcInput {
   envTemp?: { max: number; min: number }
   envTempScope?: { min: number; max: number }
   confidenceLevel?: number             // default 0.9545
+  timeCheck?: { uucTime?: (number | string)[]; stdTime?: (number | string)[] }
 }
 
 export interface UncertaintySourceResult {
@@ -90,6 +92,7 @@ export interface CalPointResult {
 
 export interface IsoCalcResult {
   methodCode: string
+  isoMethodCode?: string
   unit: string
   calPointResults: CalPointResult[]
   timeCheckResult?: {
@@ -199,14 +202,58 @@ function tInv(confidenceLevel: number, veff: number): number {
 
 // ── Uncertainty source value resolution ──
 
+function flattenStdRaw(stdReadings?: (number | null)[][] | number[]): number[] {
+  if (!stdReadings?.length) return []
+  const out: number[] = []
+  for (const row of stdReadings as any[]) {
+    const v = Array.isArray(row) ? Number(row[0]) : Number(row)
+    if (Number.isFinite(v)) out.push(v)
+  }
+  return out
+}
+
+/** Excel E = AU (tachometer) + BU12 (interpolation correction) */
+function correctedStdValues(cp: IsoCalPointData, fallbackCount: number): number[] {
+  const corr = Number(cp.standardCorrection ?? 0)
+  const raw = flattenStdRaw(cp.stdReadings as any)
+  if (raw.length) return raw.map(v => v + corr)
+  const constant = Number(cp.point) + corr
+  if (!Number.isFinite(constant)) return []
+  return Array.from({ length: Math.max(fallbackCount, 1) }, () => constant)
+}
+
+function isTem003Comparison(code?: string) {
+  return code === 'TEM-003-1' || code === 'TEM-003-2' || code === 'TEM-003-3'
+}
+
+function tem003Inhomogeneity(wireCondition: unknown): number {
+  const w = String(wireCondition || '')
+  if (w === 'new' || w.includes('สายใหม่') || w.startsWith('New')) return 0.1
+  return 0.44
+}
+
+function computeIrjError(methodFields?: Record<string, any>): number {
+  const s1 = Number(methodFields?.irjStd1)
+  const u1 = Number(methodFields?.irjUuc1)
+  const s2 = Number(methodFields?.irjStd2)
+  const u2 = Number(methodFields?.irjUuc2)
+  const hasPair = [methodFields?.irjStd1, methodFields?.irjUuc1, methodFields?.irjStd2, methodFields?.irjUuc2]
+    .every(v => v !== '' && v != null && Number.isFinite(Number(v)))
+  if (hasPair) return Math.abs((u1 - s1) - (u2 - s2))
+  const direct = Number(methodFields?.irjError)
+  return Number.isFinite(direct) ? direct : 0
+}
+
 function resolveSourceValue(
   source: IIsoMethodTemplate['uncertaintySources'][0],
   ctx: {
+    methodCode?: string
     std1: IsoCalcInput['std1']
     uucResolution: number
     sensorReadings: number[][]  // all readings for this cal point [readingIdx][sensorIdx]
     stdReadings?: number[][]
     uucReadings?: number[]      // UUC display readings
+    stdMean?: number
     stability: number
     uniformity: number
     verticalUniformity?: number
@@ -214,10 +261,28 @@ function resolveSourceValue(
     methodFields?: Record<string, any>
     envTemp?: { max: number; min: number }
     envTempScope?: { min: number; max: number }
+    tNoLoad?: number
+    shortTermStability?: number
+    irjError?: number
   }
 ): number {
   const vs = source.valueSource
   if (!vs) return 0
+
+  // ELC-001 Excel Cal 1: Cal/Drift/Res STD are functions of STD mean (E14), not std1 certificate fields.
+  if (ctx.methodCode === 'ELC-001') {
+    if (source.key === 'dTCal_Std' || source.key === 'dT_Drift_Std') {
+      return (ctx.stdMean ?? 0) < 1000 ? 0.12 : 1.2
+    }
+    if (source.key === 'dT_Res_Std') {
+      return (ctx.stdMean ?? 0) > 999 ? 1 : 0.1
+    }
+  }
+
+  // TEM-003-3 Excel V58: New (สายใหม่)=0.1 else 0.44 (empty AB4 → 0.44)
+  if (ctx.methodCode === 'TEM-003-3' && source.key === 'dT_Inh') {
+    return tem003Inhomogeneity(ctx.methodFields?.wireCondition)
+  }
 
   switch (vs.type) {
     case 'fixed':
@@ -228,31 +293,32 @@ function resolveSourceValue(
       return Number(ctx.std1?.[field] ?? 0)
     }
 
-    case 'from_uuc_resolution':
-      return (ctx.uucResolution || 0) / 2
+    case 'from_uuc_resolution': {
+      // TEM-002 Excel dT_Res_UUC = resolution/2 then /√3. ELC-001 uses full resolution then /√3.
+      const useHalf = ctx.methodCode === 'ELC-001' ? false : vs.halfRange !== false
+      return useHalf ? (ctx.uucResolution || 0) / 2 : (ctx.uucResolution || 0)
+    }
 
     case 'computed_repeatability': {
       if (vs.target === 'std' && ctx.stdReadings) {
-        // Flatten std readings per sensor and compute stdev of means
         const allStd = ctx.stdReadings.map(row => row.filter(v => v != null && !isNaN(v)))
         if (allStd.length === 0) return 0
         const flat = allStd.flat()
-        return stdevOfMean(flat)
+        // TEM-003 Excel = STDEV of readings, not STDEV/√n
+        return isTem003Comparison(ctx.methodCode) ? stdev(flat) : stdevOfMean(flat)
       }
       if (vs.target === 'uuc') {
-        // If separate UUC readings are provided (e.g. bath display), use those
         if (ctx.uucReadings?.length) {
           return stdev(ctx.uucReadings)  // S(q), not S(q)/√n — per Excel convention
         }
-        // Fallback: compute from sensor readings (for comparison methods)
         if (!ctx.sensorReadings.length) return 0
         const sensorCount = ctx.sensorReadings[0]?.length || 1
-        let maxStdevMean = 0
+        let maxRep = 0
         for (let s = 0; s < sensorCount; s++) {
           const vals = ctx.sensorReadings.map(row => row[s]).filter(v => v != null && !isNaN(v))
-          maxStdevMean = Math.max(maxStdevMean, stdevOfMean(vals))
+          maxRep = Math.max(maxRep, isTem003Comparison(ctx.methodCode) ? stdev(vals) : stdevOfMean(vals))
         }
-        return maxStdevMean
+        return maxRep
       }
       return 0
     }
@@ -280,8 +346,16 @@ function resolveSourceValue(
       return vs.conditions[0]?.value ?? 0
     }
 
-    case 'from_method_field':
-      return Number(ctx.methodFields?.[vs.methodFieldKey ?? ''] ?? 0)
+    case 'from_method_field': {
+      const key = vs.methodFieldKey ?? ''
+      const raw = key === 'tNoLoad'
+        ? (ctx.tNoLoad ?? ctx.methodFields?.tNoLoad)
+        : ctx.methodFields?.[key]
+      if (raw === '' || raw == null || (typeof raw === 'number' && !Number.isFinite(raw))) {
+        return (vs.fixedValue ?? 0) * (vs.multiplier ?? 1)
+      }
+      return Number(raw) * (vs.multiplier ?? 1)
+    }
 
     case 'computed_from_data': {
       // Handle known computed expressions
@@ -298,12 +372,16 @@ function resolveSourceValue(
           return maxDev * 0.003  // 0.003°C per °C outside range
         }
         case 'shortTermStability':
-          // Would be computed from repeated 0°C check — use 0 if not provided
-          return Number(ctx.methodFields?.shortTermStability ?? 0)
+          return Number(ctx.shortTermStability ?? ctx.methodFields?.shortTermStability ?? 0)
         case 'stdResolution':
           return Number(ctx.methodFields?.stdResolution ?? 0)
         case 'irjError':
-          return Number(ctx.methodFields?.irjError ?? 0)
+          return Number(ctx.irjError ?? computeIrjError(ctx.methodFields))
+        case 'centrifugeCalStd':
+        case 'centrifugeDriftStd':
+          return (ctx.stdMean ?? 0) < 1000 ? 0.12 : 1.2
+        case 'centrifugeResStd':
+          return (ctx.stdMean ?? 0) > 999 ? 1 : 0.1
         default:
           return 0
       }
@@ -365,11 +443,111 @@ function lookupCmc(
   return cmcTable[cmcTable.length - 1].value
 }
 
+/** ELC-001 Excel AH29: IF(T14<1000, 1.2, IF(T14>5000, 2.5, 2.4)) — T14 is UUC mean */
+function lookupElc001Cmc(uucMean: number): number {
+  if (uucMean < 1000) return 1.2
+  if (uucMean > 5000) return 2.5
+  return 2.4
+}
+
+/** TEM-001-1 Excel AH1036: IF(J987<0, 0.22, IF(J987>40, 1, 0.29)) — J987 is cal point */
+function lookupTem001Cmc(calPoint: number): number {
+  if (calPoint < 0) return 0.22
+  if (calPoint > 40) return 1
+  return 0.29
+}
+
+/** TEM-001-2 Excel AH1037: IF(J987<0, 1.1, IF(J987>40, Out of range, 0.66)) */
+function lookupTem0012Cmc(calPoint: number): number {
+  if (calPoint < 0) return 1.1
+  if (calPoint > 40) return NaN
+  return 0.66
+}
+
+/** TEM-003-1 Excel AE60: IF(J5<0, 0.04, 0.03) */
+function lookupTem003Cmc(calPoint: number): number {
+  return calPoint < 0 ? 0.04 : 0.03
+}
+
+/** TEM-003-2 Excel AE60: CMC is a constant 0.05 °C */
+function lookupTem0032Cmc(): number {
+  return 0.05
+}
+
+/** TEM-003-3 Excel AE36: IF(J4>50, 0.5, 0.4) */
+function lookupTem0033Cmc(calPoint: number): number {
+  return calPoint > 50 ? 0.5 : 0.4
+}
+
+/** TEM-004 Excel AG894: CMC is a constant 0.88 °C */
+function lookupTem004Cmc(): number {
+  return 0.88
+}
+
+/** TEM-003-3 AK36: IF(U<CMC, CMC, ROUNDUP(U, 2)) */
+function reportTem0033U(expandedU: number, cmc: number): number {
+  if (expandedU < cmc) return cmc
+  return excelRoundUp(expandedU, 2)
+}
+
+/** TEM-004 AG895: IF(U<CMC, CMC, CEILING(U, 0.01)) */
+function reportTem004U(expandedU: number, cmc: number): number {
+  if (expandedU < cmc) return cmc
+  return excelRoundUp(expandedU, 2)
+}
+
+/** TEM-003-1 AK60 ROUNDUP(U, 3) / TEM-003-2 AK60 CEILING(U, 0.001) with CMC floor */
+function reportTem003U(expandedU: number, cmc: number): number {
+  if (expandedU < cmc) return cmc
+  return excelRoundUp(expandedU, 3)
+}
+
+/** Excel CEILING.MATH(value, significance) for positive temperatures */
+function excelCeilingMath(value: number, significance: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(significance) || significance <= 0) return value
+  return Math.ceil(value / significance - 1e-10) * significance
+}
+
+/** TEM-001-1 AH1037 / TEM-001-2 AH1038: IF(U<CMC, CMC, IF(U>1, ROUNDUP(U,1), ROUNDUP(U,2))) */
+function reportTem001U(expandedU: number, cmc: number): number {
+  if (Number.isFinite(cmc) && expandedU < cmc) return cmc
+  if (expandedU > 1) return excelRoundUp(expandedU, 1)
+  return excelRoundUp(expandedU, 2)
+}
+
 /** Ceiling to specified precision (e.g. 0.01 → round up to 2 decimal places) */
 function ceilTo(value: number, precision: number): number {
   if (precision <= 0) return value
   const factor = 1 / precision
   return Math.ceil(value * factor) / factor
+}
+
+/** Excel ROUNDUP(value, digits) — away from zero, with float-nudge for exact tenths */
+function excelRoundUp(value: number, digits: number): number {
+  if (!Number.isFinite(value)) return value
+  const factor = 10 ** digits
+  const scaled = value * factor
+  const nearest = Math.round(scaled)
+  if (Math.abs(scaled - nearest) < 1e-8) return nearest / factor
+  return Math.ceil(scaled - 1e-10) / factor
+}
+
+function computeTimeCheck(timeCheck?: IsoCalcInput['timeCheck']) {
+  if (!timeCheck) return undefined
+  const uucTimes = (timeCheck.uucTime || [])
+    .map(t => Number(t))
+    .filter(v => !isNaN(v) && v !== 0)
+  const stdTimes = (timeCheck.stdTime || [])
+    .map(t => Number(t))
+    .filter(v => !isNaN(v) && v !== 0)
+  if (!uucTimes.length || !stdTimes.length) return undefined
+  const avgUucTime = avg(uucTimes)
+  const avgStdTime = avg(stdTimes)
+  return {
+    avgUucTime,
+    avgStdTime,
+    timeDifference: Math.abs(avgUucTime - avgStdTime),
+  }
 }
 
 // ── Main calculation function ──
@@ -433,11 +611,11 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
       stability = Math.max(stability, computeStability(vals))
     }
 
-    // Compute uniformity: use last sensor as center (convention from Excel)
+    // Compute uniformity: labeled center, else last sensor. TEM-004 Excel uses P2 (index 1).
     const configuredCenterIdx = gridConfig.sensorLabels?.findIndex(label => label.toLowerCase().includes('center')) ?? -1
-    const centerIdx = sensorCount > 1 && configuredCenterIdx >= 0
-      ? configuredCenterIdx
-      : sensorCount - 1
+    const centerIdx = methodTemplate.code === 'TEM-004'
+      ? (configuredCenterIdx >= 0 ? configuredCenterIdx : 1)
+      : (sensorCount > 1 && configuredCenterIdx >= 0 ? configuredCenterIdx : sensorCount - 1)
     const uniformity = computeUniformity(correctedReadings, centerIdx)
 
     // Overall variation = global max - global min across all sensors and readings
@@ -483,8 +661,40 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
       )
     }
 
-    // Indicating reading from UUC display
-    const indicatingReading = cp.uucReadings?.length ? avg(cp.uucReadings) : undefined
+    // Indicating reading from UUC display (bath) or single-sensor mean (centrifuge T14)
+    const isTem003Dtm = isTem003Comparison(methodTemplate.code)
+    const uucMeanRaw = cp.uucReadings?.length
+      ? avg(cp.uucReadings)
+      : ((methodTemplate.measurementPattern === 'comparison' || isTem003Dtm) && sensorCount === 1
+        ? sensorMeans[0]
+        : undefined)
+    const indicatingReading = methodTemplate.code === 'TEM-003-1' && uucMeanRaw != null && uucResolution > 0
+      ? excelCeilingMath(uucMeanRaw, uucResolution)
+      : uucMeanRaw
+
+    // Corrected STD readings: Excel E = AU + interpolation correction (BU12)
+    const uucN = rawReadings.filter(row => row.some(v => v != null && !isNaN(Number(v)))).length
+    const stdCorrected = correctedStdValues(cp, uucN)
+    let stdMean: number | undefined
+    let correction: number | undefined
+    const isComparisonPoint = methodTemplate.measurementPattern === 'comparison' || isTem003Dtm
+    if (isComparisonPoint && sensorCount === 1) {
+      stdMean = stdCorrected.length ? avg(stdCorrected) : (point + (cp.standardCorrection ?? 0))
+      correction = stdMean - (indicatingReading ?? sensorMeans[0])
+    }
+
+    let shortTermStability = Number(methodFields?.shortTermStability ?? 0)
+    if (isTem003Dtm && input.calRefPoints?.[0]) {
+      const ref = input.calRefPoints[0]
+      const refStd = flattenStdRaw(ref.stdReadings as any)
+      const refUuc = (ref.uucReadings && ref.uucReadings.length)
+        ? ref.uucReadings
+        : (ref.sensorReadings || []).map(row => row[0]).filter((v): v is number => v != null && !isNaN(Number(v)))
+      const uucRaw = uucMeanRaw ?? sensorMeans[0]
+      if (refStd.length && refUuc.length && stdMean != null && uucRaw != null) {
+        shortTermStability = Math.abs((stdMean - uucRaw) - (avg(refStd) - avg(refUuc)))
+      }
+    }
 
     // Max polynomial residual
     const polynomialResidual = probeCorrections?.length
@@ -495,9 +705,9 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
     const numReadings = correctedReadings.map(row =>
       row.map(v => v ?? NaN)
     )
-    const numStdReadings = cp.stdReadings?.map(row =>
-      row.map(v => v ?? NaN)
-    )
+    const numStdReadings = stdCorrected.length
+      ? stdCorrected.map(v => [v])
+      : cp.stdReadings?.map(row => row.map(v => v ?? NaN))
 
     // Build uncertainty budget
     const uncertaintyBudget: UncertaintySourceResult[] = []
@@ -506,11 +716,13 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
       if (!source.enabled) continue
 
       const value = resolveSourceValue(source, {
+        methodCode: methodTemplate.code,
         std1,
         uucResolution,
         sensorReadings: numReadings,
         stdReadings: numStdReadings,
         uucReadings: cp.uucReadings,
+        stdMean,
         stability,
         uniformity,
         verticalUniformity,
@@ -518,6 +730,9 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
         methodFields,
         envTemp: input.envTemp,
         envTempScope: input.envTempScope,
+        tNoLoad: cp.tNoLoad,
+        shortTermStability,
+        irjError: methodTemplate.code === 'TEM-003-3' ? computeIrjError(methodFields) : undefined,
       })
 
       const ci = source.sensitivityCoefficient ?? 1
@@ -527,8 +742,14 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
       if (source.degreesOfFreedom === 'infinity' || source.degreesOfFreedom === Infinity) {
         vi = Infinity
       } else if (source.degreesOfFreedom === 'n-1') {
-        // Get n from readings
-        const n = numReadings.filter(r => r.some(v => !isNaN(v))).length
+        const nStd = stdCorrected.length
+        const nUucDisplay = (cp.uucReadings || []).filter(v => v != null && !isNaN(Number(v)) && isFinite(Number(v))).length
+        const nUuc = numReadings.filter(r => r.some(v => !isNaN(v))).length
+        const n = (source.key === 'dT_Rep_Std' && nStd > 0)
+          ? nStd
+          : (source.key === 'dT_Rep_UUC' && nUucDisplay > 1)
+            ? nUucDisplay
+            : nUuc
         vi = Math.max(n - 1, 1)
       } else {
         vi = Number(source.degreesOfFreedom) || Infinity
@@ -566,19 +787,41 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
     // Expanded uncertainty
     const expandedU = kp * uc
 
-    // CMC lookup (informational — not used as floor per Excel convention)
-    const cmc = lookupCmc(cmcTable, point)
+    const uucMeanForCmc = indicatingReading ?? sensorMeans[0] ?? point
+    const cmc = methodTemplate.code === 'ELC-001'
+      ? lookupElc001Cmc(uucMeanForCmc)
+      : methodTemplate.code === 'TEM-001-1'
+        ? lookupTem001Cmc(point)
+        : methodTemplate.code === 'TEM-001-2'
+          ? lookupTem0012Cmc(point)
+          : methodTemplate.code === 'TEM-003-1'
+            ? lookupTem003Cmc(point)
+            : methodTemplate.code === 'TEM-003-2'
+              ? lookupTem0032Cmc()
+              : methodTemplate.code === 'TEM-003-3'
+                ? lookupTem0033Cmc(point)
+                : methodTemplate.code === 'TEM-004'
+                  ? lookupTem004Cmc()
+                  : lookupCmc(cmcTable, point)
 
-    // Reported uncertainty = U rounded up to 2 decimal places
-    const reportedU = ceilTo(expandedU, 0.01)
-
-    // Correction for comparison pattern
-    let stdMean: number | undefined
-    let correction: number | undefined
-    if (methodTemplate.measurementPattern === 'comparison' && sensorCount === 1) {
-      stdMean = point + (cp.standardCorrection ?? 0)
-      correction = stdMean - sensorMeans[0]
-    }
+    // TEM-002: CEILING(U, 0.01), no CMC floor.
+    // ELC-001 Excel AH30: CMC floor, then ROUNDUP(U, 1) if U ≥ CMC.
+    // TEM-001-1 AH1037 / TEM-001-2 AH1038: if U < CMC use CMC; if U > 1 ROUNDUP 1 dp else ROUNDUP 2 dp.
+    // TEM-003-1 AK60: if U < CMC use CMC else ROUNDUP(U, 3).
+    // TEM-003-2 AK60: if U < CMC use CMC else CEILING(U, 0.001).
+    // TEM-003-3 AK36: if U < CMC use CMC else ROUNDUP(U, 2).
+    // TEM-004 AG895: if U < CMC use CMC else CEILING(U, 0.01).
+    const reportedU = methodTemplate.code === 'ELC-001'
+      ? (expandedU < cmc ? excelRoundUp(cmc, 2) : excelRoundUp(expandedU, 1))
+      : (methodTemplate.code === 'TEM-001-1' || methodTemplate.code === 'TEM-001-2')
+        ? reportTem001U(expandedU, cmc)
+        : (methodTemplate.code === 'TEM-003-1' || methodTemplate.code === 'TEM-003-2')
+          ? reportTem003U(expandedU, cmc)
+          : methodTemplate.code === 'TEM-003-3'
+            ? reportTem0033U(expandedU, cmc)
+            : methodTemplate.code === 'TEM-004'
+              ? reportTem004U(expandedU, cmc)
+              : ceilTo(expandedU, 0.01)
 
     calPointResults.push({
       point,
@@ -602,8 +845,10 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
 
   return {
     methodCode: methodTemplate.code,
+    isoMethodCode: methodTemplate.code,
     unit: methodTemplate.unit,
     calPointResults,
+    timeCheckResult: computeTimeCheck(input.timeCheck),
   }
 }
 

@@ -148,9 +148,9 @@ function buildIsoSections(record: any, isoResult: any) {
     unit: isoResult.unit || record.unit || '-',
     calPoints: [{
       point: point.point,
-      avgUUC: point.indicatingReading,
-      avgSTD: point.uniformity,
-      correction: point.overallVariation,
+      avgUUC: point.indicatingReading ?? point.sensorResults?.[0]?.mean,
+      avgSTD: point.stdMean ?? point.uniformity,
+      correction: point.correction ?? point.overallVariation,
       uncertainty: point.reportedU,
       isTime: false,
     }],

@@ -581,6 +581,7 @@ export default async function DashboardPage() {
         <div className="card">
           <h2 className="font-semibold text-military-800 mb-3">ทางลัด</h2>
           <div className="flex flex-wrap gap-2">
+            <Link href="/reports" className="btn-secondary text-sm">รายงานผล</Link>
             <Link href="/records" className="btn-secondary text-sm">ดูข้อมูลสอบเทียบ</Link>
             <Link href="/approvals" className="btn-secondary text-sm">งานรออนุมัติ</Link>
             {canAddRecord && (
