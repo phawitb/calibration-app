@@ -9,10 +9,10 @@ import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
 import SelectHospitalHint from '@/components/SelectHospitalHint'
 import { displayHospitalName } from '@/lib/hospitalUnit'
 import {
-  firstPersonnelCertificateUrl,
   isRecordRowActionTarget,
-  isRecordRowActivationKey,
+  loadPersonnelCertificateIntoPopup,
   nextExpandedRecordId,
+  reserveDocumentPopup,
 } from '@/lib/recordDocumentActions'
 
 
@@ -208,16 +208,16 @@ export default function RecordsPage() {
   }
 
   const openPersonnelCertificate = async (userId: string, roleLabel: string) => {
-    try {
-      const res = await fetch(`/api/users/${userId}/certificates`)
-      if (!res.ok) throw new Error(`certificate list request failed: ${res.status}`)
-      const url = firstPersonnelCertificateUrl(userId, await res.json())
-      if (!url) {
-        toast.error(`${roleLabel}ยังไม่มีใบเซอร์`)
-        return
-      }
-      window.open(url, '_blank', 'noopener,noreferrer')
-    } catch {
+    const popup = reserveDocumentPopup((url, target) => window.open(url, target))
+    if (!popup) {
+      toast.error('เบราว์เซอร์บล็อกแท็บใหม่ กรุณาอนุญาตป๊อปอัปแล้วลองอีกครั้ง')
+      return
+    }
+
+    const result = await loadPersonnelCertificateIntoPopup(userId, popup, url => fetch(url))
+    if (result === 'missing') {
+      toast.error(`${roleLabel}ยังไม่มีใบเซอร์`)
+    } else if (result === 'failed') {
       toast.error(`ไม่สามารถโหลดใบเซอร์${roleLabel}ได้`)
     }
   }
@@ -381,17 +381,9 @@ export default function RecordsPage() {
               ) : sortedRecords.map((r, i) => (
                 <Fragment key={r._id}>
                   <tr
-                    role="button"
-                    tabIndex={0}
-                    aria-expanded={expandedRecordId === r._id}
-                    className={`border-b border-gray-50 hover:bg-military-50 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-military-500 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}
+                    className={`border-b border-gray-50 hover:bg-military-50 transition-colors cursor-pointer ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}
                     onClick={(event) => {
                       if (isRecordRowActionTarget(event.target)) return
-                      setExpandedRecordId(current => nextExpandedRecordId(current, r._id))
-                    }}
-                    onKeyDown={(event) => {
-                      if (isRecordRowActionTarget(event.target) || !isRecordRowActivationKey(event.key)) return
-                      event.preventDefault()
                       setExpandedRecordId(current => nextExpandedRecordId(current, r._id))
                     }}
                   >
@@ -441,22 +433,31 @@ export default function RecordsPage() {
                             ลบ
                           </button>
                         )}
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                          aria-hidden="true"
-                          className={`w-4 h-4 text-military-600 transition-transform ${expandedRecordId === r._id ? 'rotate-180' : ''}`}
+                        <button
+                          type="button"
+                          aria-expanded={expandedRecordId === r._id}
+                          aria-controls={`record-documents-${r._id}`}
+                          aria-label={expandedRecordId === r._id ? 'ซ่อนเอกสารรายการสอบเทียบ' : 'แสดงเอกสารรายการสอบเทียบ'}
+                          onClick={() => setExpandedRecordId(current => nextExpandedRecordId(current, r._id))}
+                          className="rounded p-1 text-military-600 hover:bg-military-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-military-500"
                         >
-                          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.1 1.02l-4.25 4.5a.75.75 0 01-1.1 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
-                        </svg>
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            aria-hidden="true"
+                            className={`w-4 h-4 transition-transform ${expandedRecordId === r._id ? 'rotate-180' : ''}`}
+                          >
+                            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.1 1.02l-4.25 4.5a.75.75 0 01-1.1 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                          </svg>
+                        </button>
                       </div>
                     </td>
                   </tr>
                   {expandedRecordId === r._id && (
                     <tr>
                       <td colSpan={11} className="bg-gray-50 border-b border-gray-200 p-0">
-                        <div className="px-6 py-4 space-y-3">
+                        <div id={`record-documents-${r._id}`} className="px-6 py-4 space-y-3">
                           <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
                             <span>ผู้สอบเทียบ: {r.calibrate || '-'}</span>
                             <span>ผู้อนุมัติ: {r.approve || '-'}</span>
