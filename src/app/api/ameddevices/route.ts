@@ -3,28 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import AmedDevice from '@/models/AmedDevice'
-import mongoose from 'mongoose'
-import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
-
-async function getUnitVariants(inputRaw: string) {
-  const input = String(inputRaw || '').trim()
-  if (!input) return []
-  const db = mongoose.connection.db
-  if (!db) return [input]
-  const rows = await db.collection('unitnames')
-    .find({}, { projection: { name: 1, thaiName: 1 } })
-    .limit(5000)
-    .toArray()
-  const norm = input.toLowerCase()
-  for (const row of rows) {
-    const en = String((row as any)?.name || '').trim()
-    const th = String((row as any)?.thaiName || '').trim()
-    const label = formatHospitalUnitLabel(en, th)
-    const keys = [en, th, label].map((v) => v.toLowerCase()).filter(Boolean)
-    if (keys.includes(norm)) return Array.from(new Set([label, en, th].filter(Boolean)))
-  }
-  return [input]
-}
+import { getUnitVariants } from '@/lib/unitVariants'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -37,7 +16,6 @@ export async function GET(req: NextRequest) {
 
   let unitName = searchParams.get('unitName') || ''
 
-  // hospital_user can only see their own hospital
   if (user.role === 'hospital_user') {
     unitName = user.hospitalUnit || ''
   }
@@ -50,4 +28,43 @@ export async function GET(req: NextRequest) {
 
   const devices = await AmedDevice.find(filter).sort({ amedNo: 1 }).lean()
   return NextResponse.json({ data: devices })
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const role = (session.user as { role?: string })?.role
+  if (role !== 'admin' && role !== 'technician') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const amedNo = String(body?.amedNo || '').trim()
+  const unitName = String(body?.unitName || '').trim()
+  if (!amedNo || !unitName) {
+    return NextResponse.json({ error: 'กรุณาระบุ AmedNo และโรงพยาบาล' }, { status: 400 })
+  }
+
+  await connectDB()
+  try {
+    const created = await AmedDevice.create({
+      amedNo,
+      unitName,
+      section: String(body?.section || '').trim(),
+      deviceName: String(body?.deviceName || '').trim(),
+      brand: String(body?.brand || '').trim(),
+      model: String(body?.model || '').trim(),
+      serialNo: String(body?.serialNo || '').trim(),
+      hpNumber: String(body?.hpNumber || '').trim(),
+      toSelect: true,
+      isActive: true,
+    })
+    return NextResponse.json({ data: JSON.parse(JSON.stringify(created)) }, { status: 201 })
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return NextResponse.json({ error: 'มี AmedNo นี้ในหน่วยงานนี้อยู่แล้ว' }, { status: 409 })
+    }
+    return NextResponse.json({ error: 'ไม่สามารถเพิ่มรายการได้' }, { status: 500 })
+  }
 }

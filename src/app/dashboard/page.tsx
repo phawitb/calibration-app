@@ -4,7 +4,12 @@ import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
 import User from '@/models/User'
 import Link from 'next/link'
+import { cookies } from 'next/headers'
 import { calcRecalibrationDates, getRecalibrationSettings } from '@/lib/recalibration'
+import { getUnitVariants } from '@/lib/unitVariants'
+import { decodeWorkspaceHospital, WORKSPACE_HOSPITAL_COOKIE } from '@/lib/workspaceHospital'
+import { displayHospitalName } from '@/lib/hospitalUnit'
+import SelectHospitalHint from '@/components/SelectHospitalHint'
 
 function getDateRanges() {
   const now = new Date()
@@ -83,11 +88,17 @@ async function getStats() {
   const role = (session?.user as any)?.role
   const hospitalUnit = (session?.user as any)?.hospitalUnit
   const username = String((session?.user as any)?.username || '')
+  const cookieHospital = decodeWorkspaceHospital(cookies().get(WORKSPACE_HOSPITAL_COOKIE)?.value)
+  const scopeHospital = role === 'hospital_user' ? String(hospitalUnit || '') : cookieHospital
   const { now, startToday, startWeek, startYear, startMonth, months12Ago } = getDateRanges()
 
-  await connectDB()
+  if (!scopeHospital) {
+    return { needsHospital: true as const, session, role, scopeHospital: '' }
+  }
 
-  const scope: any = role === 'hospital_user' && hospitalUnit ? { unitName: String(hospitalUnit) } : {}
+  await connectDB()
+  const unitVariants = await getUnitVariants(scopeHospital)
+  const scope: any = { unitName: { $in: unitVariants.length ? unitVariants : [scopeHospital] } }
   const [
     total,
     thisYear,
@@ -412,14 +423,25 @@ async function getStats() {
     mainPriceTotal,
     session,
     role,
+    needsHospital: false as const,
+    scopeHospital,
   }
 }
 
 export default async function DashboardPage() {
   const stats = await getStats()
+  if (stats.needsHospital) {
+    return (
+      <SelectHospitalHint
+        title="เลือกโรงพยาบาลเพื่อดูหน้าหลัก"
+        detail="หน้าหลักจะสรุปงานสอบเทียบ ใกล้ครบอายุ และรายการล่าสุดเฉพาะ รพ. ที่เลือก"
+      />
+    )
+  }
   const session = stats.session
   const role = stats.role as string | undefined
   const isAdmin = role === 'admin'
+  const hospitalTitle = displayHospitalName(stats.scopeHospital).title || stats.scopeHospital
   const canAddRecord = role === 'admin' || role === 'technician'
   const currency = (v: number) => new Intl.NumberFormat('th-TH').format(Number(v || 0))
 
@@ -481,7 +503,7 @@ export default async function DashboardPage() {
           <div>
             <h1 className="text-2xl font-bold text-military-900">สวัสดี, {session?.user?.name}</h1>
             <p className="text-gray-500 text-sm mt-1">
-              {role === 'approver' ? 'ตรวจสอบและอนุมัติรายการที่มอบหมายให้คุณ' : role === 'technician' ? 'ติดตามงานสอบเทียบและดำเนินการในขั้นตอนถัดไป' : 'ติดตามสถานะและกำหนดสอบเทียบของหน่วยงานคุณ'}
+              สรุปงานของ {hospitalTitle} — {role === 'approver' ? 'ตรวจสอบและอนุมัติรายการที่มอบหมายให้คุณ' : role === 'technician' ? 'ติดตามงานสอบเทียบและดำเนินการในขั้นตอนถัดไป' : 'ติดตามสถานะและกำหนดสอบเทียบของหน่วยงานนี้'}
             </p>
           </div>
           {canAddRecord && <Link href="/records/new" className="btn-primary">+ สร้างรายการใหม่</Link>}
@@ -513,7 +535,7 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-bold text-military-900">
             สวัสดี, {session?.user?.name}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">ภาพรวมงานสอบเทียบและอนุมัติประจำวัน</p>
+          <p className="text-gray-500 text-sm mt-1">สรุปงานสอบเทียบของ {hospitalTitle}</p>
         </div>
         {canAddRecord && (
           <Link href="/records/new" className="btn-primary flex items-center gap-2">

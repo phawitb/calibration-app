@@ -1,7 +1,7 @@
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
-import Navbar from '@/components/Navbar'
+import AppShell from '@/components/AppShell'
 
 export default async function ApprovalsLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
@@ -9,12 +9,5 @@ export default async function ApprovalsLayout({ children }: { children: React.Re
   if (!session) redirect('/login')
   if (role !== 'admin' && role !== 'approver') redirect('/dashboard')
 
-  return (
-    <div className="min-h-screen bg-military-50">
-      <Navbar />
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
-    </div>
-  )
+  return <AppShell>{children}</AppShell>
 }

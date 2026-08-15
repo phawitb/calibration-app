@@ -5,6 +5,9 @@ import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { useSession } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
+import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
+import SelectHospitalHint from '@/components/SelectHospitalHint'
+import { displayHospitalName } from '@/lib/hospitalUnit'
 
 
 interface CalibrationRecordRow {
@@ -65,6 +68,7 @@ function StatusBadge({ status }: { status?: string }) {
 export default function RecordsPage() {
   const { data: session, status: sessionStatus } = useSession()
   const searchParams = useSearchParams()
+  const { selectedHospital, loading: workspaceLoading } = useHospitalWorkspace()
   const cardFilter = String(searchParams.get('cardFilter') || '')
   const role = (session?.user as any)?.role
   const isAdmin = role === 'admin'
@@ -77,7 +81,7 @@ export default function RecordsPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [total,      setTotal]      = useState(0)
   const [showFilter, setShowFilter] = useState(false)
-  const [myOnly,     setMyOnly]     = useState(true)
+  const [myOnly,     setMyOnly]     = useState(false)
   const [myOnlyInit, setMyOnlyInit] = useState(false)
 
   // Advanced filters
@@ -90,8 +94,8 @@ export default function RecordsPage() {
 
   const { sorted: sortedRecords, sortKey, sortDir, toggle: toggleSort } = useTableSort(records, 'calDate', 'desc')
 
-  const hasActiveFilter = !!(fStatus || fCalType || fSection || fUnitName || fCalDateFrom || fCalDateTo)
-  const activeFilterCount = [fStatus, fCalType, fSection, fUnitName, fCalDateFrom, fCalDateTo].filter(Boolean).length
+  const hasActiveFilter = !!(fStatus || fCalType || fSection || fCalDateFrom || fCalDateTo)
+  const activeFilterCount = [fStatus, fCalType, fSection, fCalDateFrom, fCalDateTo].filter(Boolean).length
 
   const cardFilterLabel: Record<string, string> = {
     pending: 'รออนุมัติ',
@@ -110,7 +114,7 @@ export default function RecordsPage() {
     if (fSection)     params.set('section', fSection)
     if (fStatus)      params.set('status', fStatus)
     if (fCalType)     params.set('calType', fCalType)
-    if (fUnitName)    params.set('unitName', fUnitName)
+    if (selectedHospital) params.set('unitName', selectedHospital)
     if (fCalDateFrom) params.set('calDateFrom', fCalDateFrom)
     if (fCalDateTo)   params.set('calDateTo', fCalDateTo)
     if (cardFilter)   params.set('cardFilter', cardFilter)
@@ -121,19 +125,19 @@ export default function RecordsPage() {
     setTotalPages(data.totalPages || 1)
     setTotal(data.total || 0)
     setLoading(false)
-  }, [search, fSection, fStatus, fCalType, fUnitName, fCalDateFrom, fCalDateTo, page, cardFilter, myOnly])
+  }, [search, fSection, fStatus, fCalType, fUnitName, fCalDateFrom, fCalDateTo, page, cardFilter, myOnly, selectedHospital])
 
   // Do not fetch with the temporary default before the role determines the initial scope.
   // Otherwise a late response for "งานของฉัน" can overwrite the approver's "ทั้งหมด" result.
   useEffect(() => {
-    if (sessionStatus === 'loading' || !myOnlyInit) return
+    if (sessionStatus === 'loading' || !myOnlyInit || workspaceLoading) return
+    if (!selectedHospital && role !== 'hospital_user') return
     fetchRecords()
-  }, [fetchRecords, sessionStatus, myOnlyInit])
+  }, [fetchRecords, sessionStatus, myOnlyInit, workspaceLoading, selectedHospital, role])
   useEffect(() => { setPage(1) }, [cardFilter])
   useEffect(() => {
     if (role && !myOnlyInit) {
-      // Approvers review the whole queue by default; technicians keep their own work by default.
-      setMyOnly(!(isAdmin || role === 'approver'))
+      setMyOnly(false)
       setMyOnlyInit(true)
     }
   }, [role, isAdmin, myOnlyInit])
@@ -150,7 +154,7 @@ export default function RecordsPage() {
     if (fSection)     params.set('section', fSection)
     if (fStatus)      params.set('status', fStatus)
     if (fCalType)     params.set('calType', fCalType)
-    if (fUnitName)    params.set('unitName', fUnitName)
+    if (selectedHospital) params.set('unitName', selectedHospital)
     if (fCalDateFrom) params.set('calDateFrom', fCalDateFrom)
     if (fCalDateTo)   params.set('calDateTo', fCalDateTo)
     if (cardFilter)   params.set('cardFilter', cardFilter)
@@ -194,13 +198,28 @@ export default function RecordsPage() {
     else toast.error('ไม่สามารถลบได้')
   }
 
+  if (workspaceLoading || sessionStatus === 'loading') {
+    return <p className="text-center text-gray-400 py-16">กำลังโหลด...</p>
+  }
+
+  if (!selectedHospital && role !== 'hospital_user') {
+    return (
+      <SelectHospitalHint
+        title="เลือกโรงพยาบาลเพื่อดูประวัติสอบเทียบ"
+        detail="แท็บนี้แสดงรายการสอบเทียบที่ผ่านมาของ รพ. ที่เลือก"
+      />
+    )
+  }
+
+  const hospitalTitle = selectedHospital ? (displayHospitalName(selectedHospital).title || selectedHospital) : ''
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-military-900">ข้อมูลสอบเทียบ</h1>
-          <p className="text-gray-500 text-sm">{total} รายการ</p>
+          <h1 className="text-2xl font-bold text-military-900">ประวัติสอบเทียบ</h1>
+          <p className="text-gray-500 text-sm">{hospitalTitle ? `${hospitalTitle} — ` : ''}{total} รายการ</p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <button onClick={exportCsv} className="btn-secondary flex items-center gap-1.5 text-sm">
@@ -287,11 +306,6 @@ export default function RecordsPage() {
                 <label className="block text-xs text-gray-500 mb-1">แผนก</label>
                 <input type="text" className="input-field text-sm" placeholder="เช่น Laboratory"
                   value={fSection} onChange={e => { setFSection(e.target.value); setPage(1) }} />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">โรงพยาบาล</label>
-                <input type="text" className="input-field text-sm" placeholder="เช่น กรมแพทย์"
-                  value={fUnitName} onChange={e => { setFUnitName(e.target.value); setPage(1) }} />
               </div>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">วันที่สอบเทียบ ตั้งแต่</label>

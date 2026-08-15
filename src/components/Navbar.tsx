@@ -3,15 +3,17 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
 import { SiteLogoHeader } from '@/components/SiteLogo'
+import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
+import { displayHospitalName } from '@/lib/hospitalUnit'
 import { useEffect, useMemo, useState } from 'react'
 
 export default function Navbar() {
   const { data: session } = useSession()
   const pathname = usePathname()
+  const { selectedHospital, setSidebarOpen } = useHospitalWorkspace()
   const role = (session?.user as any)?.role as string | undefined
   const canApprove = role === 'admin' || role === 'approver'
   const canSeeRecalibrationAlerts = role === 'admin' || role === 'approver' || role === 'technician'
-  // Use the active role only: an admin impersonating an approver must see the same menu as an approver.
   const canManageSystemData = role === 'admin' || role === 'technician'
   const canAddRecord = role === 'admin' || role === 'technician'
   const [pendingCount, setPendingCount] = useState<number | null>(null)
@@ -24,6 +26,7 @@ export default function Navbar() {
     if (role === 'hospital_user') return 'ผู้ใช้ รพ.'
     return 'ผู้ใช้งาน'
   }, [role])
+  const hospitalLabel = selectedHospital ? displayHospitalName(selectedHospital).title : ''
 
   useEffect(() => {
     if (!canApprove) return
@@ -68,42 +71,46 @@ export default function Navbar() {
   }, [canSeeRecalibrationAlerts, pathname])
 
   const isHospitalUser = role === 'hospital_user'
-  const links = [
-    { href: '/dashboard', label: 'หน้าหลัก', icon: '🏠' },
-    ...(!isHospitalUser ? [{ href: '/records', label: 'ข้อมูลสอบเทียบ', icon: '📋' }] : []),
-    ...(isHospitalUser ? [{ href: '/hospital', label: 'เครื่องมือของหน่วย', icon: '🏥' }] : []),
-    ...(canAddRecord ? [{ href: '/records/new', label: 'เพิ่มข้อมูล', icon: '➕' }] : []),
-    ...(canApprove ? [{ href: '/approvals', label: 'งานรออนุมัติ', icon: '✅' }] : []),
-    ...(!isHospitalUser && canManageSystemData ? [{ href: '/admin?tab=data', label: 'จัดการระบบ', icon: '⚙️' }] : []),
+  const workspaceTabs = [
+    { href: '/dashboard', label: 'หน้าหลัก', match: (p: string) => p.startsWith('/dashboard') },
+    { href: '/hospital', label: 'ข้อมูลเครื่องมือแพทย์', match: (p: string) => p.startsWith('/hospital') },
+    ...(canAddRecord ? [{ href: '/records/new', label: 'เพิ่มข้อมูลสอบเทียบ', match: (p: string) => p === '/records/new' }] : []),
+    {
+      href: '/records',
+      label: 'ประวัติสอบเทียบ',
+      match: (p: string) => p.startsWith('/records') && p !== '/records/new',
+    },
   ]
 
-  return (
-    <nav className="bg-military-800 text-white shadow-lg">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <SiteLogoHeader />
+  const extraLinks = [
+    ...(canApprove ? [{ href: '/approvals', label: 'งานรออนุมัติ' }] : []),
+    ...(!isHospitalUser && canManageSystemData ? [{ href: '/admin?tab=data', label: 'จัดการระบบ' }] : []),
+  ]
 
-          {/* Nav links */}
-          <div className="flex items-center gap-1">
-            {links.map(link => (
-              <Link key={link.href} href={link.href}
-                className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-                  (link.href === '/records/new'
-                    ? pathname === '/records/new'
-                    : link.href === '/records'
-                    ? pathname.startsWith('/records') && pathname !== '/records/new'
-                    : pathname.startsWith(link.href))
-                    ? 'bg-military-600 text-white'
-                    : 'text-military-200 hover:bg-military-700 hover:text-white'
-                }`}>
-                <span className="sm:hidden">{link.icon}</span>
-                <span className="hidden sm:inline">{link.label}</span>
-              </Link>
-            ))}
+  const tabActive = (tab: (typeof workspaceTabs)[number]) => tab.match(pathname)
+
+  return (
+    <header className="bg-white/90 backdrop-blur border-b border-military-200 z-30">
+      <div className="px-3 sm:px-4 lg:px-6">
+        <div className="flex items-center justify-between h-14 gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              className="lg:hidden h-9 w-9 rounded-lg border border-military-200 text-military-800 hover:bg-military-50"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="เลือกโรงพยาบาล"
+            >
+              ☰
+            </button>
+            <SiteLogoHeader />
+            {hospitalLabel && (
+              <span className="hidden md:inline-flex max-w-[220px] truncate rounded-full bg-military-100 text-military-800 text-xs font-medium px-2.5 py-1">
+                {hospitalLabel}
+              </span>
+            )}
           </div>
 
-          {/* User info + logout */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {canApprove && pendingCount != null && pendingCount > 0 && (
               <Link href="/approvals" className="hidden sm:inline-flex rounded-full bg-amber-400 text-gray-900 text-xs px-2 py-1 font-semibold">
                 รออนุมัติ {pendingCount}
@@ -115,14 +122,14 @@ export default function Navbar() {
               </Link>
             )}
             <div className="hidden sm:block text-right">
-              <p className="text-xs text-military-200">{(session?.user as any)?.fullName || session?.user?.name}</p>
-              <p className="text-xs text-gold-400">{roleText}</p>
+              <p className="text-xs text-gray-600">{(session?.user as any)?.fullName || session?.user?.name}</p>
+              <p className="text-xs text-gold-600">{roleText}</p>
             </div>
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setProfileOpen((v) => !v)}
-                className="w-9 h-9 rounded-full bg-military-700 hover:bg-military-600 flex items-center justify-center text-white"
+                className="w-9 h-9 rounded-full bg-military-800 hover:bg-military-700 flex items-center justify-center text-white"
                 title="โปรไฟล์"
               >
                 👤
@@ -136,6 +143,16 @@ export default function Navbar() {
                   <Link href="/profile" onClick={() => setProfileOpen(false)} className="block px-3 py-2 text-sm hover:bg-gray-50">
                     โปรไฟล์ของฉัน
                   </Link>
+                  {extraLinks.map((link) => (
+                    <Link
+                      key={link.href}
+                      href={link.href}
+                      onClick={() => setProfileOpen(false)}
+                      className="block px-3 py-2 text-sm hover:bg-gray-50"
+                    >
+                      {link.label}
+                    </Link>
+                  ))}
                   <button
                     type="button"
                     onClick={() => signOut({ callbackUrl: '/login' })}
@@ -148,7 +165,42 @@ export default function Navbar() {
             </div>
           </div>
         </div>
+
+        <nav className="flex items-end gap-1 overflow-x-auto -mb-px">
+          {workspaceTabs.map((tab) => {
+            const active = tabActive(tab)
+            return (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                className={`whitespace-nowrap px-3 sm:px-4 py-2.5 text-sm border-b-2 transition-colors ${
+                  active
+                    ? 'border-gold-500 text-military-900 font-semibold'
+                    : 'border-transparent text-gray-500 hover:text-military-800 hover:border-military-200'
+                }`}
+              >
+                {tab.label}
+              </Link>
+            )
+          })}
+          {extraLinks.map((link) => {
+            const active = pathname.startsWith(link.href.split('?')[0])
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`hidden xl:inline-flex whitespace-nowrap px-3 py-2.5 text-sm border-b-2 transition-colors ${
+                  active
+                    ? 'border-military-600 text-military-900 font-semibold'
+                    : 'border-transparent text-gray-400 hover:text-military-800 hover:border-military-200'
+                }`}
+              >
+                {link.label}
+              </Link>
+            )
+          })}
+        </nav>
       </div>
-    </nav>
+    </header>
   )
 }

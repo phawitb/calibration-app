@@ -33,3 +33,11 @@ export function normalizeHospitalUnitFromRefs(inputRaw: unknown, units: UnitRefL
   }
   return input
 }
+
+/** Split "English(ไทย)" into display parts for the workspace sidebar. */
+export function displayHospitalName(label: string) {
+  const raw = clean(label)
+  const m = raw.match(/^(.*?)\((.+)\)\s*$/)
+  if (m) return { title: clean(m[2]), subtitle: clean(m[1]), full: raw }
+  return { title: raw, subtitle: '', full: raw }
+}

@@ -2,6 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
+import { useSearchParams } from 'next/navigation'
+import toast from 'react-hot-toast'
+import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
+import SelectHospitalHint from '@/components/SelectHospitalHint'
+import { displayHospitalName } from '@/lib/hospitalUnit'
 
 interface AmedDevice {
   _id: string
@@ -41,6 +46,8 @@ interface CalRecord {
 
 export default function HospitalDevicesPage() {
   const { data: session } = useSession()
+  const searchParams = useSearchParams()
+  const { selectedHospital, loading: workspaceLoading } = useHospitalWorkspace()
   const [devices, setDevices] = useState<AmedDevice[]>([])
   const [latestCals, setLatestCals] = useState<Record<string, LatestCal>>({})
   const [loading, setLoading] = useState(true)
@@ -50,8 +57,21 @@ export default function HospitalDevicesPage() {
   const [historyLoading, setHistoryLoading] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<string>('amedNo')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [showAdd, setShowAdd] = useState(() => searchParams.get('add') === '1')
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    amedNo: '',
+    deviceName: '',
+    brand: '',
+    model: '',
+    serialNo: '',
+    section: '',
+    hpNumber: '',
+  })
 
-  const hospitalUnit = (session?.user as any)?.hospitalUnit || ''
+  const role = (session?.user as any)?.role
+  const canAddDevice = role === 'admin' || role === 'technician'
+  const hospitalUnit = selectedHospital
 
   useEffect(() => {
     if (!hospitalUnit) return
@@ -161,23 +181,104 @@ export default function HospitalDevicesPage() {
     window.open(`/api/users/${userId}/certificates/${certs[0]._id}`, '_blank')
   }
 
+  if (workspaceLoading) {
+    return <p className="text-center text-gray-400 py-16">กำลังโหลด...</p>
+  }
+
   if (!hospitalUnit) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 space-y-3">
-        <p className="text-gray-500 text-center">ไม่พบข้อมูลหน่วยงานของคุณ<br />กรุณาติดต่อผู้ดูแลระบบ</p>
-      </div>
+      <SelectHospitalHint
+        title="เลือกโรงพยาบาลเพื่อดูเครื่องมือแพทย์"
+        detail="แท็บนี้แสดงรายการ AmedNo ของ รพ. ที่เลือก และสามารถเพิ่มรายการใหม่ได้"
+      />
     )
+  }
+
+  const hospitalTitle = displayHospitalName(hospitalUnit).title || hospitalUnit
+
+  const resetForm = () => {
+    setForm({ amedNo: '', deviceName: '', brand: '', model: '', serialNo: '', section: '', hpNumber: '' })
+    setShowAdd(false)
+  }
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.amedNo.trim()) {
+      toast.error('กรุณากรอก AmedNo')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch('/api/ameddevices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, unitName: hospitalUnit }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'เพิ่มไม่สำเร็จ')
+      toast.success('เพิ่มรายการสำเร็จ')
+      setDevices((prev) => [...prev, json.data].sort((a, b) => String(a.amedNo).localeCompare(String(b.amedNo), 'th', { numeric: true })))
+      resetForm()
+    } catch (err: any) {
+      toast.error(err.message || 'เพิ่มไม่สำเร็จ')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-military-900">เครื่องมือของหน่วย</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          {hospitalUnit} — {filtered.length} เครื่อง
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-military-900">ข้อมูลเครื่องมือแพทย์</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {hospitalTitle} — {filtered.length} เครื่อง
+          </p>
+        </div>
+        {canAddDevice && (
+          <button type="button" className="btn-primary self-start" onClick={() => setShowAdd((v) => !v)}>
+            {showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายการ'}
+          </button>
+        )}
       </div>
+
+      {showAdd && canAddDevice && (
+        <form onSubmit={handleAdd} className="card grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">AmedNo *</label>
+            <input className="input-field" value={form.amedNo} onChange={(e) => setForm({ ...form, amedNo: e.target.value })} required />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">ชื่อเครื่อง</label>
+            <input className="input-field" value={form.deviceName} onChange={(e) => setForm({ ...form, deviceName: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">แผนก</label>
+            <input className="input-field" value={form.section} onChange={(e) => setForm({ ...form, section: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">ยี่ห้อ</label>
+            <input className="input-field" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">รุ่น</label>
+            <input className="input-field" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">S/N</label>
+            <input className="input-field" value={form.serialNo} onChange={(e) => setForm({ ...form, serialNo: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">HP Number</label>
+            <input className="input-field" value={form.hpNumber} onChange={(e) => setForm({ ...form, hpNumber: e.target.value })} />
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3 flex justify-end gap-2">
+            <button type="button" className="btn-secondary" onClick={resetForm}>ยกเลิก</button>
+            <button type="submit" className="btn-primary" disabled={saving}>{saving ? 'กำลังบันทึก...' : 'บันทึกรายการ'}</button>
+          </div>
+        </form>
+      )}
 
       {/* Search */}
       <input

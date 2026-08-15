@@ -3,34 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
-import mongoose from 'mongoose'
-import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
+import { getUnitVariants } from '@/lib/unitVariants'
 import { registerAmedCertForRecord } from '@/lib/amedCertHistory'
 import User from '@/models/User'
 import { generateNextAmedCertKey } from '@/lib/amedKey'
 import { generateNextCertNo } from '@/lib/certNo'
 import { calcRecalibrationDates, getRecalibrationSettings } from '@/lib/recalibration'
 import { formatPersonName } from '@/lib/personName'
-
-async function getUnitVariants(inputRaw: unknown) {
-  const input = String(inputRaw || '').trim()
-  if (!input) return []
-  const db = mongoose.connection.db
-  if (!db) return [input]
-  const rows = await db.collection('unitnames')
-    .find({}, { projection: { name: 1, thaiName: 1 } })
-    .limit(5000)
-    .toArray()
-  const norm = input.toLowerCase()
-  for (const row of rows) {
-    const en = String((row as any)?.name || '').trim()
-    const th = String((row as any)?.thaiName || '').trim()
-    const label = formatHospitalUnitLabel(en, th)
-    const keys = [en, th, label].map((v) => v.toLowerCase()).filter(Boolean)
-    if (keys.includes(norm)) return Array.from(new Set([label, en, th].filter(Boolean)))
-  }
-  return [input]
-}
 
 async function normalizeHospitalUnit(inputRaw: unknown) {
   const variants = await getUnitVariants(inputRaw)
@@ -70,6 +49,9 @@ export async function GET(req: NextRequest) {
   if (role === 'hospital_user' && hospitalUnit) {
     const unitVariants = await getUnitVariants(hospitalUnit)
     query.unitName = { $in: unitVariants }
+  } else if (unitName) {
+    const unitVariants = await getUnitVariants(unitName)
+    query.unitName = { $in: unitVariants.length ? unitVariants : [unitName] }
   }
   if (search) {
     // Some imported fields can be stored as numbers; regex on string fields alone misses them.
@@ -100,7 +82,6 @@ export async function GET(req: NextRequest) {
   if (section) query.section = { $regex: section, $options: 'i' }
   if (calType) query.calibrationType = calType
   if (status) query.approvalStatus = status
-  if (unitName && !query.unitName) query.unitName = { $regex: unitName, $options: 'i' }
   if (calDateFrom || calDateTo) {
     query.calDate = query.calDate || {}
     if (calDateFrom) query.calDate.$gte = new Date(calDateFrom)
