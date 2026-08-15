@@ -9,6 +9,7 @@
     "clean": "node -e \"const fs=require('fs'); for (const p of ['.next','node_modules/.cache']){ try{fs.rmSync(p,{recursive:true,force:true})}catch(e){} }\"",
     "build": "next build",
     "test:iso-liquid-bath": "node -r sucrase/register scripts/test-water-bath.ts",
+    "test:record-documents": "node -r sucrase/register --test scripts/test-record-document-actions.ts",
     "start": "next start",
     "seed": "node scripts/seed.js",
     "vercel:prod": "vercel --prod"
