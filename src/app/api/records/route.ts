@@ -132,7 +132,7 @@ export async function GET(req: NextRequest) {
   const effectiveLimit = search ? Math.max(limit, 200) : limit
   const total   = await CalibrationRecord.countDocuments(query)
   const records = await CalibrationRecord.find(query)
-    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calPrice approvalStatus requestedApproverName rejectionComment calibrationType isoMethodCode createdBy updatedAt')
+    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calibratedById approvedById calPrice approvalStatus requestedApproverName rejectionComment calibrationType isoMethodCode createdBy updatedAt')
     .sort({ calDate: -1, recordNo: -1 })
     .skip((page - 1) * effectiveLimit)
     .limit(effectiveLimit)

@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { Fragment, useState, useEffect, useCallback } from 'react'
 import { useTableSort, sortIcon } from '@/hooks/useTableSort'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
@@ -8,6 +8,12 @@ import { useSearchParams } from 'next/navigation'
 import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
 import SelectHospitalHint from '@/components/SelectHospitalHint'
 import { displayHospitalName } from '@/lib/hospitalUnit'
+import {
+  firstPersonnelCertificateUrl,
+  isRecordRowActionTarget,
+  isRecordRowActivationKey,
+  nextExpandedRecordId,
+} from '@/lib/recordDocumentActions'
 
 
 interface CalibrationRecordRow {
@@ -27,6 +33,8 @@ interface CalibrationRecordRow {
   lapHumid: number
   calibrate: string
   approve: string
+  calibratedById?: string
+  approvedById?: string
   calPrice: number
   approvalStatus?: 'draft' | 'pending_approval' | 'approved' | 'rejected'
   rejectionComment?: string
@@ -83,6 +91,7 @@ export default function RecordsPage() {
   const [showFilter, setShowFilter] = useState(false)
   const [myOnly,     setMyOnly]     = useState(false)
   const [myOnlyInit, setMyOnlyInit] = useState(false)
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null)
 
   // Advanced filters
   const [fStatus,      setFStatus]      = useState('')
@@ -196,6 +205,21 @@ export default function RecordsPage() {
     const res = await fetch(`/api/records/${id}`, { method: 'DELETE' })
     if (res.ok) { toast.success('ลบข้อมูลสำเร็จ'); fetchRecords() }
     else toast.error('ไม่สามารถลบได้')
+  }
+
+  const openPersonnelCertificate = async (userId: string, roleLabel: string) => {
+    try {
+      const res = await fetch(`/api/users/${userId}/certificates`)
+      if (!res.ok) throw new Error(`certificate list request failed: ${res.status}`)
+      const url = firstPersonnelCertificateUrl(userId, await res.json())
+      if (!url) {
+        toast.error(`${roleLabel}ยังไม่มีใบเซอร์`)
+        return
+      }
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      toast.error(`ไม่สามารถโหลดใบเซอร์${roleLabel}ได้`)
+    }
   }
 
   if (workspaceLoading || sessionStatus === 'loading') {
@@ -355,56 +379,121 @@ export default function RecordsPage() {
               ) : sortedRecords.length === 0 ? (
                 <tr><td colSpan={11} className="py-12 text-center text-gray-400">ไม่พบข้อมูล</td></tr>
               ) : sortedRecords.map((r, i) => (
-                <tr key={r._id} className={`border-b border-gray-50 hover:bg-military-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
-                  <td className="py-3 px-3">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${r.calibrationType === 'iso' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                      {r.calibrationType === 'iso' ? 'ISO' : 'SbCal'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 font-medium text-military-700">{r.amedNo || '-'}</td>
-                  <td className="py-3 px-3">
-                    <div className="font-medium text-gray-800">{r.deviceName || '-'}</div>
-                    <div className="text-xs text-gray-400">{[r.brand, r.model].filter(Boolean).join(' ')}</div>
-                  </td>
-                  <td className="py-3 px-3 text-gray-600 hidden md:table-cell max-w-[180px] truncate">{r.unitName || '-'}</td>
-                  <td className="py-3 px-3 text-gray-600 hidden xl:table-cell">{r.section || '-'}</td>
-                  <td className="py-3 px-3 text-gray-600 hidden lg:table-cell">{r.certNo || '-'}</td>
-                  <td className="py-3 px-3 text-gray-600 hidden lg:table-cell whitespace-nowrap">
-                    {r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}
-                  </td>
-                  <td className="py-3 px-3 text-gray-600 text-xs hidden lg:table-cell">{r.createdBy || '-'}</td>
-                  <td className="py-3 px-3 hidden md:table-cell">
-                    <StatusBadge status={r.approvalStatus} />
-                    {r.approvalStatus === 'rejected' && r.rejectionComment && (
-                      <div className="text-xs text-red-500 mt-0.5 max-w-[160px] truncate" title={r.rejectionComment}>
-                        {r.rejectionComment}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-3 px-3 text-gray-500 text-xs hidden xl:table-cell whitespace-nowrap">
-                    {r.updatedAt
-                      ? new Date(r.updatedAt).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })
-                      : '-'}
-                  </td>
-                  <td className="py-3 px-3">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <Link href={`/records/${r._id}`}
-                        className="text-military-600 hover:text-military-800 font-medium text-xs px-2 py-1 rounded border border-military-200 hover:bg-military-50">
-                        ดู / แก้ไข
-                      </Link>
-                      <Link href={`/records/${r._id}/pdf`}
-                        className="text-blue-600 hover:text-blue-800 font-medium text-xs px-2 py-1 rounded border border-blue-200 hover:bg-blue-50">
-                        PDF
-                      </Link>
-                      {isAdmin && (
-                        <button onClick={() => handleDelete(r._id)}
-                          className="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded border border-red-200 hover:bg-red-50">
-                          ลบ
-                        </button>
+                <Fragment key={r._id}>
+                  <tr
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={expandedRecordId === r._id}
+                    className={`border-b border-gray-50 hover:bg-military-50 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-military-500 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}
+                    onClick={(event) => {
+                      if (isRecordRowActionTarget(event.target)) return
+                      setExpandedRecordId(current => nextExpandedRecordId(current, r._id))
+                    }}
+                    onKeyDown={(event) => {
+                      if (isRecordRowActionTarget(event.target) || !isRecordRowActivationKey(event.key)) return
+                      event.preventDefault()
+                      setExpandedRecordId(current => nextExpandedRecordId(current, r._id))
+                    }}
+                  >
+                    <td className="py-3 px-3">
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${r.calibrationType === 'iso' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                        {r.calibrationType === 'iso' ? 'ISO' : 'SbCal'}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 font-medium text-military-700">{r.amedNo || '-'}</td>
+                    <td className="py-3 px-3">
+                      <div className="font-medium text-gray-800">{r.deviceName || '-'}</div>
+                      <div className="text-xs text-gray-400">{[r.brand, r.model].filter(Boolean).join(' ')}</div>
+                    </td>
+                    <td className="py-3 px-3 text-gray-600 hidden md:table-cell max-w-[180px] truncate">{r.unitName || '-'}</td>
+                    <td className="py-3 px-3 text-gray-600 hidden xl:table-cell">{r.section || '-'}</td>
+                    <td className="py-3 px-3 text-gray-600 hidden lg:table-cell">{r.certNo || '-'}</td>
+                    <td className="py-3 px-3 text-gray-600 hidden lg:table-cell whitespace-nowrap">
+                      {r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}
+                    </td>
+                    <td className="py-3 px-3 text-gray-600 text-xs hidden lg:table-cell">{r.createdBy || '-'}</td>
+                    <td className="py-3 px-3 hidden md:table-cell">
+                      <StatusBadge status={r.approvalStatus} />
+                      {r.approvalStatus === 'rejected' && r.rejectionComment && (
+                        <div className="text-xs text-red-500 mt-0.5 max-w-[160px] truncate" title={r.rejectionComment}>
+                          {r.rejectionComment}
+                        </div>
                       )}
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="py-3 px-3 text-gray-500 text-xs hidden xl:table-cell whitespace-nowrap">
+                      {r.updatedAt
+                        ? new Date(r.updatedAt).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+                        : '-'}
+                    </td>
+                    <td className="py-3 px-3">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <Link href={`/records/${r._id}`}
+                          className="text-military-600 hover:text-military-800 font-medium text-xs px-2 py-1 rounded border border-military-200 hover:bg-military-50">
+                          ดู / แก้ไข
+                        </Link>
+                        <Link href={`/records/${r._id}/pdf`}
+                          className="text-blue-600 hover:text-blue-800 font-medium text-xs px-2 py-1 rounded border border-blue-200 hover:bg-blue-50">
+                          PDF
+                        </Link>
+                        {isAdmin && (
+                          <button onClick={() => handleDelete(r._id)}
+                            className="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded border border-red-200 hover:bg-red-50">
+                            ลบ
+                          </button>
+                        )}
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden="true"
+                          className={`w-4 h-4 text-military-600 transition-transform ${expandedRecordId === r._id ? 'rotate-180' : ''}`}
+                        >
+                          <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.1 1.02l-4.25 4.5a.75.75 0 01-1.1 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    </td>
+                  </tr>
+                  {expandedRecordId === r._id && (
+                    <tr>
+                      <td colSpan={11} className="bg-gray-50 border-b border-gray-200 p-0">
+                        <div className="px-6 py-4 space-y-3">
+                          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-gray-600">
+                            <span>ผู้สอบเทียบ: {r.calibrate || '-'}</span>
+                            <span>ผู้อนุมัติ: {r.approve || '-'}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            <a
+                              href={`/records/${r._id}/pdf`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs px-2 py-1 rounded border border-military-300 text-military-700 hover:bg-military-50 font-medium whitespace-nowrap"
+                            >
+                              ใบรับรอง
+                            </a>
+                            {r.calibratedById && (
+                              <button
+                                type="button"
+                                onClick={() => openPersonnelCertificate(r.calibratedById!, 'ผู้สอบเทียบ')}
+                                className="text-xs px-2 py-1 rounded border border-blue-300 text-blue-700 hover:bg-blue-50 font-medium whitespace-nowrap"
+                              >
+                                เซอร์ผู้สอบ
+                              </button>
+                            )}
+                            {r.approvedById && (
+                              <button
+                                type="button"
+                                onClick={() => openPersonnelCertificate(r.approvedById!, 'ผู้อนุมัติ')}
+                                className="text-xs px-2 py-1 rounded border border-green-300 text-green-700 hover:bg-green-50 font-medium whitespace-nowrap"
+                              >
+                                เซอร์ผู้อนุมัติ
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
