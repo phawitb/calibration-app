@@ -10,6 +10,7 @@
     "build": "next build",
     "test:iso-liquid-bath": "node -r sucrase/register scripts/test-water-bath.ts",
     "test:record-documents": "node -r sucrase/register --test scripts/test-record-document-actions.ts",
+    "test:content-disposition": "node -r sucrase/register --test scripts/test-content-disposition.ts",
     "start": "next start",
     "seed": "node scripts/seed.js",
     "vercel:prod": "vercel --prod"

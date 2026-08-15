@@ -6,6 +6,7 @@ import CalibrationRecord from '@/models/CalibrationRecord'
 import ArchivedCertificatePdf from '@/models/ArchivedCertificatePdf'
 import mongoose from 'mongoose'
 import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
+import { inlineContentDisposition } from '@/lib/contentDisposition'
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -64,7 +65,7 @@ export async function GET(
     headers: {
       'Content-Type': contentType,
       'Content-Length': String(dataBuffer.length),
-      'Content-Disposition': `inline; filename="${fileName}"`,
+      'Content-Disposition': inlineContentDisposition(fileName),
       'Cache-Control': 'private, max-age=60',
     },
   })

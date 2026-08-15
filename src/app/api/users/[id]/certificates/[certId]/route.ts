@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import UserCertificate from '@/models/UserCertificate'
+import { inlineContentDisposition } from '@/lib/contentDisposition'
 
 /** Download a specific certificate PDF */
 export async function GET(
@@ -19,7 +20,7 @@ export async function GET(
   return new NextResponse(cert.pdfData, {
     headers: {
       'Content-Type': cert.contentType || 'application/pdf',
-      'Content-Disposition': `inline; filename="${cert.fileName}"`,
+      'Content-Disposition': inlineContentDisposition(cert.fileName),
     },
   })
 }
