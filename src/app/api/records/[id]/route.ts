@@ -8,6 +8,7 @@ import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
 import { registerAmedCertForRecord } from '@/lib/amedCertHistory'
 import User from '@/models/User'
 import { generateNextAmedCertKey } from '@/lib/amedKey'
+import { shouldSessionOwnCalibration } from '@/lib/recordPersonnel'
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -147,14 +148,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
   }
 
-  if (sessionId) {
+  if (sessionId && shouldSessionOwnCalibration(role)) {
     patch.calibratedById = sessionId
     const me = await User.findById(sessionId).select('name fullName fullNameEn').lean()
     patch.calibrate = String(
       (me as any)?.fullNameEn || (me as any)?.fullName || (me as any)?.name || patch.calibrate || ''
     ).trim()
-  } else if (rawBody?.calibratedById != null) {
-    patch.calibratedById = rawBody.calibratedById
+  } else {
+    delete patch.calibratedById
+    delete patch.calibrate
   }
 
   if (normalizedUnitName !== undefined) patch.unitName = normalizedUnitName || ''

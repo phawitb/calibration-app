@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
+import { persistRecordStep } from '@/lib/recordStep'
 
 const VALID_STEPS = ['edit', 'calc', 'preview'] as const
 
@@ -20,6 +21,6 @@ export async function PUT(
   }
 
   await connectDB()
-  await CalibrationRecord.findByIdAndUpdate(params.id, { lastStep: step })
+  await persistRecordStep(CalibrationRecord, params.id, step)
   return NextResponse.json({ ok: true })
 }

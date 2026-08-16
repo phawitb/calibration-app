@@ -18,6 +18,8 @@
     "test:iso-autoclave": "node -r sucrase/register scripts/test-autoclave.ts",
     "test:record-documents": "node -r sucrase/register --test scripts/test-record-document-actions.ts",
     "test:content-disposition": "node -r sucrase/register --test scripts/test-content-disposition.ts",
+    "test:record-personnel": "node -r sucrase/register --test scripts/test-record-personnel.ts",
+    "test:record-step": "node -r sucrase/register --test scripts/test-record-step.ts",
     "start": "next start",
     "seed": "node scripts/seed.js",
     "vercel:prod": "vercel --prod"

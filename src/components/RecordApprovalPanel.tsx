@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
+import { formatApproverOption } from '@/lib/recordPersonnel'
 
 interface Approver {
   _id: string
@@ -134,7 +135,7 @@ export default function RecordApprovalPanel({
             <option value="">-- เลือกผู้อนุมัติ --</option>
             {approvers.map(a => (
               <option key={a._id} value={a._id}>
-                {`${a.rankEn || a.rank || ''} ${a.fullNameEn || a.fullName || a.name || ''}`.trim()} ({a.role})
+                {formatApproverOption(a)}
               </option>
             ))}
           </select>
