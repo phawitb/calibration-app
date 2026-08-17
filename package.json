@@ -20,6 +20,7 @@
     "test:content-disposition": "node -r sucrase/register --test scripts/test-content-disposition.ts",
     "test:record-personnel": "node -r sucrase/register --test scripts/test-record-personnel.ts",
     "test:record-step": "node -r sucrase/register --test scripts/test-record-step.ts",
+    "test:pdf-certificate": "node -r sucrase/register --test scripts/test-pdf-certificate.ts",
     "start": "next start",
     "seed": "node scripts/seed.js",
     "vercel:prod": "vercel --prod"

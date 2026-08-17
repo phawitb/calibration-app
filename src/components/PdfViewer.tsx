@@ -1,6 +1,8 @@
 'use client'
 import { PDFViewer, BlobProvider, Document, Page, Text, View, Image, StyleSheet, Font, pdf } from '@react-pdf/renderer'
 import { Component, useEffect, useState, type ReactNode } from 'react'
+import { buildPdfCertificateInfo, PDF_LABELS } from '@/lib/pdfCertificate'
+import { formatPdfDate } from '@/lib/pdfDate'
 import { fmt, formatCalibrationValue, parseCalibrationValue } from '@/lib/uncertainty'
 
 /** WOFF จาก /public/fonts — โหลด same-origin กว่า woff2 แบบ remote (มักทำให้ @react-pdf ไม่ render) */
@@ -83,16 +85,6 @@ let _pdfDecimals = 4
 function fmtVal(n: number | undefined | null, decimals?: number) {
   if (n == null || Number.isNaN(Number(n))) return '-'
   return fmt(Number(n), decimals ?? _pdfDecimals)
-}
-
-function fmtDate(d: any) {
-  if (!d) return '-'
-  const dt = new Date(d)
-  if (isNaN(dt.getTime())) return '-'
-  const dd = String(dt.getDate()).padStart(2, '0')
-  const mm = String(dt.getMonth() + 1).padStart(2, '0')
-  const yyyy = dt.getFullYear()
-  return `${dd}/${mm}/${yyyy}`
 }
 
 /** Build per-UC sections for result pages */
@@ -186,6 +178,7 @@ function CalibrationPDF({
   // Extract English-only from unitName: "Fort Surasi Hospital(รพ.ค่ายสุรสีห์)" → "Fort Surasi Hospital"
   const customerEn = String(r.unitName || '').replace(/\(.*\)$/, '').trim() || f(r.unitName)
   const locationDisplay = (r.location === 'lab' || r.location === 'Lab') ? 'Medical Depot Division of Royal Thai Army Medical Department' : (r.location === 'outside' ? customerEn : f(r.location))
+  const certificateInfo = buildPdfCertificateInfo(r, customerEn, locationDisplay)
 
   /* ---- Reusable info row ---- */
   const InfoRow2 = ({ l1, v1, l2, v2, last }: { l1: string; v1: string; l2?: string; v2?: string; last?: boolean }) => (
@@ -243,19 +236,18 @@ function CalibrationPDF({
 
         {/* Device info table */}
         <View style={s.infoTable}>
-          <InfoRow2 l1="Equipment" v1={f(r.deviceName)} l2="Section" v2={f(r.section)} />
-          <InfoRow2 l1="Manufacture" v1={f(r.brand)} l2="Model" v2={f(r.model)} />
-          <InfoRow2 l1="Serial No." v1={f(r.serialNo)} l2="Amed No." v2={f(r.amedNo)} />
+          {certificateInfo.deviceRows.map((row, index) => row.full
+            ? <InfoRowFull key={index} label={row.left.label} value={row.left.value} last={index === certificateInfo.deviceRows.length - 1} />
+            : <InfoRow2 key={index} l1={row.left.label} v1={row.left.value} l2={row.right?.label} v2={row.right?.value} />
+          )}
         </View>
 
         {/* Customer info table */}
         <View style={s.infoTable}>
-          <InfoRowFull label="Hospital No" value={f(r.hpNumber)} />
-          <InfoRowFull label="Customer" value={customerEn} />
-          <InfoRowFull label="Address" value={f(r.address)} />
-          <InfoRow2 l1="Received N" v1={f(r.receivedN)} l2="Issued date" v2={fmtDate(r.issuedDate)} />
-          <InfoRow2 l1="Received date" v1={fmtDate(r.receivedDate)} l2="Cal. date" v2={fmtDate(r.calDate)} />
-          <InfoRowFull label="Location" value={locationDisplay} />
+          {certificateInfo.customerRows.map((row, index) => row.full
+            ? <InfoRowFull key={index} label={row.left.label} value={row.left.value} />
+            : <InfoRow2 key={index} l1={row.left.label} v1={row.left.value} l2={row.right?.label} v2={row.right?.value} />
+          )}
           <View style={s.infoRow}>
             <View style={s.infoLeft}>
               <Text style={[s.infoLabel, s.infoLabelW]}>Environment</Text>
@@ -329,7 +321,7 @@ function CalibrationPDF({
         )}
         <View style={s.table}>
           <View style={s.tRow}>
-            <Text style={[s.th, { width: '25%' }]}>Manufacture</Text>
+            <Text style={[s.th, { width: '25%' }]}>{PDF_LABELS.manufacturer}</Text>
             <Text style={[s.th, { width: '15%' }]}>Model</Text>
             <Text style={[s.th, { width: '20%' }]}>Serial NO.</Text>
             <Text style={[s.th, { width: '20%' }]}>Cert. NO.</Text>
@@ -340,7 +332,7 @@ function CalibrationPDF({
             <Text style={[s.td, { width: '15%' }]}>{f(std1.model)}</Text>
             <Text style={[s.td, { width: '20%' }]}>{f(std1.serialNo)}</Text>
             <Text style={[s.td, { width: '20%' }]}>{f(std1.certNo)}</Text>
-            <Text style={[s.td, { width: '20%' }]}>{f(std1.calDate)}</Text>
+            <Text style={[s.td, { width: '20%' }]}>{formatPdfDate(std1.calDate)}</Text>
           </View>
         </View>
 
@@ -397,14 +389,14 @@ function CalibrationPDF({
               <Text style={[s.bodyText, { width: colW.model }]}>{f(sec.std.model)}</Text>
               <Text style={[s.bodyText, { width: colW.serial }]}>{f(sec.std.serialNo)}</Text>
               <Text style={[s.bodyText, { width: colW.cert }]}>{f(sec.std.certNo)}</Text>
-              <Text style={[s.bodyText, { width: colW.caldt }]}>{f(sec.std.calDate)}</Text>
+              <Text style={[s.bodyText, { width: colW.caldt }]}>{formatPdfDate(sec.std.calDate)}</Text>
             </View>
 
             {/* Measurement row */}
             <View style={{ flexDirection: 'row', marginBottom: 3 }}>
               <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>Measurement</Text>
               <Text style={[s.bodyText, { width: 90 }]}>{sec.measurement}</Text>
-              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>Meausre Unit</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>{PDF_LABELS.measureUnit}</Text>
               <Text style={[s.bodyText, { width: 60 }]}>{sec.unit}</Text>
               <Text style={[s.bodyText, { fontWeight: 700, width: 50 }]}>Remark</Text>
               <Text style={s.bodyText}>-</Text>
