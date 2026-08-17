@@ -9,6 +9,8 @@ import { registerAmedCertForRecord } from '@/lib/amedCertHistory'
 import User from '@/models/User'
 import { generateNextAmedCertKey } from '@/lib/amedKey'
 import { shouldSessionOwnCalibration } from '@/lib/recordPersonnel'
+import { generateNextCertNo } from '@/lib/certNo'
+import { shouldAssignCertificateNumber, stripClientNumberFields } from '@/lib/recordLifecycle'
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -106,7 +108,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const normalizedUnitName = rawBody?.unitName != null ? await normalizeHospitalUnit(rawBody.unitName) : undefined
   const normalizedLocation = rawBody?.location != null ? await normalizeHospitalUnit(rawBody.location) : undefined
 
-  const patch: Record<string, any> = { ...rawBody }
+  const patch: Record<string, any> = stripClientNumberFields(rawBody)
   delete (patch as any).approve
 
   if (action === 'request_approval') {
@@ -161,9 +163,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   if (normalizedUnitName !== undefined) patch.unitName = normalizedUnitName || ''
   if (normalizedLocation !== undefined) patch.location = normalizedLocation || ''
-  if (!String(existing.amedCertKey || '').trim()) {
-    const nextKey = await generateNextAmedCertKey(rawBody?.amedNo ?? existing.amedNo)
-    if (nextKey) patch.amedCertKey = nextKey
+  if (shouldAssignCertificateNumber(action, existing.certNo)) {
+    patch.certNo = await generateNextCertNo(
+      rawBody?.issuedDate || rawBody?.calDate || existing.issuedDate || existing.calDate
+    )
+    if (!String(existing.amedCertKey || '').trim()) {
+      const nextKey = await generateNextAmedCertKey(rawBody?.amedNo ?? existing.amedNo)
+      if (nextKey) patch.amedCertKey = nextKey
+    }
   }
 
   delete (patch as any).saveAction

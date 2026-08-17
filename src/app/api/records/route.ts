@@ -4,12 +4,10 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
 import { getUnitVariants } from '@/lib/unitVariants'
-import { registerAmedCertForRecord } from '@/lib/amedCertHistory'
 import User from '@/models/User'
-import { generateNextAmedCertKey } from '@/lib/amedKey'
-import { generateNextCertNo } from '@/lib/certNo'
 import { calcRecalibrationDates, getRecalibrationSettings } from '@/lib/recalibration'
 import { formatPersonName } from '@/lib/personName'
+import { buildUnsavedDraftQuery, stripClientNumberFields } from '@/lib/recordLifecycle'
 
 async function normalizeHospitalUnit(inputRaw: unknown) {
   const variants = await getUnitVariants(inputRaw)
@@ -161,6 +159,20 @@ export async function POST(req: NextRequest) {
 
   const normalizedUnitName = await normalizeHospitalUnit(rawBody?.unitName)
   const normalizedLocation = rawBody?.location ? await normalizeHospitalUnit(rawBody.location) : ''
+  const createdBy = String((session.user as any).username || '').trim()
+  const draftQuery = buildUnsavedDraftQuery({
+    createdBy,
+    unitName: normalizedUnitName || rawBody?.unitName,
+    calibrationType: rawBody?.calibrationType,
+    amedNo: rawBody?.amedNo,
+    isoMethodCode: rawBody?.isoMethodCode,
+  })
+  if (draftQuery) {
+    const existingDraft = await CalibrationRecord.findOne(draftQuery).sort({ createdAt: -1 })
+    if (existingDraft) {
+      return NextResponse.json({ record: existingDraft, reused: true }, { status: 200 })
+    }
+  }
   const approverId = rawBody?.requestedApproverId ? String(rawBody.requestedApproverId) : ''
   const selectedApprover = approverId
     ? await User.findById(approverId).select('name fullName rank fullNameEn rankEn').lean()
@@ -191,16 +203,9 @@ export async function POST(req: NextRequest) {
   }
 
   const technicianId = role === 'technician' && sessionId ? sessionId : rawBody?.calibratedById || undefined
-  const amedCertKey =
-    String(rawBody?.amedCertKey || '').trim() ||
-    await generateNextAmedCertKey(rawBody?.amedNo)
-  const certNo =
-    String(rawBody?.certNo || '').trim() ||
-    await generateNextCertNo(rawBody?.issuedDate || rawBody?.calDate)
-
+  const safeBody = stripClientNumberFields(rawBody)
   const record = new CalibrationRecord({
-    ...rawBody,
-    certNo,
+    ...safeBody,
     unitName: normalizedUnitName || rawBody?.unitName || '',
     location: normalizedLocation || rawBody?.location || '',
     requestedApproverId: approverId || undefined,
@@ -208,9 +213,8 @@ export async function POST(req: NextRequest) {
     approvalStatus,
     approve: '',
     calibratedById: technicianId,
-    amedCertKey: amedCertKey || undefined,
     calibrate: calibratedName || rawBody?.calibrate || '',
-    createdBy: (session.user as any).username,
+    createdBy,
   })
   if (action === 'draft' && !approverId) {
     record.requestedApproverId = undefined
@@ -218,8 +222,5 @@ export async function POST(req: NextRequest) {
   }
 
   await record.save()
-  if (String(record.amedNo || '').trim() && String(record.certNo || '').trim()) {
-    await registerAmedCertForRecord(record.amedNo, record.certNo, String(record._id))
-  }
-  return NextResponse.json({ record }, { status: 201 })
+  return NextResponse.json({ record, reused: false }, { status: 201 })
 }

@@ -10,6 +10,7 @@ import { getUnitVariants } from '@/lib/unitVariants'
 import { decodeWorkspaceHospital, WORKSPACE_HOSPITAL_COOKIE } from '@/lib/workspaceHospital'
 import { displayHospitalName } from '@/lib/hospitalUnit'
 import SelectHospitalHint from '@/components/SelectHospitalHint'
+import { withSavedRecords } from '@/lib/recordLifecycle'
 
 function getDateRanges() {
   const now = new Date()
@@ -98,7 +99,9 @@ async function getStats() {
 
   await connectDB()
   const unitVariants = await getUnitVariants(scopeHospital)
-  const scope: any = { unitName: { $in: unitVariants.length ? unitVariants : [scopeHospital] } }
+  const scope: any = withSavedRecords({
+    unitName: { $in: unitVariants.length ? unitVariants : [scopeHospital] },
+  })
   const [
     total,
     thisYear,
