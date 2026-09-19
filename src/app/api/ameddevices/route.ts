@@ -1,3 +1,4 @@
+import { AMED_UC_KEYS, normalizeAmedUcFields } from '@/lib/amedUcOptions'
 import {getOrder,listOrders} from '@/lib/workOrderService'
 import {orderFailure} from '@/lib/workOrderHttp'
 import { NextRequest, NextResponse } from 'next/server'
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
     filter._id = {$in: orders.flatMap((order:any)=>order.hospitals.flatMap((h:any)=>h.deviceIds))}
   }
   const devices = await AmedDevice.find(filter).sort({ amedNo: 1 }).lean()
-  return NextResponse.json({ data: devices })
+  return NextResponse.json({ data: devices.map(normalizeAmedUcFields) })
   } catch(e) {return orderFailure(e)}
 }
 
@@ -55,9 +56,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'กรุณาระบุ AmedNo และโรงพยาบาล' }, { status: 400 })
   }
 
+  let ucFields: Record<string, unknown>
+  try {
+    ucFields = normalizeAmedUcFields(Object.fromEntries(AMED_UC_KEYS.map(key => [key, body?.[key]])))
+  } catch {
+    return NextResponse.json({ error: 'รูปแบบรายการ UC ไม่ถูกต้อง' }, { status: 400 })
+  }
+
   await connectDB()
   try {
     const created = await AmedDevice.create({
+      ...ucFields,
       amedNo,
       unitName,
       section: String(body?.section || '').trim(),

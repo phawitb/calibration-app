@@ -1,5 +1,7 @@
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
+import AmedDevice from '@/models/AmedDevice'
+import { AMED_UC_KEYS, normalizeUcOptions, type AmedUcValues } from '@/lib/amedUcOptions'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
@@ -28,6 +30,14 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
   }
 
   const data = JSON.parse(JSON.stringify(record))
+  let registryUcOptions: AmedUcValues | undefined
+  if (data.calibrationType !== 'iso' && (data.workOrderDeviceId || (data.deviceFromRegistry && data.amedNo && data.unitName))) {
+    const device = await AmedDevice.findOne(data.workOrderDeviceId
+      ? { _id: data.workOrderDeviceId }
+      : { amedNo: data.amedNo, unitName: data.unitName }
+    ).select(AMED_UC_KEYS.join(' ')).lean()
+    if (device) registryUcOptions = Object.fromEntries(AMED_UC_KEYS.map(key => [key, normalizeUcOptions((device as any)[key])]))
+  }
   const approvalStatus = String((record as any).approvalStatus || 'draft')
   const lastStep = String((record as any).lastStep || 'edit')
 
@@ -102,7 +112,7 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
         {data.calibrationType === 'iso' ? (
           <IsoCalibrationForm mode="edit" methodCode={data.isoMethodCode || ''} recordId={params.id} initialData={data} />
         ) : (
-          <CalibrationForm mode="edit" id={params.id} initialData={data} />
+          <CalibrationForm mode="edit" id={params.id} initialData={data} registryUcOptions={registryUcOptions} />
         )}
       </RecordDetailTabs>
     </div>

@@ -7,9 +7,11 @@ import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/h
 import { useStepNav } from '@/lib/stepNavContext'
 import { formatPersonName } from '@/lib/personName'
 import { parseCalibrationValue } from '@/lib/uncertainty'
+import { normalizeUcOptions, type AmedUcValues } from '@/lib/amedUcOptions'
 
 interface Props {
   initialData?: any
+  registryUcOptions?: AmedUcValues
   mode: 'create' | 'edit'
   id?: string
 }
@@ -161,11 +163,12 @@ const UC_STD_TEXT_FIELDS = [
   'no', 'name', 'manufacture', 'model', 'serialNo', 'certNo', 'measurement', 'unit', 'calDate',
 ] as const
 
-function UcSection({
+export function UcSection({
   label,
   value,
   onChange,
   stdRefs = [],
+  instrumentNos,
   stdFieldOptions,
   formulaOptions = [],
   isTimeUnit = false,
@@ -174,11 +177,15 @@ function UcSection({
   value: any
   onChange: (v: any) => void
   stdRefs?: StdRef[]
+  instrumentNos?: string[]
   stdFieldOptions?: StdFieldOptions
   formulaOptions?: FormulaOption[]
   isTimeUnit?: boolean
 }) {
   const uc = value || {}
+  const configuredNos = instrumentNos?.length ? instrumentNos : undefined
+  const availableNos = configuredNos || Array.from(new Set(stdRefs.map(ref => String(ref.no ?? '').trim()).filter(Boolean)))
+  const selectedNo = String(uc.std?.no ?? '')
   // Track if std fields came from reference (lock non-key fields)
   const [fromRef, setFromRef] = useState(() => {
     const s = value?.std
@@ -372,11 +379,29 @@ function UcSection({
           { field: 'correction', label: 'Correction (ใช้คำนวณ STD)', num: true },
         ].map((f) => {
           const isKeyField = f.field === 'no' || f.field === 'name'
-          const isLocked = fromRef && !isKeyField
+          const isLocked = (fromRef && !isKeyField) || (f.field === 'name' && !!configuredNos)
           return (
           <div key={f.field}>
             <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
-            {isLocked ? (
+            {f.field === 'no' ? (
+              <select className="input-field text-xs py-1.5" aria-label={`${label} รหัสเครื่องมือ`}
+                value={selectedNo}
+                onChange={event => {
+                  const no = event.target.value
+                  const ref = stdRefs.find(item => String(item.no ?? '').trim() === no)
+                  if (ref) applyUcFromRef(ref)
+                  else {
+                    setFromRef(false)
+                    setCalPointConfigs([])
+                    setSelectedConfigIdx(0)
+                    onChange({ ...uc, std: no ? { no } : {}, calPoints: [] })
+                  }
+                }}>
+                <option value="">— เลือกรหัสเครื่องมือ —</option>
+                {selectedNo && !availableNos.includes(selectedNo) && <option value={selectedNo}>{selectedNo} (ค่าที่บันทึกไว้)</option>}
+                {availableNos.map(no => <option key={no} value={no}>{no}</option>)}
+              </select>
+            ) : isLocked ? (
               <input type="text" className="input-field text-xs py-1.5 bg-gray-100 text-gray-500 cursor-not-allowed"
                 value={uc.std?.[f.field] ?? ''} readOnly />
             ) : f.num ? (
@@ -737,7 +762,7 @@ function SuggestInput({
   )
 }
 
-export default function CalibrationForm({ initialData, mode, id }: Props) {
+export default function CalibrationForm({ initialData, mode, id, registryUcOptions }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: session } = useSession()
@@ -1564,7 +1589,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
       <div className="card space-y-4">
         <h3 className="section-title">ข้อมูลการสอบเทียบ (Uncertainty Components)</h3>
         <p className="text-xs text-gray-500 -mt-1">
-          รหัส/ชื่อเครื่อง: พิมพ์กรองแล้วคลิกเลือก — ดึงจากฐานอ้างอิงทันที — กรอก <span className="font-medium">Cal. Point</span> แต่ละแถว
+          รหัสเครื่องมือ: เลือกจากรายการในแต่ละ UC — ดึงข้อมูลเครื่องมือจากฐานอ้างอิงทันที — กรอก <span className="font-medium">Cal. Point</span> แต่ละแถว
           แล้วคอลัมน์ <span className="font-medium">STD 1–4</span> จะคำนวณอัตโนมัติ ตาม
           <span className="font-mono"> Cal.Point + (correction หรือ 0) </span>
           ทั้ง 4 ช่องเท่ากัน — แก้ STD เองทีหลังได้ — <span className="font-medium">UUC</span> กรอกเอง
@@ -1574,6 +1599,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
             stdRefs={stdInstruments}
             stdFieldOptions={ucStdFieldOptions}
             formulaOptions={formulaOptions}
+            instrumentNos={normalizeUcOptions(registryUcOptions?.uc1)}
             label="เครื่องมือสอบเทียบ UC1"
             value={data.uc1}
             onChange={(v) => set('uc1', v)}
@@ -1594,6 +1620,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                     stdRefs={stdInstruments}
                     stdFieldOptions={ucStdFieldOptions}
                     formulaOptions={formulaOptions}
+                    instrumentNos={normalizeUcOptions(registryUcOptions?.[uc])}
                     label={`เครื่องมือสอบเทียบ ${uc.toUpperCase()}`}
                     value={data[uc]}
                     onChange={(v) => set(uc, v)}
@@ -1617,6 +1644,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
                   stdRefs={timeStdInstruments}
                   stdFieldOptions={timeUcStdFieldOptions}
                   formulaOptions={formulaOptions}
+                  instrumentNos={normalizeUcOptions(registryUcOptions?.ucT)}
                   label="เครื่องมือสอบเทียบเวลา (UcT)"
                   value={data.ucT}
                   onChange={(v) => set('ucT', v)}

@@ -15,13 +15,13 @@ interface AmedDevice {
   serialNo?: string
   hpNumber?: string
   toSelect?: boolean
-  uc1?: string
-  uc2?: string
-  uc3?: string
-  uc4?: string
-  uc5?: string
-  uc6?: string
-  ucT?: string
+  uc1?: string | string[]
+  uc2?: string | string[]
+  uc3?: string | string[]
+  uc4?: string | string[]
+  uc5?: string | string[]
+  uc6?: string | string[]
+  ucT?: string | string[]
 }
 
 interface Props {
@@ -29,9 +29,10 @@ interface Props {
   workOrderId?: string
   onSelect: (device: AmedDevice) => void
   disabled?: boolean
+  showSelectionSpinner?: boolean
 }
 
-export default function DeviceSelector({ unitName, workOrderId, onSelect, disabled }: Props) {
+export default function DeviceSelector({ unitName, workOrderId, onSelect, disabled, showSelectionSpinner = true }: Props) {
   const [devices, setDevices] = useState<AmedDevice[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -122,7 +123,7 @@ export default function DeviceSelector({ unitName, workOrderId, onSelect, disabl
                   }}
                 >
                   <td className="py-2.5 px-3 font-mono font-medium text-military-800">
-                    {isSelected && (
+                    {isSelected && showSelectionSpinner && (
                       <span className="inline-block w-4 h-4 mr-2 align-middle border-2 border-military-500 border-t-transparent rounded-full animate-spin" />
                     )}
                     {d.amedNo}

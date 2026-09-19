@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useMemo, Fragment } from 'react'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
 import AdminWorkOrders from './AdminWorkOrders'
+import { AMED_UC_KEYS, normalizeUcOptions } from '@/lib/amedUcOptions'
 
 type RefType = string
 
@@ -244,7 +245,12 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
     const fields = sub.fields
     const headers = ['_id', ...fields.map(f => f.key)]
     const csvRows = rows.map(r =>
-      headers.map(h => `"${String(r[h] ?? '').replace(/"/g, '""')}"`).join(',')
+      headers.map(h => {
+        const value = sub.key === 'ameddevices' && AMED_UC_KEYS.some(key => key === h)
+          ? JSON.stringify(normalizeUcOptions(r[h]))
+          : String(r[h] ?? '')
+        return `"${value.replace(/"/g, '""')}"`
+      }).join(',')
     )
     const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n')
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -405,7 +411,7 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
   const openAdd = () => {
     setEditId(null)
     const o: Record<string, any> = {}
-    for (const f of sub.fields) o[f.key] = f.key === 'toSelect' ? false : ''
+    for (const f of sub.fields) o[f.key] = f.key === 'toSelect' ? false : sub.key === 'ameddevices' && AMED_UC_KEYS.some(key => key === f.key) ? [] : ''
     setEditing(o)
     setModal('add')
   }
@@ -1234,7 +1240,9 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                                 <dd className="text-sm text-gray-800 font-medium break-words">
                                   {f.key === 'toSelect'
                                     ? (r[f.key] ? '✓' : '—')
-                                    : (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—')}
+                                    : AMED_UC_KEYS.some(key => key === f.key)
+                                      ? (normalizeUcOptions(r[f.key]).join(', ') || '—')
+                                      : (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—')}
                                 </dd>
                               </div>
                             ))}
@@ -1369,20 +1377,36 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                     )
                   }
 
-                  if (['uc1','uc2','uc3','uc4','uc5','uc6','ucT'].includes(f.key)) {
+                  if (AMED_UC_KEYS.some(key => key === f.key)) {
+                    const selected = normalizeUcOptions(editing[f.key])
+                    const update = (values: string[]) => setEditing(o => ({ ...o, [f.key]: values }))
                     return (
-                      <div key={f.key}>
-                        <label className="block text-xs text-gray-500 mb-0.5">{fieldLabel(f)}</label>
-                        <select
-                          className="input-field text-sm"
-                          value={editing[f.key] ?? ''}
-                          onChange={(e) => setEditing((o) => ({ ...o, [f.key]: e.target.value }))}
-                        >
-                          <option value="">— ไม่ใช้ —</option>
-                          {refStdNos.map((s) => (
+                      <div key={f.key} className="space-y-2">
+                        <label htmlFor={`add-${f.key}`} className="block text-xs text-gray-500">{fieldLabel(f)}</label>
+                        {selected.map((no, index) => (
+                          <div key={no} className="flex items-center gap-2 text-sm">
+                            <span className="flex-1 min-w-0 break-words">
+                              {no}{refStdNos.find(s => s.no === no)?.name ? ` — ${refStdNos.find(s => s.no === no)?.name}` : ''}
+                              {index === 0 && <span className="ml-2 text-xs text-military-600">ค่าเริ่มต้น</span>}
+                            </span>
+                            {index > 0 && (
+                              <button type="button" className="text-xs text-military-700 whitespace-nowrap"
+                                onClick={() => update([no, ...selected.filter(value => value !== no)])}>
+                                ใช้เป็นค่าเริ่มต้น
+                              </button>
+                            )}
+                            <button type="button" className="text-xs text-red-600" aria-label={`ลบ ${no} จาก ${fieldLabel(f)}`}
+                              onClick={() => update(selected.filter(value => value !== no))}>ลบ</button>
+                          </div>
+                        ))}
+                        <select id={`add-${f.key}`} className="input-field text-sm" value=""
+                          onChange={e => { if (e.target.value) update([...selected, e.target.value]) }}>
+                          <option value="">{selected.length ? '+ เพิ่มรหัสเครื่องมือมาตรฐาน' : '— ไม่ใช้ / เลือกเพื่อเพิ่ม —'}</option>
+                          {refStdNos.filter(s => !selected.includes(s.no)).map(s => (
                             <option key={s.no} value={s.no}>{s.no} — {s.name}</option>
                           ))}
                         </select>
+                        <p className="text-[10px] text-gray-400">เลือกได้หลายรหัส รหัสแรกเป็นค่าเริ่มต้นเมื่อเพิ่มข้อมูลสอบเทียบ</p>
                       </div>
                     )
                   }

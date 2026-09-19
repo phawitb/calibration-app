@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import toast from 'react-hot-toast'
 import { ISO_METHODS } from '@/lib/isoMethods'
 import DeviceSelector from '@/components/DeviceSelector'
+import { buildAmedUcDefaults } from '@/lib/amedUcOptions'
 import {useOrderWorkspace} from '@/components/OrderWorkspace'
 import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
 import SelectHospitalHint from '@/components/SelectHospitalHint'
@@ -21,13 +22,13 @@ interface AmedDevice {
   serialNo?: string
   hpNumber?: string
   toSelect?: boolean
-  uc1?: string
-  uc2?: string
-  uc3?: string
-  uc4?: string
-  uc5?: string
-  uc6?: string
-  ucT?: string
+  uc1?: string | string[]
+  uc2?: string | string[]
+  uc3?: string | string[]
+  uc4?: string | string[]
+  uc5?: string | string[]
+  uc6?: string | string[]
+  ucT?: string | string[]
 }
 
 export default function NewRecordPage() {
@@ -58,12 +59,7 @@ export default function NewRecordPage() {
     if (creating) return
     setCreating(true)
     try {
-      // Build UC defaults from AmedDevice registry (std.no only — CalibrationForm resolves full std data)
-      const ucDefaults: Record<string, any> = {}
-      for (const k of ['uc1','uc2','uc3','uc4','uc5','uc6'] as const) {
-        if (device[k]) ucDefaults[k] = { std: { no: device[k] }, calPoints: [] }
-      }
-      if (device.ucT) ucDefaults.ucT = { std: { no: device.ucT }, calPoints: [] }
+      const ucDefaults = buildAmedUcDefaults(device)
 
       const payload: Record<string, unknown> = {
         workOrderId: selectedOrder?._id,
@@ -193,6 +189,7 @@ export default function NewRecordPage() {
             workOrderId={selectedOrder?._id}
             onSelect={handleDeviceClick}
             disabled={creating}
+            showSelectionSpinner={creating}
           />
           {creating && (
             <div className="text-center text-gray-500 text-sm py-2">กำลังสร้างรายการ...</div>

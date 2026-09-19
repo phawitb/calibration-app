@@ -1,3 +1,5 @@
+import AmedDevice from '@/models/AmedDevice'
+import { normalizeAmedUcFields } from '@/lib/amedUcOptions'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -16,6 +18,7 @@ const modelMap: Record<string, string> = {
 const baseSchema = new mongoose.Schema({}, { strict: false, collection: undefined })
 
 function getModel(mongooseName: string) {
+  if (mongooseName === 'AmedDevice') return AmedDevice
   return mongoose.models[mongooseName] || mongoose.model(mongooseName, baseSchema)
 }
 
@@ -46,13 +49,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No rows to import' }, { status: 400 })
   }
 
+  let normalizedRows = rows
+  try {
+    if (type === 'ameddevices') normalizedRows = rows.map(normalizeAmedUcFields)
+  } catch {
+    return NextResponse.json({ error: 'รูปแบบรายการ UC ไม่ถูกต้อง' }, { status: 400 })
+  }
+
   await connectDB()
   const M = getModel(modelMap[type])
 
   let updated = 0
   let created = 0
 
-  for (const row of rows) {
+  for (const row of normalizedRows) {
     const { _id, ...data } = row
     if (_id) {
       try {
