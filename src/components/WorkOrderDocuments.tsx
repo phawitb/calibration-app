@@ -4,9 +4,15 @@ import toast from 'react-hot-toast'
 export default function WorkOrderDocuments({
   orderId,
   editable = false,
+  allowUpload = true,
+  disabled = false,
+  title = 'เอกสารคำสั่ง PDF',
 }: {
   orderId: string
   editable?: boolean
+  allowUpload?: boolean
+  disabled?: boolean
+  title?: string
 }) {
   const [files, setFiles] = useState<any[]>([]),
     [busy, setBusy] = useState(false),
@@ -67,8 +73,8 @@ export default function WorkOrderDocuments({
   }
   return (
     <section className="space-y-3">
-      <h3 className="font-semibold text-military-900">เอกสารคำสั่ง PDF</h3>
-      {editable && (
+      <h3 className="font-semibold text-military-900">{title}</h3>
+      {editable && allowUpload && (
         <label className="block rounded-lg border border-dashed border-military-300 p-4 text-sm">
           แนบ PDF ได้หลายไฟล์ · ไม่เกิน 8 MB ต่อไฟล์
           <input
@@ -77,7 +83,7 @@ export default function WorkOrderDocuments({
             type="file"
             accept="application/pdf,.pdf"
             multiple
-            disabled={busy}
+            disabled={busy || disabled}
             onChange={(e) => {
               upload(e.target.files)
               e.target.value = ''
@@ -92,7 +98,10 @@ export default function WorkOrderDocuments({
       )}
       {error && (
         <p role="alert" className="text-red-600">
-          {error} <button onClick={load}>ลองใหม่</button>
+          {error}{' '}
+          <button type="button" onClick={load}>
+            ลองใหม่
+          </button>
         </p>
       )}
       {!files.length && !error && (
@@ -127,7 +136,8 @@ export default function WorkOrderDocuments({
             </a>
             {editable && (
               <button
-                disabled={busy}
+                type="button"
+                disabled={busy || disabled}
                 className="text-red-600"
                 onClick={() => remove(file._id)}
               >

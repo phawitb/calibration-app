@@ -93,15 +93,15 @@ async function getStats() {
   const scopeHospital = role === 'hospital_user' ? String(hospitalUnit || '') : cookieHospital
   const { now, startToday, startWeek, startYear, startMonth, months12Ago } = getDateRanges()
 
-  if (!scopeHospital) {
+  if (role === 'hospital_user' && !scopeHospital) {
     return { needsHospital: true as const, session, role, scopeHospital: '' }
   }
 
   await connectDB()
   const unitVariants = await getUnitVariants(scopeHospital)
-  const scope: any = withSavedRecords({
+  const scope: any = withSavedRecords(scopeHospital ? {
     unitName: { $in: unitVariants.length ? unitVariants : [scopeHospital] },
-  })
+  } : {})
   const [
     total,
     thisYear,
@@ -436,15 +436,15 @@ export default async function DashboardPage() {
   if (stats.needsHospital) {
     return (
       <SelectHospitalHint
-        title="เลือกโรงพยาบาลเพื่อดูหน้าหลัก"
-        detail="หน้าหลักจะสรุปงานสอบเทียบ ใกล้ครบอายุ และรายการล่าสุดเฉพาะ รพ. ที่เลือก"
+        title="ยังไม่ได้กำหนดโรงพยาบาลให้บัญชีนี้"
+        detail="กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดโรงพยาบาลก่อนดูข้อมูล"
       />
     )
   }
   const session = stats.session
   const role = stats.role as string | undefined
   const isAdmin = role === 'admin'
-  const hospitalTitle = displayHospitalName(stats.scopeHospital).title || stats.scopeHospital
+  const hospitalTitle = stats.scopeHospital ? (displayHospitalName(stats.scopeHospital).title || stats.scopeHospital) : 'ทุกโรงพยาบาล'
   const canAddRecord = role === 'admin' || role === 'technician'
   const currency = (v: number) => new Intl.NumberFormat('th-TH').format(Number(v || 0))
 
@@ -538,7 +538,7 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-bold text-military-900">
             สวัสดี, {session?.user?.name}
           </h1>
-          <p className="text-gray-500 text-sm mt-1">สรุปงานสอบเทียบของ {hospitalTitle}</p>
+          <p className="text-gray-500 text-sm mt-1">{stats.scopeHospital ? `สรุปงานสอบเทียบของ ${hospitalTitle}` : 'ภาพรวมงานสอบเทียบทุกโรงพยาบาล'}</p>
         </div>
         {canAddRecord && (
           <Link href="/records/new" className="btn-primary flex items-center gap-2">

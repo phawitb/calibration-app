@@ -4,7 +4,6 @@ import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 
 const TABS = [
-  { href: '/admin?tab=orders', label: 'คำสั่ง', tab: 'orders' },
   { href: '/admin?tab=users', label: 'จัดการผู้ใช้', tab: 'users' },
   { href: '/admin?tab=data', label: 'จัดการข้อมูล', tab: 'data' },
   { href: '/admin?tab=cert', label: 'จัดการรูปแบบเลขใบรับรอง', tab: 'cert' },

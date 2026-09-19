@@ -174,12 +174,12 @@ export default function RecordDetailTabs({
       </div>
 
       {/* Status banner */}
-      {isPending && (
+      {isPending && (approvalPanel || (
         <div className="card border border-amber-300 bg-amber-50 text-amber-800 flex items-center gap-2 py-3">
           <span className="text-lg">⏳</span>
           <span className="font-medium">รายการนี้อยู่ระหว่างรออนุมัติ</span>
         </div>
-      )}
+      ))}
       {isApproved && (
         <div className="card border border-emerald-300 bg-emerald-50 text-emerald-800 flex items-center gap-2 py-3">
           <span className="text-lg">✅</span>
@@ -216,7 +216,7 @@ export default function RecordDetailTabs({
       {previewMounted && (
         <div className={tab === 'preview' ? 'block space-y-4 min-w-0' : 'hidden'} aria-hidden={tab !== 'preview'}>
           {previewPanel}
-          {approvalPanel && (
+          {approvalPanel && !isPending && (
             <div className="mt-4">
               {approvalPanel}
             </div>

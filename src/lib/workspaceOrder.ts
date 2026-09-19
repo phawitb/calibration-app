@@ -6,7 +6,17 @@ export function orderStorageKey(identity: string) {
   return `workspace-order:${identity}`
 }
 
-export function resolveWorkspaceHospitals(input: {historical:boolean;locked:boolean;hospitalUnit:string;allHospitals:string[];orderHospitals:string[]}) {
-  if(input.historical) return input.locked ? [input.hospitalUnit].filter(Boolean) : input.allHospitals
+export function resolveWorkspaceHospitals(input: {
+  historical: boolean
+  locked: boolean
+  hospitalUnit: string
+  allHospitals: string[]
+  orderHospitals: string[]
+  hasSelectedOrder?: boolean
+}) {
+  if (input.historical && !input.hasSelectedOrder)
+    return input.locked
+      ? [input.hospitalUnit].filter(Boolean)
+      : input.allHospitals
   return input.orderHospitals
 }

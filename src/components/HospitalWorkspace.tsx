@@ -1,7 +1,16 @@
 'use client'
-import {resolveWorkspaceHospitals} from '@/lib/workspaceOrder'
+import { navigationSection } from '@/lib/appNavigation'
+import { resolveWorkspaceHospitals } from '@/lib/workspaceOrder'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useSession } from 'next-auth/react'
 import { useOrderWorkspace } from './OrderWorkspace'
 import { usePathname, useRouter } from 'next/navigation'
@@ -24,15 +33,30 @@ type HospitalWorkspaceValue = {
   setSidebarCollapsed: (collapsed: boolean) => void
 }
 
-const HospitalWorkspaceContext = createContext<HospitalWorkspaceValue | null>(null)
+const HospitalWorkspaceContext = createContext<HospitalWorkspaceValue | null>(
+  null
+)
 
-export function HospitalWorkspaceProvider({ children }: { children: React.ReactNode }) {
+export function HospitalWorkspaceProvider({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   const { data: session, status } = useSession()
   const router = useRouter()
   const pathname = usePathname()
-  const {selectedOrder, loading:orderLoading} = useOrderWorkspace()
-  const historical = pathname === '/records' || pathname === '/reports'
-  const orderKey = selectedOrder?._id || ''
+  const {
+    selectedOrder,
+    allOrdersSelected,
+    orders,
+    loading: orderLoading,
+  } = useOrderWorkspace()
+  const historical =
+    pathname === '/records' ||
+    pathname === '/reports' ||
+    pathname === '/dashboard'
+  const isAdding = navigationSection(pathname) === 'add'
+  const orderKey = allOrdersSelected ? 'all' : selectedOrder?._id || ''
   const role = (session?.user as any)?.role as string | undefined
   const hospitalUnit = String((session?.user as any)?.hospitalUnit || '')
   const locked = role === 'hospital_user'
@@ -66,15 +90,37 @@ export function HospitalWorkspaceProvider({ children }: { children: React.ReactN
       if (status === 'unauthenticated') setLoading(false)
       return
     }
-    if (orderLoading) { setLoading(true); return }
-    if (!selectedOrder && !historical) { setHospitals([]); setSelected(''); writeWorkspaceHospitalCookie(''); setLoading(false); return }
+    if (orderLoading) {
+      setLoading(true)
+      return
+    }
+    if (!selectedOrder && (!allOrdersSelected || isAdding) && !historical) {
+      setHospitals([])
+      setSelected('')
+      writeWorkspaceHospitalCookie('')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     let mounted = true
     const load = async () => {
       try {
         const res = await fetch('/api/reference?type=units')
         const json = res.ok ? await res.json() : { data: [] }
-        const options = resolveWorkspaceHospitals({historical,locked,hospitalUnit,allHospitals:buildHospitalUnitOptions((json.data || []) as UnitRefLike[]),orderHospitals:selectedOrder?.hospitals.map(h=>h.unitName)||[]})
+        const options = resolveWorkspaceHospitals({
+          historical,
+          locked,
+          hospitalUnit,
+          allHospitals: buildHospitalUnitOptions(
+            (json.data || []) as UnitRefLike[]
+          ),
+          hasSelectedOrder: !historical && !!selectedOrder,
+          orderHospitals:
+            selectedOrder?.hospitals.map((h) => h.unitName) ||
+            Array.from(
+              new Set(orders.flatMap((o) => o.hospitals.map((h) => h.unitName)))
+            ),
+        })
         if (!mounted) return
         if (locked && hospitalUnit) {
           setHospitals(options)
@@ -96,43 +142,65 @@ export function HospitalWorkspaceProvider({ children }: { children: React.ReactN
           }
         }
       } catch {
-        if (mounted) {setHospitals([]);setSelected('')}
+        if (mounted) {
+          setHospitals([])
+          setSelected('')
+        }
       } finally {
         if (mounted) setLoading(false)
       }
     }
     load()
-    return () => { mounted = false }
-  }, [status, locked, hospitalUnit, orderKey, selectedOrder, orderLoading, historical])
-
-  const setSelectedHospital = useCallback((hospital: string) => {
-    if (locked || !hospitals.includes(hospital)) return
-    setSelected(hospital)
-    writeWorkspaceHospitalCookie(hospital)
-    setSidebarOpen(false)
-    router.refresh()
-  }, [locked, router, hospitals])
-
-  const value = useMemo<HospitalWorkspaceValue>(() => ({
-    hospitals,
-    selectedHospital,
-    setSelectedHospital,
-    loading,
+    return () => {
+      mounted = false
+    }
+  }, [
+    status,
     locked,
-    sidebarOpen,
-    setSidebarOpen,
-    sidebarCollapsed,
-    setSidebarCollapsed,
-  }), [
-    hospitals,
-    selectedHospital,
-    setSelectedHospital,
-    loading,
-    locked,
-    sidebarOpen,
-    sidebarCollapsed,
-    setSidebarCollapsed,
+    hospitalUnit,
+    orderKey,
+    selectedOrder,
+    orders,
+    allOrdersSelected,
+    orderLoading,
+    historical,
+    isAdding,
   ])
+
+  const setSelectedHospital = useCallback(
+    (hospital: string) => {
+      if (locked || (hospital !== '' && !hospitals.includes(hospital))) return
+      setSelected(hospital)
+      writeWorkspaceHospitalCookie(hospital)
+      setSidebarOpen(false)
+      router.refresh()
+    },
+    [locked, router, hospitals]
+  )
+
+  const value = useMemo<HospitalWorkspaceValue>(
+    () => ({
+      hospitals,
+      selectedHospital,
+      setSelectedHospital,
+      loading,
+      locked,
+      sidebarOpen,
+      setSidebarOpen,
+      sidebarCollapsed,
+      setSidebarCollapsed,
+    }),
+    [
+      hospitals,
+      selectedHospital,
+      setSelectedHospital,
+      loading,
+      locked,
+      sidebarOpen,
+      sidebarCollapsed,
+      setSidebarCollapsed,
+    ]
+  )
 
   return (
     <HospitalWorkspaceContext.Provider value={value}>
@@ -144,7 +212,9 @@ export function HospitalWorkspaceProvider({ children }: { children: React.ReactN
 export function useHospitalWorkspace() {
   const ctx = useContext(HospitalWorkspaceContext)
   if (!ctx) {
-    throw new Error('useHospitalWorkspace must be used within HospitalWorkspaceProvider')
+    throw new Error(
+      'useHospitalWorkspace must be used within HospitalWorkspaceProvider'
+    )
   }
   return ctx
 }

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState, useMemo, Fragment } from 'react'
 import toast from 'react-hot-toast'
+import { useRouter } from 'next/navigation'
+import AdminWorkOrders from './AdminWorkOrders'
 
 type RefType = string
 
@@ -121,6 +123,7 @@ const SUBTABS: {
       { key: 'ucT', label: 'UcT' },
     ],
   },
+  { key: 'orders', label: 'คำสั่ง', type: 'orders', desc: '', fields: [] },
 ]
 
 // Key columns shown in stdinstruments table (compact view)
@@ -194,8 +197,10 @@ function getCertStatus(expiryDate: string | Date | undefined) {
   return { label: 'ใช้ได้', color: 'bg-green-100 text-green-700 border-green-300' }
 }
 
-export default function ReferenceDataManager() {
-  const [sub, setSub] = useState(SUBTABS[0])
+export default function ReferenceDataManager({ initialCategory }: { initialCategory?: string }) {
+  const router = useRouter()
+  const [sub, setSub] = useState(SUBTABS.find(t => t.key === initialCategory) || SUBTABS[0])
+  useEffect(() => { setSub(SUBTABS.find(t => t.key === initialCategory) || SUBTABS[0]) }, [initialCategory])
   const [rows, setRows] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState<'add' | 'edit' | null>(null)
@@ -332,6 +337,7 @@ export default function ReferenceDataManager() {
   }
 
   const load = useCallback(async () => {
+    if (sub.type === 'orders') return
     setLoading(true)
     try {
       const res = await fetch(`/api/reference?type=${sub.type}`, { cache: 'no-store' })
@@ -1038,7 +1044,7 @@ export default function ReferenceDataManager() {
             type="button"
             role="tab"
             aria-selected={sub.key === t.key}
-            onClick={() => { setSub(t); setExpandedId(null); setStdEditing(false); setSearch(''); setSortKey(''); setSortDir('asc') }}
+            onClick={() => { router.replace(`/admin?tab=data&category=${t.key}`, { scroll: false }); setSub(t); setExpandedId(null); setStdEditing(false); setSearch(''); setSortKey(''); setSortDir('asc') }}
             className={`px-3 py-1.5 text-xs sm:text-sm rounded-t-lg ${
               sub.key === t.key
                 ? 'bg-military-800 text-white'
@@ -1049,6 +1055,7 @@ export default function ReferenceDataManager() {
           </button>
         ))}
       </div>
+      {sub.key === 'orders' ? <AdminWorkOrders /> : <>
       <p className="text-xs text-gray-500">{sub.desc}</p>
 
       <div className="flex items-center justify-between gap-3">
@@ -1412,6 +1419,7 @@ export default function ReferenceDataManager() {
           </div>
         </div>
       )}
+      </>}
     </div>
   )
 }

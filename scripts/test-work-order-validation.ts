@@ -124,3 +124,10 @@ test('history includes legacy hospitals even with an order, restricted accounts 
  assert.deepEqual(resolveWorkspaceHospitals({...options,locked:true}),['B'])
  assert.deepEqual(resolveWorkspaceHospitals({...options,historical:false}),['A'])
 })
+
+test('specific order limits historical hospital choices; all scope retains legacy access', () => {
+ const scope = {historical:true,locked:false,hospitalUnit:'',allHospitals:['A','B','Legacy'],orderHospitals:['A']}
+ assert.deepEqual(resolveWorkspaceHospitals({...scope,hasSelectedOrder:true}), ['A'])
+ assert.deepEqual(resolveWorkspaceHospitals({...scope,hasSelectedOrder:false}), ['A','B','Legacy'])
+ assert.deepEqual(resolveWorkspaceHospitals({...scope,historical:false,orderHospitals:['A','B']}), ['A','B'])
+})

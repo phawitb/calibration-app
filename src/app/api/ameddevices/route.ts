@@ -1,4 +1,4 @@
-import {getOrder} from '@/lib/workOrderService'
+import {getOrder,listOrders} from '@/lib/workOrderService'
 import {orderFailure} from '@/lib/workOrderHttp'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -30,7 +30,10 @@ export async function GET(req: NextRequest) {
   }
 
   const orderKey = searchParams.get('workOrderId')
-  if (orderKey) {const order = await getOrder(session.user as any, orderKey); filter._id = {$in: order.hospitals.flatMap((h:any)=>h.deviceIds)}}
+  if (orderKey) {
+    const orders = orderKey === 'all' ? await listOrders(session.user as any) : [await getOrder(session.user as any, orderKey)]
+    filter._id = {$in: orders.flatMap((order:any)=>order.hospitals.flatMap((h:any)=>h.deviceIds))}
+  }
   const devices = await AmedDevice.find(filter).sort({ amedNo: 1 }).lean()
   return NextResponse.json({ data: devices })
   } catch(e) {return orderFailure(e)}

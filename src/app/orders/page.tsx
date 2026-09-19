@@ -7,8 +7,15 @@ import { useOrderWorkspace } from '@/components/OrderWorkspace'
 import WorkOrderDocuments from '@/components/WorkOrderDocuments'
 import { canManageOrders } from '@/lib/workOrderValidation'
 export default function OrdersPage() {
-  const { orders, selectOrder, loading, error, refreshOrders } =
-      useOrderWorkspace(),
+  const {
+      orders,
+      selectedOrder,
+      allOrdersSelected,
+      selectOrder,
+      loading,
+      error,
+      refreshOrders,
+    } = useOrderWorkspace(),
     router = useRouter(),
     { data: session } = useSession()
   const [query, setQuery] = useState(''),
@@ -29,7 +36,7 @@ export default function OrdersPage() {
           </p>
         </div>
         {canManageOrders(role) && (
-          <Link href="/admin?tab=orders" className="btn-primary">
+          <Link href="/admin?tab=data&category=orders" className="btn-primary">
             จัดการคำสั่ง
           </Link>
         )}
@@ -63,6 +70,12 @@ export default function OrdersPage() {
       ) : (
         <div className="space-y-4">
           {orders
+            .filter(
+              (o) =>
+                !selectedOrder ||
+                allOrdersSelected ||
+                o._id === selectedOrder._id
+            )
             .filter((o) =>
               `${o.orderNo} ${o.title} ${o.hospitals.map((h) => h.unitName).join(' ')}`
                 .toLowerCase()

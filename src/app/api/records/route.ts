@@ -212,7 +212,9 @@ export async function POST(req: NextRequest) {
     approvalStatus = 'pending_approval'
   }
 
-  const technicianId = role === 'technician' && sessionId ? sessionId : rawBody?.calibratedById || undefined
+  // The calibrator name above comes from the session account for both roles.
+  // Keep its ID aligned so personnel certificates can be opened for admin-created records too.
+  const technicianId = sessionId || undefined
   const safeBody = stripClientNumberFields(rawBody)
   const record = new CalibrationRecord({
     ...safeBody,

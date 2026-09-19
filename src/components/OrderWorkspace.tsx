@@ -8,12 +8,14 @@ import {
   useState,
 } from 'react'
 import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import { orderStorageKey, selectedVisibleOrder } from '@/lib/workspaceOrder'
 import { writeWorkspaceHospitalCookie } from '@/lib/workspaceHospital'
 import type { WorkOrderSummary } from '@/lib/workOrderTypes'
 type Value = {
   orders: WorkOrderSummary[]
   selectedOrder: WorkOrderSummary | null
+  allOrdersSelected: boolean
   selectOrder: (id: string) => void
   loading: boolean
   error: string
@@ -25,6 +27,7 @@ export function OrderWorkspaceProvider({
 }: {
   children: React.ReactNode
 }) {
+  const router = useRouter()
   const { data: session, status } = useSession(),
     user = session?.user as any
   const identity = user
@@ -56,17 +59,17 @@ export function OrderWorkspaceProvider({
         if (!r.ok) throw Error(j.error)
         let id = ''
         try {
-          id = localStorage.getItem(orderStorageKey(identity)) || ''
+          id = localStorage.getItem(orderStorageKey(identity)) || 'all'
         } catch {}
         const selected = selectedVisibleOrder(j.data, id)
         setState({
           identity,
           orders: j.data,
-          id: selected?._id || '',
+          id: id === 'all' ? 'all' : selected?._id || '',
           loading: false,
           error: '',
         })
-        if (!selected) writeWorkspaceHospitalCookie('')
+        if (!selected && id !== 'all') writeWorkspaceHospitalCookie('')
       })
       .catch((e) => {
         if (e.name !== 'AbortError')
@@ -82,10 +85,8 @@ export function OrderWorkspaceProvider({
   }, [identity, status, generation])
   useEffect(() => {
     const refresh = () => refreshOrders()
-    window.addEventListener('focus', refresh)
     window.addEventListener('orders-changed', refresh)
     return () => {
-      window.removeEventListener('focus', refresh)
       window.removeEventListener('orders-changed', refresh)
     }
   }, [refreshOrders])
@@ -95,13 +96,18 @@ export function OrderWorkspaceProvider({
       const selected = selectedVisibleOrder(state.orders, id)
       writeWorkspaceHospitalCookie('')
       try {
-        if (selected)
+        if (id === 'all') localStorage.setItem(orderStorageKey(identity), 'all')
+        else if (selected)
           localStorage.setItem(orderStorageKey(identity), selected._id)
         else localStorage.removeItem(orderStorageKey(identity))
       } catch {}
-      setState((prev) => ({ ...prev, id: selected?._id || '' }))
+      setState((prev) => ({
+        ...prev,
+        id: id === 'all' ? 'all' : selected?._id || '',
+      }))
+      router.refresh()
     },
-    [identity, state.identity, state.orders]
+    [identity, state.identity, state.orders, router]
   )
   const value = useMemo(
     () => ({
@@ -110,6 +116,7 @@ export function OrderWorkspaceProvider({
         state.identity === identity
           ? selectedVisibleOrder(state.orders, state.id)
           : null,
+      allOrdersSelected: state.identity === identity && state.id === 'all',
       selectOrder,
       loading:
         status === 'loading' || state.loading || state.identity !== identity,

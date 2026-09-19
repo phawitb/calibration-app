@@ -1,8 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
-import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
 import { ISO_METHODS } from '@/lib/isoMethods'
 import DeviceSelector from '@/components/DeviceSelector'
@@ -34,13 +32,9 @@ interface AmedDevice {
 
 export default function NewRecordPage() {
   const {selectedOrder}=useOrderWorkspace()
-  const [isoDevice,setIsoDevice]=useState<AmedDevice|null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { data: session } = useSession()
   const { selectedHospital, loading: workspaceLoading } = useHospitalWorkspace()
-  const role = (session?.user as any)?.role
-  const canAddDevice = role === 'admin' || role === 'technician'
   const [creating, setCreating] = useState(false)
   const [selectedIsoCode, setSelectedIsoCode] = useState<string | null>(null)
   const selectedUnit = selectedHospital
@@ -49,7 +43,7 @@ export default function NewRecordPage() {
   // Calibration type
   const [calType, setCalType] = useState<'sbcal' | 'iso' | ''>('')
 
-  useEffect(()=>{setIsoDevice(null);setSelectedIsoCode(null)},[selectedUnit,selectedOrder?._id])
+  useEffect(()=>{setSelectedIsoCode(null)},[selectedUnit,selectedOrder?._id])
 
   useEffect(() => {
     const qCalType = searchParams.get('calType')
@@ -102,19 +96,19 @@ export default function NewRecordPage() {
     }
   }
 
-  const createIsoRecord = async (isoMethodCode: string) => {
-    if (creating || !isoDevice) return
+  const createIsoRecord = async (isoMethodCode: string, device: AmedDevice) => {
+    if (creating) return
     setCreating(true)
     setSelectedIsoCode(isoMethodCode)
     try {
       const payload: Record<string, unknown> = {
         workOrderId: selectedOrder?._id,
-        workOrderDeviceId: isoDevice!._id,
-        amedNo: isoDevice!.amedNo,
-        deviceName: isoDevice!.deviceName,
-        brand: isoDevice!.brand,
-        model: isoDevice!.model,
-        serialNo: isoDevice!.serialNo,
+        workOrderDeviceId: device._id,
+        amedNo: device.amedNo,
+        deviceName: device.deviceName,
+        brand: device.brand,
+        model: device.model,
+        serialNo: device.serialNo,
         calibrationType: 'iso',
         isoMethodCode,
         unitName: selectedUnit,
@@ -193,11 +187,6 @@ export default function NewRecordPage() {
             <h2 className="text-sm font-semibold text-military-800">
               เลือกเครื่องมือแพทย์ <span className="font-normal text-gray-500">(คลิกเพื่อสร้างรายการ)</span>
             </h2>
-            {canAddDevice && (
-              <Link href="/hospital?add=1" className="btn-primary text-sm whitespace-nowrap shrink-0">
-                + เพิ่มเครื่องมือแพทย์
-              </Link>
-            )}
           </div>
           <DeviceSelector
             unitName={selectedUnit}
@@ -211,18 +200,18 @@ export default function NewRecordPage() {
         </div>
       )}
 
-      {selectedUnit && calType === 'iso' && <div className="card space-y-3"><h2 className="font-semibold">เลือกเครื่องมือในคำสั่งสำหรับสอบเทียบ ISO</h2><DeviceSelector key={`${selectedOrder?._id}:${selectedUnit}`} unitName={selectedUnit} workOrderId={selectedOrder?._id} onSelect={setIsoDevice} disabled={creating}/>{isoDevice&&<p className="text-sm text-military-700">เลือกแล้ว: {isoDevice.deviceName} · AmedNo {isoDevice.amedNo}</p>}</div>}
       {/* ISO: Method Selection */}
-      {selectedUnit && calType === 'iso' && isoDevice && (
+      {selectedUnit && calType === 'iso' && (
         <div className="space-y-2">
-          <h2 className="text-sm font-semibold text-military-800">เลือกชนิดเครื่องมือ <span className="font-normal text-gray-500">(คลิกเพื่อสร้างรายการ)</span></h2>
+          <h2 className="text-sm font-semibold text-military-800">เลือกชนิดเครื่องมือ <span className="font-normal text-gray-500">(เลือกประเภทก่อนเลือกเครื่องมือในคำสั่ง)</span></h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {ISO_METHODS.map(m => {
               const isSelected = selectedIsoCode === m.code
               return (
               <button
                 key={m.code}
-                onClick={() => createIsoRecord(m.code)}
+                onClick={() => setSelectedIsoCode(m.code)}
+                aria-pressed={isSelected}
                 disabled={creating}
                 className={`p-4 border-2 rounded-xl transition-all text-left ${
                   isSelected
@@ -233,7 +222,7 @@ export default function NewRecordPage() {
                 }`}
               >
                 <div className="font-semibold text-gray-800 flex items-center gap-2">
-                  {isSelected && (
+                  {isSelected && creating && (
                     <span className="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                   )}
                   {m.nameTh}
@@ -249,6 +238,22 @@ export default function NewRecordPage() {
           {creating && (
             <div className="text-center text-gray-500 text-sm py-2">กำลังสร้างรายการ...</div>
           )}
+        </div>
+      )}
+
+      {selectedUnit && calType === 'iso' && selectedIsoCode && (
+        <div className="card space-y-3">
+          <h2 className="font-semibold">
+            เลือกเครื่องมือในคำสั่งสำหรับ {ISO_METHODS.find(m => m.code === selectedIsoCode)?.nameTh}
+          </h2>
+          <p className="text-sm text-gray-500">คลิกเครื่องมือเพื่อสร้างรายการและเปิดแบบฟอร์มสอบเทียบ ISO</p>
+          <DeviceSelector
+            key={`${selectedOrder?._id}:${selectedUnit}:${selectedIsoCode}`}
+            unitName={selectedUnit}
+            workOrderId={selectedOrder?._id}
+            onSelect={device => createIsoRecord(selectedIsoCode, device)}
+            disabled={creating}
+          />
         </div>
       )}
 

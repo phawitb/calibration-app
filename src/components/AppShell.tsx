@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
-import {usePathname} from 'next/navigation'
-import {useOrderWorkspace} from './OrderWorkspace'
+import { usePathname } from 'next/navigation'
+import { useOrderWorkspace } from './OrderWorkspace'
+import { useHospitalWorkspace } from './HospitalWorkspace'
 import HospitalSidebar from '@/components/HospitalSidebar'
 import Navbar from '@/components/Navbar'
 
@@ -13,16 +13,45 @@ export default function AppShell({
   children: React.ReactNode
   contentClassName?: string
 }) {
-  const {selectedOrder,loading}=useOrderWorkspace()
-  const pathname=usePathname()
-  const requiresOrder=pathname==='/dashboard'||pathname==='/hospital'||pathname==='/records/new'
+  const { selectedOrder, loading } = useOrderWorkspace()
+  const {
+    selectedHospital,
+    loading: hospitalsLoading,
+  } = useHospitalWorkspace()
+  const pathname = usePathname()
+  const isNewRecord = pathname === '/records/new'
+  const requiresOrder = pathname === '/records/new' || pathname === '/hospital'
   return (
     <div className="min-h-screen bg-military-50 flex">
-      {pathname !== '/orders' && <HospitalSidebar />}
+      <HospitalSidebar />
       <div className="flex-1 min-w-0 flex flex-col">
         <Navbar />
         <main className={`flex-1 w-full ${contentClassName}`}>
-          {requiresOrder && loading ? <p className="py-12 text-center">กำลังโหลดคำสั่ง…</p> : requiresOrder && !selectedOrder ? <div className="card py-12 text-center"><h1 className="text-xl font-semibold">เลือกคำสั่งก่อนเริ่มงาน</h1><Link href="/orders" className="btn-primary inline-block mt-4">ไปเลือกคำสั่ง</Link></div> : children}
+          {requiresOrder &&
+          (loading || (!!selectedOrder && hospitalsLoading)) ? (
+            <p className="py-12 text-center">กำลังโหลดคำสั่ง…</p>
+          ) : requiresOrder &&
+            (!selectedOrder || (isNewRecord && !selectedHospital)) ? (
+            <div className="space-y-4">
+              <h1 className="text-xl font-bold text-military-900">
+                {isNewRecord ? 'เพิ่มข้อมูลสอบเทียบ' : 'โรงพยาบาลและเครื่องมือ'}
+              </h1>
+              <div role="status" className="card py-12 text-center">
+                <h2 className="text-lg font-semibold">
+                  {!selectedOrder
+                    ? 'กรุณาเลือกคำสั่งและโรงพยาบาลก่อนเพิ่มข้อมูลสอบเทียบ'
+                    : 'กรุณาเลือกโรงพยาบาลก่อนเพิ่มข้อมูลสอบเทียบ'}
+                </h2>
+                <p className="mt-2 text-sm text-gray-500">
+                  {!selectedOrder
+                    ? 'เลือกคำสั่งจากแถบด้านซ้าย แล้วเลือกโรงพยาบาลในคำสั่ง'
+                    : 'เลือกโรงพยาบาลจากแถบด้านซ้ายเพื่อเริ่มกรอกข้อมูล'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

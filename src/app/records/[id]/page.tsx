@@ -43,13 +43,9 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
             {(record as any).deviceName || 'รายละเอียด'}
           </h1>
         </div>
-        <Link href={`/records/${params.id}/pdf`}
-          className="btn-secondary flex items-center gap-2 text-sm">
-          Export PDF
-        </Link>
       </div>
 
-      {data.workOrderId && <p className="text-sm text-military-700">คำสั่งที่ {data.workOrderNo} · <Link href="/orders" className="underline">ดูคำสั่ง</Link></p>}
+      {data.workOrderId && <p className="text-sm text-military-700">คำสั่งที่ {data.workOrderNo}</p>}
       {/* Quick info banner */}
       <div className="bg-military-800 text-white rounded-xl px-6 py-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
         <div>

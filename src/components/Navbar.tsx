@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { mainNavigation, navigationSection } from '@/lib/appNavigation'
 import { useOrderWorkspace } from './OrderWorkspace'
 import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
@@ -11,15 +12,16 @@ import { useEffect, useMemo, useState } from 'react'
 export default function Navbar() {
   const { data: session } = useSession()
   const pathname = usePathname()
-  const {selectedOrder} = useOrderWorkspace()
+  const { selectedOrder } = useOrderWorkspace()
   const { selectedHospital, setSidebarOpen } = useHospitalWorkspace()
   const role = (session?.user as any)?.role as string | undefined
   const canApprove = role === 'admin' || role === 'approver'
-  const canSeeRecalibrationAlerts = role === 'admin' || role === 'approver' || role === 'technician'
-  const canManageSystemData = role === 'admin' || role === 'technician'
-  const canAddRecord = role === 'admin' || role === 'technician'
+  const canSeeRecalibrationAlerts =
+    role === 'admin' || role === 'approver' || role === 'technician'
   const [pendingCount, setPendingCount] = useState<number | null>(null)
-  const [recalibrationAlertCount, setRecalibrationAlertCount] = useState<number | null>(null)
+  const [recalibrationAlertCount, setRecalibrationAlertCount] = useState<
+    number | null
+  >(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const roleText = useMemo(() => {
     if (role === 'admin') return 'ผู้ดูแลระบบ'
@@ -28,7 +30,9 @@ export default function Navbar() {
     if (role === 'hospital_user') return 'ผู้ใช้ รพ.'
     return 'ผู้ใช้งาน'
   }, [role])
-  const hospitalLabel = selectedHospital ? displayHospitalName(selectedHospital).title : ''
+  const hospitalLabel = selectedHospital
+    ? displayHospitalName(selectedHospital).title
+    : ''
 
   useEffect(() => {
     if (!canApprove) return
@@ -38,7 +42,8 @@ export default function Navbar() {
         const res = await fetch('/api/approvals/pending/count')
         if (!res.ok) return
         const json = await res.json()
-        if (!cancelled) setPendingCount(Number.isFinite(json.count) ? Number(json.count) : 0)
+        if (!cancelled)
+          setPendingCount(Number.isFinite(json.count) ? Number(json.count) : 0)
       } catch {
         if (!cancelled) setPendingCount(null)
       }
@@ -59,7 +64,10 @@ export default function Navbar() {
         const res = await fetch('/api/alerts/recalibration/count')
         if (!res.ok) return
         const json = await res.json()
-        if (!cancelled) setRecalibrationAlertCount(Number.isFinite(json.count) ? Number(json.count) : 0)
+        if (!cancelled)
+          setRecalibrationAlertCount(
+            Number.isFinite(json.count) ? Number(json.count) : 0
+          )
       } catch {
         if (!cancelled) setRecalibrationAlertCount(null)
       }
@@ -72,31 +80,9 @@ export default function Navbar() {
     }
   }, [canSeeRecalibrationAlerts, pathname])
 
-  const isHospitalUser = role === 'hospital_user'
-  const workspaceTabs = [
-    {href: "/orders", label: "คำสั่ง", match: (p: string) => p.startsWith("/orders")},
-    { href: '/dashboard', label: 'หน้าหลัก', match: (p: string) => p.startsWith('/dashboard') },
-    { href: '/hospital', label: 'ข้อมูลเครื่องมือแพทย์', match: (p: string) => p.startsWith('/hospital') },
-    ...(canAddRecord ? [{ href: '/records/new', label: 'เพิ่มข้อมูลสอบเทียบ', match: (p: string) => p === '/records/new' }] : []),
-    {
-      href: '/records',
-      label: 'ประวัติสอบเทียบ',
-      match: (p: string) => p.startsWith('/records') && p !== '/records/new',
-    },
-  ]
-
-  const utilityTabs = [
-    ...(!isHospitalUser ? [{ href: '/reports', label: 'รายงานผล', match: (p: string) => p.startsWith('/reports') }] : []),
-    ...(!isHospitalUser && canManageSystemData ? [{ href: '/admin?tab=data', label: 'จัดการระบบ', match: (p: string) => p.startsWith('/admin') }] : []),
-  ]
-  const profileLinks = [
-    { href: '/profile', label: 'โปรไฟล์ของฉัน' },
-    ...(!isHospitalUser ? [{ href: '/reports', label: 'รายงานผล' }] : []),
-    ...(canApprove ? [{ href: '/approvals', label: 'งานรออนุมัติ' }] : []),
-    ...(!isHospitalUser && canManageSystemData ? [{ href: '/admin?tab=data', label: 'จัดการระบบ' }] : []),
-  ]
-
-  const tabActive = (tab: { match: (p: string) => boolean }) => tab.match(pathname)
+  const workspaceTabs = mainNavigation(role)
+  const currentSection = navigationSection(pathname)
+  const profileLinks = [{ href: '/profile', label: 'โปรไฟล์ของฉัน' }]
 
   return (
     <header className="bg-white/90 backdrop-blur border-b border-military-200 z-30 print:hidden">
@@ -112,7 +98,11 @@ export default function Navbar() {
               ☰
             </button>
             <SiteLogoHeader />
-            {selectedOrder && <Link href="/orders" className="text-xs text-military-700">คำสั่ง {selectedOrder.orderNo}</Link>}
+            {currentSection === 'add' && selectedOrder && (
+              <Link href="/orders" className="text-xs text-military-700">
+                คำสั่ง {selectedOrder.orderNo}
+              </Link>
+            )}
             {hospitalLabel && (
               <span className="hidden md:inline-flex max-w-[220px] truncate rounded-full bg-military-100 text-military-800 text-xs font-medium px-2.5 py-1">
                 {hospitalLabel}
@@ -122,17 +112,27 @@ export default function Navbar() {
 
           <div className="flex items-center gap-2 shrink-0">
             {canApprove && pendingCount != null && pendingCount > 0 && (
-              <Link href="/approvals" className="hidden sm:inline-flex rounded-full bg-amber-400 text-gray-900 text-xs px-2 py-1 font-semibold">
+              <Link
+                href="/approvals"
+                className="hidden sm:inline-flex rounded-full bg-amber-400 text-gray-900 text-xs px-2 py-1 font-semibold"
+              >
                 รออนุมัติ {pendingCount}
               </Link>
             )}
-            {canSeeRecalibrationAlerts && recalibrationAlertCount != null && recalibrationAlertCount > 0 && (
-              <Link href="/dashboard" className="hidden sm:inline-flex rounded-full bg-red-500 text-white text-xs px-2 py-1 font-semibold">
-                ใกล้ครบอายุ {recalibrationAlertCount}
-              </Link>
-            )}
+            {canSeeRecalibrationAlerts &&
+              recalibrationAlertCount != null &&
+              recalibrationAlertCount > 0 && (
+                <Link
+                  href="/dashboard"
+                  className="hidden sm:inline-flex rounded-full bg-red-500 text-white text-xs px-2 py-1 font-semibold"
+                >
+                  ใกล้ครบอายุ {recalibrationAlertCount}
+                </Link>
+              )}
             <div className="hidden sm:block text-right">
-              <p className="text-xs text-gray-600">{(session?.user as any)?.fullName || session?.user?.name}</p>
+              <p className="text-xs text-gray-600">
+                {(session?.user as any)?.fullName || session?.user?.name}
+              </p>
               <p className="text-xs text-gold-600">{roleText}</p>
             </div>
             <div className="relative">
@@ -147,7 +147,9 @@ export default function Navbar() {
               {profileOpen && (
                 <div className="absolute right-0 mt-2 w-52 rounded-lg border border-gray-200 bg-white text-gray-700 shadow-lg z-40">
                   <div className="px-3 py-2 border-b border-gray-100">
-                    <p className="text-sm font-medium">{(session?.user as any)?.fullName || session?.user?.name}</p>
+                    <p className="text-sm font-medium">
+                      {(session?.user as any)?.fullName || session?.user?.name}
+                    </p>
                     <p className="text-xs text-gray-500">{roleText}</p>
                   </div>
                   {profileLinks.map((link) => (
@@ -173,13 +175,17 @@ export default function Navbar() {
           </div>
         </div>
 
-        <nav className="flex items-end gap-1 overflow-x-auto -mb-px">
+        <nav
+          aria-label="เมนูหลัก"
+          className="flex items-end gap-1 overflow-x-auto -mb-px"
+        >
           {workspaceTabs.map((tab) => {
-            const active = tabActive(tab)
+            const active = tab.section === currentSection
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
+                aria-current={active ? 'page' : undefined}
                 className={`whitespace-nowrap px-3 sm:px-4 py-2.5 text-sm border-b-2 transition-colors ${
                   active
                     ? 'border-gold-500 text-military-900 font-semibold'
@@ -190,26 +196,6 @@ export default function Navbar() {
               </Link>
             )
           })}
-          {utilityTabs.length > 0 && (
-            <div className="ml-auto flex items-end gap-1 pl-3">
-              {utilityTabs.map((tab) => {
-                const active = tabActive(tab)
-                return (
-                  <Link
-                    key={tab.href}
-                    href={tab.href}
-                    className={`whitespace-nowrap px-3 sm:px-4 py-2.5 text-sm border-b-2 transition-colors ${
-                      active
-                        ? 'border-gold-500 text-military-900 font-semibold'
-                        : 'border-transparent text-gray-500 hover:text-military-800 hover:border-military-200'
-                    }`}
-                  >
-                    {tab.label}
-                  </Link>
-                )
-              })}
-            </div>
-          )}
         </nav>
       </div>
     </header>

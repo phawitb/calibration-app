@@ -15,7 +15,12 @@ const PdfViewer = dynamic(() => import('@/components/PdfViewer'), {
 export default function RecordPreviewPanel({ recordId, record }: { recordId: string; record: any }) {
   return (
     <div className="card space-y-4">
-      <h3 className="section-title">ตรวจสอบใบรับรอง (Preview)</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="section-title">ตรวจสอบใบรับรอง (Preview)</h3>
+        <Link href={`/records/${recordId}/pdf`} className="btn-secondary text-sm">
+          Export PDF
+        </Link>
+      </div>
       <PdfViewer record={record} recordId={recordId} />
     </div>
   )

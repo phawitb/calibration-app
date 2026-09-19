@@ -8,6 +8,7 @@ import type {
   WorkOrderSummary,
 } from '@/lib/workOrderTypes'
 import WorkOrderDocuments from './WorkOrderDocuments'
+import { validateOrderPdf } from '@/lib/workOrderValidation'
 const empty: WorkOrderInput = {
   orderNo: '',
   title: '',
@@ -30,6 +31,9 @@ export default function WorkOrderForm({
     [saved, setSaved] = useState(order),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('')
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const [documentVersion, setDocumentVersion] = useState(0)
+  const [checkingFiles, setCheckingFiles] = useState(false)
   const [users, setUsers] = useState<OrderMember[]>([]),
     [hospitals, setHospitals] = useState<string[]>([]),
     [devices, setDevices] = useState<Record<string, OrderDevice[]>>({}),
@@ -111,8 +115,37 @@ export default function WorkOrderForm({
           : h
       )
     )
+  async function selectFiles(files: File[]) {
+    setCheckingFiles(true)
+    setError('')
+    try {
+      for (const file of files) {
+        validateOrderPdf(
+          file,
+          new Uint8Array(await file.slice(0, 5).arrayBuffer())
+        )
+      }
+      setPendingFiles((previous) => [
+        ...previous,
+        ...files.filter(
+          (file) =>
+            !previous.some(
+              (existing) =>
+                existing.name === file.name &&
+                existing.size === file.size &&
+                existing.lastModified === file.lastModified
+            )
+        ),
+      ])
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setCheckingFiles(false)
+    }
+  }
   async function save(e: React.FormEvent) {
     e.preventDefault()
+    if (busy || checkingFiles) return
     setBusy(true)
     setError('')
     try {
@@ -131,6 +164,31 @@ export default function WorkOrderForm({
       if (!r.ok) throw Error(j.error)
       setSaved(j.data)
       setForm(j.data)
+      const failed: File[] = []
+      const failures: string[] = []
+      for (const file of pendingFiles) {
+        try {
+          const body = new FormData()
+          body.append('file', file)
+          const upload = await fetch(`/api/orders/${j.data._id}/documents`, {
+            method: 'POST',
+            body,
+          })
+          const result = await upload.json()
+          if (!upload.ok) throw Error(result.error || 'อัปโหลดไม่สำเร็จ')
+          setDocumentVersion((value) => value + 1)
+        } catch (e) {
+          failed.push(file)
+          failures.push(`${file.name}: ${(e as Error).message}`)
+        }
+      }
+      setPendingFiles(failed)
+      if (failures.length) {
+        setError(
+          `บันทึกข้อมูลคำสั่งแล้ว แต่บางไฟล์อัปโหลดไม่สำเร็จ กรุณาลองบันทึกอีกครั้ง: ${failures.join('; ')}`
+        )
+        return
+      }
       onSaved(j.data)
       toast.success('บันทึกคำสั่งแล้ว')
     } catch (e) {
@@ -167,12 +225,19 @@ export default function WorkOrderForm({
         <h2 className="text-xl font-semibold">
           {saved ? 'แก้ไขคำสั่ง' : 'เพิ่มคำสั่ง'}
         </h2>
-        <button className="text-sm text-gray-600" onClick={onCancel}>
+        <button
+          className="text-sm text-gray-600"
+          onClick={onCancel}
+          disabled={busy || checkingFiles}
+        >
           กลับรายการคำสั่ง
         </button>
       </div>
       <form onSubmit={save} className="space-y-6">
-        <fieldset disabled={busy || optionsLoading} className="space-y-6">
+        <fieldset
+          disabled={busy || checkingFiles || optionsLoading}
+          className="space-y-6"
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             {(
               [
@@ -383,13 +448,77 @@ export default function WorkOrderForm({
             />
           </label>
         </fieldset>
+        <section className="space-y-3">
+          <h3 className="font-semibold text-military-900">
+            เอกสารคำสั่ง PDF{' '}
+            <span className="text-sm font-normal text-gray-500">
+              (ไม่บังคับ)
+            </span>
+          </h3>
+          <label className="block rounded-lg border border-dashed border-military-300 p-4 text-sm">
+            แนบ PDF ได้หลายไฟล์ · ไม่เกิน 8 MB ต่อไฟล์ ·
+            ไฟล์จะถูกอัปโหลดเมื่อกดบันทึกคำสั่ง
+            <input
+              aria-label="เลือก PDF คำสั่ง (ไม่บังคับ)"
+              type="file"
+              accept="application/pdf,.pdf"
+              multiple
+              className="mt-2 block w-full"
+              disabled={busy || checkingFiles}
+              onChange={(e) => {
+                selectFiles(Array.from(e.target.files || []))
+                e.target.value = ''
+              }}
+            />
+          </label>
+          {checkingFiles && (
+            <p className="text-sm text-gray-500" role="status">
+              กำลังตรวจไฟล์…
+            </p>
+          )}
+          {pendingFiles.map((file, index) => (
+            <div
+              key={`${file.name}:${file.lastModified}:${index}`}
+              className="flex items-center justify-between gap-3 rounded-lg bg-military-50 p-3 text-sm"
+            >
+              <span className="break-all">
+                {file.name} <span className="text-gray-500">· รอบันทึก</span>
+              </span>
+              <button
+                type="button"
+                disabled={busy || checkingFiles}
+                className="shrink-0 text-red-600"
+                onClick={() =>
+                  setPendingFiles((files) =>
+                    files.filter((_, i) => i !== index)
+                  )
+                }
+              >
+                นำออก
+              </button>
+            </div>
+          ))}
+          {saved && (
+            <WorkOrderDocuments
+              key={`${saved._id}:${documentVersion}`}
+              orderId={saved._id}
+              editable
+              allowUpload={false}
+              title="ไฟล์ที่บันทึกแล้ว"
+              disabled={busy || checkingFiles}
+            />
+          )}
+        </section>
         {error && (
           <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">
             {error}
           </p>
         )}
         <div className="flex flex-wrap items-center gap-3">
-          <button className="btn-primary" disabled={busy || optionsLoading}>
+          <button
+            className="btn-primary"
+            disabled={busy || checkingFiles || optionsLoading}
+          >
             {busy ? 'กำลังบันทึก…' : 'บันทึกคำสั่ง'}
           </button>
           <p className="text-sm text-gray-500">
@@ -399,13 +528,6 @@ export default function WorkOrderForm({
           </p>
         </div>
       </form>
-      {saved ? (
-        <WorkOrderDocuments orderId={saved._id} editable />
-      ) : (
-        <p className="rounded-lg bg-military-50 p-4 text-sm text-gray-600">
-          บันทึกคำสั่งก่อนเพื่อแนบ PDF
-        </p>
-      )}
     </div>
   )
 }

@@ -46,6 +46,7 @@ export default function AdminWorkOrders() {
         key={editing?._id || 'new'}
         order={editing}
         onSaved={() => {
+          setEditing(undefined)
           load()
           window.dispatchEvent(new Event('orders-changed'))
         }}

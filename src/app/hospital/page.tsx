@@ -47,7 +47,7 @@ interface CalRecord {
 
 export default function HospitalDevicesPage() {
   const { data: session } = useSession()
-  const {selectedOrder}=useOrderWorkspace()
+  const {selectedOrder,allOrdersSelected}=useOrderWorkspace()
   const searchParams = useSearchParams()
   const { selectedHospital, loading: workspaceLoading } = useHospitalWorkspace()
   const [devices, setDevices] = useState<AmedDevice[]>([])
@@ -76,12 +76,12 @@ export default function HospitalDevicesPage() {
   const hospitalUnit = selectedHospital
 
   useEffect(() => {
-    if (!hospitalUnit || !selectedOrder) return
+    if (!hospitalUnit || (!selectedOrder && !allOrdersSelected)) return
     setLoading(true)
     setDevices([])
     let mounted = true
 
-    const loadDevices = fetch(`/api/ameddevices?unitName=${encodeURIComponent(hospitalUnit)}&workOrderId=${selectedOrder._id}`)
+    const loadDevices = fetch(`/api/ameddevices?unitName=${encodeURIComponent(hospitalUnit)}&workOrderId=${allOrdersSelected ? 'all' : selectedOrder!._id}`)
       .then(r => r.json())
       .then(j => {
         if (mounted) setDevices(Array.isArray(j.data) ? j.data : [])
@@ -104,7 +104,7 @@ export default function HospitalDevicesPage() {
     })
 
     return () => { mounted = false }
-  }, [hospitalUnit,selectedOrder])
+  }, [hospitalUnit,selectedOrder,allOrdersSelected])
 
   const filtered = useMemo(() => {
     let list = devices

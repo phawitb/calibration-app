@@ -21,7 +21,7 @@ export default function LoginPage() {
     if (res?.ok) {
       setRedirecting(true)
       toast.success('เข้าสู่ระบบสำเร็จ')
-      router.push('/orders')
+      router.push('/dashboard')
     } else {
       setLoading(false)
       toast.error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
