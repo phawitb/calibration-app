@@ -1,3 +1,4 @@
+import {assertRecordOrderIdentity,OrderError} from '@/lib/workOrderValidation'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -85,6 +86,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     )
   }
 
+  assertRecordOrderIdentity(existing, rawBody)
+  delete rawBody.workOrderNo
   const action = (saveAction === 'request_approval' ? 'request_approval' : 'draft') as
     | 'draft'
     | 'request_approval'
@@ -187,6 +190,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   return NextResponse.json({ record })
   } catch (err: any) {
+    if (err instanceof OrderError) return NextResponse.json({error:err.message},{status:err.status})
     console.error('PUT /api/records/[id] error:', err)
     return NextResponse.json(
       { error: err?.message || 'Internal Server Error' },

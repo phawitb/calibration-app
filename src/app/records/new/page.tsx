@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
 import { ISO_METHODS } from '@/lib/isoMethods'
 import DeviceSelector from '@/components/DeviceSelector'
+import {useOrderWorkspace} from '@/components/OrderWorkspace'
 import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
 import SelectHospitalHint from '@/components/SelectHospitalHint'
 import { displayHospitalName } from '@/lib/hospitalUnit'
@@ -32,6 +33,8 @@ interface AmedDevice {
 }
 
 export default function NewRecordPage() {
+  const {selectedOrder}=useOrderWorkspace()
+  const [isoDevice,setIsoDevice]=useState<AmedDevice|null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: session } = useSession()
@@ -46,7 +49,7 @@ export default function NewRecordPage() {
   // Calibration type
   const [calType, setCalType] = useState<'sbcal' | 'iso' | ''>('')
 
-  // ISO — no AmedNo, just pick a method and create record directly
+  useEffect(()=>{setIsoDevice(null);setSelectedIsoCode(null)},[selectedUnit,selectedOrder?._id])
 
   useEffect(() => {
     const qCalType = searchParams.get('calType')
@@ -69,6 +72,8 @@ export default function NewRecordPage() {
       if (device.ucT) ucDefaults.ucT = { std: { no: device.ucT }, calPoints: [] }
 
       const payload: Record<string, unknown> = {
+        workOrderId: selectedOrder?._id,
+        workOrderDeviceId: device._id,
         calibrationType: 'sbcal',
         deviceName: device.deviceName || '',
         deviceNameTh: device.deviceNameTh || '',
@@ -88,36 +93,43 @@ export default function NewRecordPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error('Failed to create')
+      if (!res.ok) {const error=await res.json();throw new Error(error.error||'ไม่สามารถสร้างงานได้')}
       const json = await res.json()
       router.push(`/records/${json.record._id}`)
-    } catch {
-      toast.error('ไม่สามารถสร้างรายการใหม่ได้')
+    } catch (e) {
+      toast.error((e as Error).message)
       setCreating(false)
     }
   }
 
   const createIsoRecord = async (isoMethodCode: string) => {
-    if (creating) return
+    if (creating || !isoDevice) return
     setCreating(true)
     setSelectedIsoCode(isoMethodCode)
     try {
       const payload: Record<string, unknown> = {
+        workOrderId: selectedOrder?._id,
+        workOrderDeviceId: isoDevice!._id,
+        amedNo: isoDevice!.amedNo,
+        deviceName: isoDevice!.deviceName,
+        brand: isoDevice!.brand,
+        model: isoDevice!.model,
+        serialNo: isoDevice!.serialNo,
         calibrationType: 'iso',
         isoMethodCode,
         unitName: selectedUnit,
-        deviceFromRegistry: false,
+        deviceFromRegistry: true,
       }
       const res = await fetch('/api/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      if (!res.ok) throw new Error('Failed to create')
+      if (!res.ok) {const error=await res.json();throw new Error(error.error||'ไม่สามารถสร้างงานได้')}
       const json = await res.json()
       router.push(`/records/${json.record._id}`)
-    } catch {
-      toast.error('ไม่สามารถสร้างรายการใหม่ได้')
+    } catch (e) {
+      toast.error((e as Error).message)
       setCreating(false)
     }
   }
@@ -189,6 +201,7 @@ export default function NewRecordPage() {
           </div>
           <DeviceSelector
             unitName={selectedUnit}
+            workOrderId={selectedOrder?._id}
             onSelect={handleDeviceClick}
             disabled={creating}
           />
@@ -198,8 +211,9 @@ export default function NewRecordPage() {
         </div>
       )}
 
+      {selectedUnit && calType === 'iso' && <div className="card space-y-3"><h2 className="font-semibold">เลือกเครื่องมือในคำสั่งสำหรับสอบเทียบ ISO</h2><DeviceSelector key={`${selectedOrder?._id}:${selectedUnit}`} unitName={selectedUnit} workOrderId={selectedOrder?._id} onSelect={setIsoDevice} disabled={creating}/>{isoDevice&&<p className="text-sm text-military-700">เลือกแล้ว: {isoDevice.deviceName} · AmedNo {isoDevice.amedNo}</p>}</div>}
       {/* ISO: Method Selection */}
-      {selectedUnit && calType === 'iso' && (
+      {selectedUnit && calType === 'iso' && isoDevice && (
         <div className="space-y-2">
           <h2 className="text-sm font-semibold text-military-800">เลือกชนิดเครื่องมือ <span className="font-normal text-gray-500">(คลิกเพื่อสร้างรายการ)</span></h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

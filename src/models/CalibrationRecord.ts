@@ -48,6 +48,9 @@ const UcTimeSchema = new Schema({
 
 // Omit Document.model — field name "model" (device model) collides with Mongoose Document#model
 export interface ICalibrationRecord extends Omit<Document, 'model'> {
+  workOrderId?: string
+  workOrderDeviceId?: string
+  workOrderNo?: string
   // Device info
   recordNo:     number
   sbNo:         string
@@ -239,6 +242,9 @@ const IsoDataSchema = new Schema({
 }, { _id: false })
 
 const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
+  workOrderId: {type: String, index: true},
+  workOrderDeviceId: {type: String, index: true},
+  workOrderNo: String,
   recordNo:     { type: Number },
   sbNo:         { type: String },
   amedNo:       { type: String, index: true },

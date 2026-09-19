@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import toast from 'react-hot-toast'
+import {useOrderWorkspace} from '@/components/OrderWorkspace'
 import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
 import SelectHospitalHint from '@/components/SelectHospitalHint'
 import { displayHospitalName } from '@/lib/hospitalUnit'
@@ -46,6 +47,7 @@ interface CalRecord {
 
 export default function HospitalDevicesPage() {
   const { data: session } = useSession()
+  const {selectedOrder}=useOrderWorkspace()
   const searchParams = useSearchParams()
   const { selectedHospital, loading: workspaceLoading } = useHospitalWorkspace()
   const [devices, setDevices] = useState<AmedDevice[]>([])
@@ -74,10 +76,12 @@ export default function HospitalDevicesPage() {
   const hospitalUnit = selectedHospital
 
   useEffect(() => {
-    if (!hospitalUnit) return
+    if (!hospitalUnit || !selectedOrder) return
+    setLoading(true)
+    setDevices([])
     let mounted = true
 
-    const loadDevices = fetch(`/api/ameddevices?unitName=${encodeURIComponent(hospitalUnit)}`)
+    const loadDevices = fetch(`/api/ameddevices?unitName=${encodeURIComponent(hospitalUnit)}&workOrderId=${selectedOrder._id}`)
       .then(r => r.json())
       .then(j => {
         if (mounted) setDevices(Array.isArray(j.data) ? j.data : [])
@@ -100,7 +104,7 @@ export default function HospitalDevicesPage() {
     })
 
     return () => { mounted = false }
-  }, [hospitalUnit])
+  }, [hospitalUnit,selectedOrder])
 
   const filtered = useMemo(() => {
     let list = devices

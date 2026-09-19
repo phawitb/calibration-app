@@ -49,6 +49,7 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
         </Link>
       </div>
 
+      {data.workOrderId && <p className="text-sm text-military-700">คำสั่งที่ {data.workOrderNo} · <Link href="/orders" className="underline">ดูคำสั่ง</Link></p>}
       {/* Quick info banner */}
       <div className="bg-military-800 text-white rounded-xl px-6 py-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
         <div>

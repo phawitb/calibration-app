@@ -165,3 +165,16 @@ const orderFields = {
 ## Execution Handoff
 
 Recommend native execution in this task because the workspace, authorization, and two calibration flows share interfaces and benefit from one continuous implementation context. Alternative: subagent-driven implementation with independent per-task reviews. User reviews this plan and chooses the method before product code changes.
+
+## Execution Record — 2026-09-19
+
+- [x] Order models, validation, authorized APIs and PDF storage implemented.
+- [x] Admin/technician command tab, multi-hospital/device/user form and attachment controls implemented.
+- [x] Order-first workspace and linked SBCAL/ISO creation implemented; legacy history retains full permitted hospital choices.
+- [x] Review fixes: reserved device hospital bindings cannot change; hospital users retain only their own historical hospital.
+- [x] Verification: 10 order unit/service tests; HTTP scenario covers both roles, duplicate number, PDF round trip and denial, registry scope, both record types, draft reuse, immutable association and historical edits. Existing 14 test commands passed. TypeScript and production build passed.
+- [x] Browser verification: technician login leads to orders; command tab/form displays existing users, per-hospital devices and PDF; edit/save succeeds; order→hospital→ISO registry selection opens linked record. Desktop and 390px layouts inspected.
+
+Implementation ruling: atomically reserve used device IDs on the order before record creation, and protect their original hospital snapshots when editing the order. Reservations remain even after interrupted creation or later deletion of records. This conservative retention avoids requiring replica-set transactions and prevents orphaned associations. PDF deletion is scoped to its order and authenticated role; upload checks for concurrent order deletion and removes an orphaned upload.
+
+Test tooling starts its own temporary local MongoDB for the unit/service suite. HTTP tests use a separate documented test database and fake users; no production fixtures are created. Code is delivered locally on `codex/work-orders`; no remote push or merge to main was performed.

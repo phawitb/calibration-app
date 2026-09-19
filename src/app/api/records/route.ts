@@ -1,3 +1,6 @@
+import {getIsoMethod} from '@/lib/isoMethods'
+import {reserveOrderDevice,getOrder,requireOrderManager} from '@/lib/workOrderService'
+import {orderFailure} from '@/lib/workOrderHttp'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -140,6 +143,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -157,10 +161,16 @@ export async function POST(req: NextRequest) {
   const role = (session.user as any).role as string
   const sessionId = (session.user as any).id as string | undefined
 
+  const actor = session.user as any
+  requireOrderManager(actor)
+  const order = await getOrder(actor, rawBody.workOrderId)
+  const orderDevice = await reserveOrderDevice(actor, rawBody.workOrderId, rawBody.workOrderDeviceId, rawBody.unitName)
   const normalizedUnitName = await normalizeHospitalUnit(rawBody?.unitName)
   const normalizedLocation = rawBody?.location ? await normalizeHospitalUnit(rawBody.location) : ''
   const createdBy = String((session.user as any).username || '').trim()
   const draftQuery = buildUnsavedDraftQuery({
+    workOrderId: rawBody.workOrderId,
+    workOrderDeviceId: rawBody.workOrderDeviceId,
     createdBy,
     unitName: normalizedUnitName || rawBody?.unitName,
     calibrationType: rawBody?.calibrationType,
@@ -206,6 +216,15 @@ export async function POST(req: NextRequest) {
   const safeBody = stripClientNumberFields(rawBody)
   const record = new CalibrationRecord({
     ...safeBody,
+    workOrderId: order._id,
+    workOrderDeviceId: orderDevice._id,
+    workOrderNo: order.orderNo,
+    amedNo: orderDevice.amedNo,
+    deviceName: orderDevice.deviceName || (rawBody.calibrationType === 'iso' ? getIsoMethod(rawBody.isoMethodCode)?.deviceType || '' : ''),
+    brand: orderDevice.brand,
+    model: orderDevice.model,
+    serialNo: orderDevice.serialNo,
+    deviceFromRegistry: true,
     unitName: normalizedUnitName || rawBody?.unitName || '',
     location: normalizedLocation || rawBody?.location || '',
     requestedApproverId: approverId || undefined,
@@ -223,4 +242,5 @@ export async function POST(req: NextRequest) {
 
   await record.save()
   return NextResponse.json({ record, reused: false }, { status: 201 })
+  } catch (e) { return orderFailure(e) }
 }

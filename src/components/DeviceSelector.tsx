@@ -26,11 +26,12 @@ interface AmedDevice {
 
 interface Props {
   unitName: string
+  workOrderId?: string
   onSelect: (device: AmedDevice) => void
   disabled?: boolean
 }
 
-export default function DeviceSelector({ unitName, onSelect, disabled }: Props) {
+export default function DeviceSelector({ unitName, workOrderId, onSelect, disabled }: Props) {
   const [devices, setDevices] = useState<AmedDevice[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -40,13 +41,15 @@ export default function DeviceSelector({ unitName, onSelect, disabled }: Props) 
     if (!unitName) { setDevices([]); return }
     let mounted = true
     setLoading(true)
-    fetch(`/api/ameddevices?unitName=${encodeURIComponent(unitName)}`)
+    setDevices([])
+    setSelectedId(null)
+    fetch(`/api/ameddevices?unitName=${encodeURIComponent(unitName)}${workOrderId?`&workOrderId=${encodeURIComponent(workOrderId)}`:""}`)
       .then(r => r.json())
       .then(j => { if (mounted) setDevices(Array.isArray(j.data) ? j.data : []) })
       .catch(() => { if (mounted) setDevices([]) })
       .finally(() => { if (mounted) setLoading(false) })
     return () => { mounted = false }
-  }, [unitName])
+  }, [unitName,workOrderId])
 
   const filtered = useMemo(() => {
     if (!search.trim()) return devices

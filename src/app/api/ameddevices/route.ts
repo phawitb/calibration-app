@@ -1,3 +1,5 @@
+import {getOrder} from '@/lib/workOrderService'
+import {orderFailure} from '@/lib/workOrderHttp'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -6,6 +8,7 @@ import AmedDevice from '@/models/AmedDevice'
 import { getUnitVariants } from '@/lib/unitVariants'
 
 export async function GET(req: NextRequest) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -26,8 +29,11 @@ export async function GET(req: NextRequest) {
     filter.unitName = variants.length > 1 ? { $in: variants } : variants[0] || unitName
   }
 
+  const orderKey = searchParams.get('workOrderId')
+  if (orderKey) {const order = await getOrder(session.user as any, orderKey); filter._id = {$in: order.hospitals.flatMap((h:any)=>h.deviceIds)}}
   const devices = await AmedDevice.find(filter).sort({ amedNo: 1 }).lean()
   return NextResponse.json({ data: devices })
+  } catch(e) {return orderFailure(e)}
 }
 
 export async function POST(req: NextRequest) {

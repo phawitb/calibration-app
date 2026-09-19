@@ -24,7 +24,9 @@
     "test:record-lifecycle": "node -r sucrase/register --test scripts/test-record-lifecycle.ts",
     "start": "next start",
     "seed": "node scripts/seed.js",
-    "vercel:prod": "vercel --prod"
+    "vercel:prod": "vercel --prod",
+    "test:work-orders": "node scripts/run-work-order-tests.cjs",
+    "test:work-orders:http": "node -r sucrase/register -r ./scripts/register-test-alias.cjs --test scripts/test-work-order-http.ts"
   },
   "dependencies": {
     "@react-pdf/renderer": "^3.4.0",

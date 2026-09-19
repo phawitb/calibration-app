@@ -214,7 +214,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const role = (session?.user as any)?.role as string | undefined
   const canSubmitForApproval = role === 'admin' || role === 'technician'
   const isReadOnly = role === 'hospital_user'
-  const isDeviceFromRegistry = !!(initialData?.deviceFromRegistry)
+  const isDeviceFromRegistry = !!(initialData?.deviceFromRegistry || initialData?.workOrderId)
 
   const method = getIsoMethod(methodCode)
 
@@ -1374,6 +1374,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
               <label className={`block text-sm font-medium mb-1 ${fieldErrors.deviceName ? 'text-red-600' : 'text-gray-700'}`}>ชื่อเครื่องมือ (Device)</label>
               <input type="text"
                 className={fieldErrors.deviceName ? 'input-field bg-gray-50 border-red-500 ring-1 ring-red-500' : 'input-field bg-gray-50'}
+                readOnly={!!initialData?.workOrderId}
                 value={data.deviceName || method.deviceType}
                 onChange={(e) => set('deviceName', e.target.value)} />
               {fieldErrors.deviceName && <p className="text-xs text-red-500 mt-1">{fieldErrors.deviceName}</p>}
@@ -1458,12 +1459,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="sm:col-span-2">
               <label className={`block text-sm font-medium mb-1 ${fieldErrors.unitName ? 'text-red-600' : 'text-gray-700'}`}>ชื่อหน่วยงาน</label>
-              <SuggestInput field="unitName"
+              <fieldset disabled={!!initialData?.workOrderId}><SuggestInput field="unitName"
                 className={fieldErrors.unitName ? 'input-field border-red-500 ring-1 ring-red-500' : 'input-field'}
                 value={data.unitName || ''}
                 onChange={handleUnitNameChange}
                 extraOptions={unitNameExtraOptions}
-                restrictToList />
+                restrictToList /></fieldset>
               {fieldErrors.unitName && <p className="text-xs text-red-500 mt-1">{fieldErrors.unitName}</p>}
             </div>
             <div>

@@ -1,3 +1,4 @@
+import AdminWorkOrders from '@/components/AdminWorkOrders'
 import AdminUsers from '@/components/AdminUsers'
 import ReferenceDataManager from '@/components/ReferenceDataManager'
 import AdminCertNumberConfig from '@/components/AdminCertNumberConfig'
@@ -20,6 +21,7 @@ export default async function AdminPage({
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-military-900">จัดการระบบ</h1>
+      {tab === 'orders' && <AdminWorkOrders />}
       {tab === 'users' && <AdminUsers />}
       {tab === 'data' && (
         <div className="space-y-4">

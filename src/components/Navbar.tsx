@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { useOrderWorkspace } from './OrderWorkspace'
 import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
 import { SiteLogoHeader } from '@/components/SiteLogo'
@@ -10,6 +11,7 @@ import { useEffect, useMemo, useState } from 'react'
 export default function Navbar() {
   const { data: session } = useSession()
   const pathname = usePathname()
+  const {selectedOrder} = useOrderWorkspace()
   const { selectedHospital, setSidebarOpen } = useHospitalWorkspace()
   const role = (session?.user as any)?.role as string | undefined
   const canApprove = role === 'admin' || role === 'approver'
@@ -72,6 +74,7 @@ export default function Navbar() {
 
   const isHospitalUser = role === 'hospital_user'
   const workspaceTabs = [
+    {href: "/orders", label: "คำสั่ง", match: (p: string) => p.startsWith("/orders")},
     { href: '/dashboard', label: 'หน้าหลัก', match: (p: string) => p.startsWith('/dashboard') },
     { href: '/hospital', label: 'ข้อมูลเครื่องมือแพทย์', match: (p: string) => p.startsWith('/hospital') },
     ...(canAddRecord ? [{ href: '/records/new', label: 'เพิ่มข้อมูลสอบเทียบ', match: (p: string) => p === '/records/new' }] : []),
@@ -109,6 +112,7 @@ export default function Navbar() {
               ☰
             </button>
             <SiteLogoHeader />
+            {selectedOrder && <Link href="/orders" className="text-xs text-military-700">คำสั่ง {selectedOrder.orderNo}</Link>}
             {hospitalLabel && (
               <span className="hidden md:inline-flex max-w-[220px] truncate rounded-full bg-military-100 text-military-800 text-xs font-medium px-2.5 py-1">
                 {hospitalLabel}

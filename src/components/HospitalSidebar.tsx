@@ -1,10 +1,13 @@
 'use client'
 
+import Link from 'next/link'
+import { useOrderWorkspace } from './OrderWorkspace'
 import { useMemo, useState } from 'react'
 import { displayHospitalName } from '@/lib/hospitalUnit'
 import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
 
 export default function HospitalSidebar() {
+  const {selectedOrder} = useOrderWorkspace()
   const {
     hospitals,
     selectedHospital,
@@ -62,6 +65,7 @@ export default function HospitalSidebar() {
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-[0.18em] text-gold-400/90">Workspace</p>
             <h2 className="text-sm font-semibold text-white truncate">เลือกโรงพยาบาล</h2>
+            <Link href="/orders" className="block text-xs text-gold-400 mt-2">{selectedOrder ? `คำสั่ง ${selectedOrder.orderNo} · เปลี่ยน` : "เลือกคำสั่งก่อนเริ่มงาน →"}</Link>
           </div>
           <button
             type="button"

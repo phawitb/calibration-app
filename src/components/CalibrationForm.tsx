@@ -745,7 +745,7 @@ export default function CalibrationForm({ initialData, mode, id }: Props) {
   const role = (session?.user as any)?.role as string | undefined
   const canSubmitForApproval = role === 'admin' || role === 'technician'
   const isReadOnly = role === 'hospital_user'
-  const isDeviceFromRegistry = !!(initialData?.deviceFromRegistry)
+  const isDeviceFromRegistry = !!(initialData?.deviceFromRegistry || initialData?.workOrderId)
   const [canRequestApprovalNow, setCanRequestApprovalNow] = useState(false)
   const [saving, setSaving] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})

@@ -1,4 +1,6 @@
 type DraftIdentity = {
+  workOrderId?: unknown
+  workOrderDeviceId?: unknown
   createdBy?: unknown
   unitName?: unknown
   calibrationType?: unknown
@@ -28,6 +30,7 @@ export function buildUnsavedDraftQuery(input: DraftIdentity): Record<string, unk
     if (!isoMethodCode) return null
     query.isoMethodCode = isoMethodCode
   }
+  if (clean(input.workOrderId)) { query.workOrderId = clean(input.workOrderId); query.workOrderDeviceId = clean(input.workOrderDeviceId) }
   query.savedOnce = false
   return query
 }
