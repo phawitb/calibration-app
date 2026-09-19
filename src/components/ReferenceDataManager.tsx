@@ -696,7 +696,10 @@ export default function ReferenceDataManager() {
   }
 
   const isStdInstrumentsTab = sub.key === 'stdinstruments'
-  const tableFields = sub.fields
+  const isAmedDevicesTab = sub.key === 'ameddevices'
+  const serialIndex = sub.fields.findIndex(f => f.key === 'serialNo')
+  const tableFields = isAmedDevicesTab ? sub.fields.slice(0, serialIndex + 1) : sub.fields
+  const detailFields = isAmedDevicesTab ? sub.fields.slice(serialIndex + 1) : []
 
   // Determine columns for sorting: STD_TABLE_COLUMNS for stdinstruments, sub.fields for others
   const sortColumns = isStdInstrumentsTab ? STD_TABLE_COLUMNS : tableFields
@@ -1157,7 +1160,7 @@ export default function ReferenceDataManager() {
                     </th>
                     )
                   })}
-                  <th className="px-2 py-2 w-32 text-center">จัดการ</th>
+                  <th className="px-2 py-2 w-32 text-center">{isAmedDevicesTab ? 'รายละเอียด' : 'จัดการ'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1169,7 +1172,11 @@ export default function ReferenceDataManager() {
                   </tr>
                 ) : (
                   displayRows.map((r) => (
-                    <tr key={r._id} className="border-b border-gray-100 hover:bg-military-50/40">
+                    <Fragment key={r._id}>
+                    <tr
+                      className={`border-b border-gray-100 hover:bg-military-50/40 ${isAmedDevicesTab ? 'cursor-pointer' : ''} ${isAmedDevicesTab && expandedId === r._id ? 'bg-military-50' : ''}`}
+                      onClick={isAmedDevicesTab ? () => setExpandedId(id => id === r._id ? null : r._id) : undefined}
+                    >
                       {tableFields.map((f) => (
                         <td key={f.key} className="px-2 py-1.5 text-gray-800 max-w-[200px] truncate" title={String(r[f.key] ?? '')}>
                           {f.key === 'toSelect'
@@ -1177,7 +1184,21 @@ export default function ReferenceDataManager() {
                             : (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—')}
                         </td>
                       ))}
-                      <td className="px-2 py-1.5 text-center whitespace-nowrap">
+                      <td className="px-2 py-1.5 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        {isAmedDevicesTab && (
+                          <button
+                            type="button"
+                            className="text-military-600 text-xs px-2 py-0.5 rounded focus-visible:outline focus-visible:outline-2"
+                            aria-label={`${expandedId === r._id ? 'ยุบ' : 'แสดง'}รายละเอียด ${r.amedNo}`}
+                            aria-expanded={expandedId === r._id}
+                            aria-controls={`amed-detail-${r._id}`}
+                            onClick={() => setExpandedId(id => id === r._id ? null : r._id)}
+                          >
+                            {expandedId === r._id ? '▲' : '▼'}
+                          </button>
+                        )}
+                        {!isAmedDevicesTab && (
+                          <>
                         <button
                           type="button"
                           className="text-military-700 text-xs font-medium px-2 py-0.5 rounded border border-military-200"
@@ -1192,8 +1213,45 @@ export default function ReferenceDataManager() {
                         >
                           ลบ
                         </button>
+                          </>
+                        )}
                       </td>
                     </tr>
+                    {isAmedDevicesTab && expandedId === r._id && (
+                      <tr id={`amed-detail-${r._id}`}>
+                        <td colSpan={tableFields.length + 1} className="bg-gray-50/80 px-4 py-4 border-b border-gray-200">
+                          <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3">
+                            {detailFields.map(f => (
+                              <div key={f.key}>
+                                <dt className="text-xs text-gray-500">{fieldLabel(f)}</dt>
+                                <dd className="text-sm text-gray-800 font-medium break-words">
+                                  {f.key === 'toSelect'
+                                    ? (r[f.key] ? '✓' : '—')
+                                    : (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—')}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                          <div className="mt-4 pt-3 border-t border-gray-200 flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-military-700 text-xs font-medium px-2 py-0.5 rounded border border-military-200"
+                          onClick={() => openEdit(r)}
+                        >
+                          แก้ไข
+                        </button>
+                        <button
+                          type="button"
+                          className="text-red-600 text-xs ml-1 px-2 py-0.5 rounded border border-red-200"
+                          onClick={() => del(r._id)}
+                        >
+                          ลบ
+                        </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))
                 )}
               </tbody>
