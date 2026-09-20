@@ -46,6 +46,7 @@ export async function PUT(
   const record = await CalibrationRecord.findOneAndUpdate(
     { _id: params.id, approvalStatus: 'pending_approval' },
     {
+      $inc: { certificateRevision: 1 },
       $set: {
         requestedApproverId: approverId,
         requestedApproverName: String(

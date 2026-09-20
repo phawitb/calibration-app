@@ -45,6 +45,7 @@ export async function POST(
   record.approvedByName = undefined
   record.approvedAt = undefined
   record.approve = ''
+  record.certificateRevision = Number(record.certificateRevision || 0) + 1
   await record.save()
 
   return NextResponse.json({ record })

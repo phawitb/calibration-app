@@ -178,12 +178,12 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   delete (patch as any).saveAction
   patch.savedOnce = true
-  const record = await CalibrationRecord.findByIdAndUpdate(
-    params.id,
-    { $set: patch },
+  const record = await CalibrationRecord.findOneAndUpdate(
+    { _id: params.id, updatedAt: existing.updatedAt },
+    { $set: patch, $inc: { certificateRevision: 1 } },
     { new: true }
   )
-  if (!record) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!record) return NextResponse.json({ error: 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดใหม่' }, { status: 409 })
 
   if (String(record.amedNo || '').trim() && String(record.certNo || '').trim()) {
     await registerAmedCertForRecord(record.amedNo, record.certNo, String(record._id))

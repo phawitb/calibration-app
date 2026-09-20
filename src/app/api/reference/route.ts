@@ -1,3 +1,4 @@
+import { projectLatestStandards } from '@/lib/standardYearService'
 import AmedDevice from '@/models/AmedDevice'
 import { normalizeAmedUcFields } from '@/lib/amedUcOptions'
 import { NextRequest, NextResponse } from 'next/server'
@@ -37,5 +38,5 @@ export async function GET(req: NextRequest) {
 
   const Model = getModel(modelName, baseSchema)
   const data  = await Model.find({}).lean()
-  return NextResponse.json({ data: type === 'ameddevices' ? data.map(normalizeAmedUcFields) : data, type })
+  return NextResponse.json({ data: type === 'ameddevices' ? data.map(normalizeAmedUcFields) : type === 'stdinstruments' ? await projectLatestStandards(data) : data, type })
 }

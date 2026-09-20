@@ -38,6 +38,7 @@ export async function POST(
     record.issuedDate = new Date(record.approvedAt)
   }
   record.approve = approverName
+  record.certificateRevision = Number(record.certificateRevision || 0) + 1
   await record.save()
 
   return NextResponse.json({ record })

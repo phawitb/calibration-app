@@ -1,3 +1,4 @@
+import { calibrationDateRange, calibrationDateSearch } from '@/lib/calibrationDateSearch'
 import {getIsoMethod} from '@/lib/isoMethods'
 import {reserveOrderDevice,getOrder,requireOrderManager} from '@/lib/workOrderService'
 import {orderFailure} from '@/lib/workOrderHttp'
@@ -32,6 +33,9 @@ export async function GET(req: NextRequest) {
   const calType = searchParams.get('calType') || ''
   const status = searchParams.get('status') || ''
   const unitName = searchParams.get('unitName') || ''
+  const calYear = searchParams.get('calYear') || ''
+  const yearRange = calYear ? calibrationDateRange(calYear) : null
+  if (calYear && (!/^\d{4}$/.test(calYear) || Number(calYear) < 2400 || !yearRange)) return NextResponse.json({ error: 'กรุณาระบุปี พ.ศ. 4 หลัก' }, { status: 400 })
   const calDateFrom = searchParams.get('calDateFrom') || ''
   const calDateTo = searchParams.get('calDateTo') || ''
   const role = (session.user as any)?.role
@@ -44,7 +48,7 @@ export async function GET(req: NextRequest) {
     savedOnce: { $ne: false },
   }
   // User-scoping: non-admin users default to seeing only their own records
-  if (myOnly && currentUsername) {
+  if (role !== 'hospital_user' && myOnly && currentUsername) {
     query.createdBy = currentUsername
   }
   if (role === 'hospital_user' && hospitalUnit) {
@@ -55,6 +59,7 @@ export async function GET(req: NextRequest) {
     query.unitName = { $in: unitVariants.length ? unitVariants : [unitName] }
   }
   if (search) {
+    const dateSearch = calibrationDateSearch(search)
     // Some imported fields can be stored as numbers; regex on string fields alone misses them.
     const numericToStringSearch = {
       $expr: {
@@ -78,6 +83,7 @@ export async function GET(req: NextRequest) {
       { unitName:   { $regex: search, $options: 'i' } },
       { serialNo:   { $regex: search, $options: 'i' } },
       numericToStringSearch,
+      ...(dateSearch ? [dateSearch] : []),
     ]
   }
   if (section) query.section = { $regex: section, $options: 'i' }
@@ -88,6 +94,7 @@ export async function GET(req: NextRequest) {
     if (calDateFrom) query.calDate.$gte = new Date(calDateFrom)
     if (calDateTo) query.calDate.$lte = new Date(calDateTo + 'T23:59:59.999Z')
   }
+  if (yearRange) query.calDate = yearRange
   if (cardFilter) {
     const now = new Date()
     switch (cardFilter) {

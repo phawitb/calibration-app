@@ -1,3 +1,4 @@
+import StandardInstrumentYear from '@/models/StandardInstrumentYear'
 import AmedDevice from '@/models/AmedDevice'
 import { normalizeAmedUcFields } from '@/lib/amedUcOptions'
 import { NextRequest, NextResponse } from 'next/server'
@@ -57,6 +58,9 @@ export async function POST(req: NextRequest) {
   }
 
   await connectDB()
+  if (type === 'stdinstruments' && await StandardInstrumentYear.exists({ instrumentRefId: { $in: rows.map(row => String(row._id || '')) } })) {
+    return NextResponse.json({ error: 'เครื่องมือที่มีข้อมูลรายปีต้องแก้ไขผ่านหน้าข้อมูลรายปี' }, { status: 409 })
+  }
   const M = getModel(modelMap[type])
 
   let updated = 0

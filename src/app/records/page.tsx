@@ -1,7 +1,9 @@
 'use client'
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
-import { useTableSort, sortIcon } from '@/hooks/useTableSort'
+import { useTableSort } from '@/hooks/useTableSort'
 import Link from 'next/link'
+import RecordDownloadAll from '@/components/RecordDownloadAll'
+import RecordStandardCertificates from '@/components/RecordStandardCertificates'
 import toast from 'react-hot-toast'
 import { useSession } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
@@ -81,6 +83,7 @@ export default function RecordsPage() {
   const cardFilter = String(searchParams.get('cardFilter') || '')
   const role = (session?.user as any)?.role
   const isAdmin = role === 'admin'
+  const isHospitalUser = role === 'hospital_user'
 
   const [records,    setRecords]    = useState<CalibrationRecordRow[]>([])
   const [search,     setSearch]     = useState('')
@@ -99,13 +102,14 @@ export default function RecordsPage() {
   const [fCalType,     setFCalType]     = useState('')
   const [fSection,     setFSection]     = useState('')
   const [fUnitName,    setFUnitName]    = useState('')
+  const [fCalYear, setFCalYear] = useState('')
   const [fCalDateFrom, setFCalDateFrom] = useState('')
   const [fCalDateTo,   setFCalDateTo]   = useState('')
 
   const { sorted: sortedRecords, sortKey, sortDir, toggle: toggleSort } = useTableSort(records, 'calDate', 'desc')
 
-  const hasActiveFilter = !!(fStatus || fCalType || fSection || fCalDateFrom || fCalDateTo)
-  const activeFilterCount = [fStatus, fCalType, fSection, fCalDateFrom, fCalDateTo].filter(Boolean).length
+  const hasActiveFilter = !!(fStatus || fCalType || fSection || fCalYear || fCalDateFrom || fCalDateTo)
+  const activeFilterCount = [fStatus, fCalType, fSection, fCalYear, fCalDateFrom, fCalDateTo].filter(Boolean).length
 
   const cardFilterLabel: Record<string, string> = {
     pending: 'รออนุมัติ',
@@ -126,10 +130,11 @@ export default function RecordsPage() {
     if (fStatus)      params.set('status', fStatus)
     if (fCalType)     params.set('calType', fCalType)
     if (selectedHospital) params.set('unitName', selectedHospital)
+    if (isHospitalUser && /^\d{4}$/.test(fCalYear) && Number(fCalYear) >= 2443 && Number(fCalYear) <= 2843) params.set('calYear', fCalYear)
     if (fCalDateFrom) params.set('calDateFrom', fCalDateFrom)
     if (fCalDateTo)   params.set('calDateTo', fCalDateTo)
     if (cardFilter)   params.set('cardFilter', cardFilter)
-    if (myOnly)       params.set('myOnly', '1')
+    if (myOnly && !isHospitalUser) params.set('myOnly', '1')
     try {
       const res = await fetch(`/api/records?${params}`)
       if (!res.ok) throw new Error('โหลดประวัติสอบเทียบไม่สำเร็จ')
@@ -143,7 +148,7 @@ export default function RecordsPage() {
     } finally {
       if (version === requestVersion.current) setLoading(false)
     }
-  }, [search, fSection, fStatus, fCalType, fUnitName, fCalDateFrom, fCalDateTo, page, cardFilter, myOnly, selectedHospital])
+  }, [isHospitalUser, fCalYear, search, fSection, fStatus, fCalType, fUnitName, fCalDateFrom, fCalDateTo, page, cardFilter, myOnly, selectedHospital])
 
   // Do not fetch with the temporary default before the role determines the initial scope.
   // Otherwise a late response for "งานของฉัน" can overwrite the approver's "ทั้งหมด" result.
@@ -162,6 +167,7 @@ export default function RecordsPage() {
   }, [role, isAdmin, myOnlyInit])
 
   const clearFilters = () => {
+    setFCalYear('')
     setFStatus(''); setFCalType(''); setFSection(''); setFUnitName('')
     setFCalDateFrom(''); setFCalDateTo('')
     setPage(1)
@@ -207,12 +213,12 @@ export default function RecordsPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-military-900">ประวัติสอบเทียบ</h1>
           <p className="text-gray-500 text-sm">{hospitalTitle ? `${hospitalTitle} — ` : ''}{total} รายการ</p>
         </div>
-
+        <RecordDownloadAll records={sortedRecords} disabled={loading} />
       </div>
 
       {/* Search & Filter */}
@@ -225,7 +231,7 @@ export default function RecordsPage() {
         )}
 
         {/* My records toggle */}
-        <div className="flex items-center gap-4 mb-3">
+        {!isHospitalUser && <div className="flex items-center gap-4 mb-3">
           <label className="flex items-center gap-1.5 cursor-pointer text-sm">
             <input type="radio" name="myOnly" checked={myOnly} onChange={() => { setMyOnly(true); setPage(1) }}
               className="accent-military-700" />
@@ -236,13 +242,13 @@ export default function RecordsPage() {
               className="accent-military-700" />
             ทั้งหมด
           </label>
-        </div>
+        </div>}
 
         {/* Search + toggle */}
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <input
             type="text"
-            placeholder="ค้นหา: ชื่อเครื่อง, เลขที่อาร์เมด, เลขที่ใบรับรอง, Serial No..."
+            placeholder="ค้นหา: ชื่อเครื่อง, เลขที่อาร์เมด, เลขที่ใบรับรอง, Serial No, วันที่สอบเทียบ เช่น 19/9/2569..."
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }}
             className="input-field flex-1"
@@ -285,6 +291,11 @@ export default function RecordsPage() {
                 <input type="text" className="input-field text-sm" placeholder="เช่น Laboratory"
                   value={fSection} onChange={e => { setFSection(e.target.value); setPage(1) }} />
               </div>
+              {isHospitalUser ? <div>
+                <label className="block text-xs text-gray-500 mb-1" htmlFor="calibration-year-filter">ปีที่สอบเทียบ (พ.ศ.)</label>
+                <input id="calibration-year-filter" type="text" inputMode="numeric" maxLength={4} placeholder="เช่น 2569" className="input-field text-sm"
+                  value={fCalYear} onChange={e => { setFCalYear(e.target.value.replace(/[^0-9]/g, '')); setPage(1) }} />
+              </div> : <>
               <div>
                 <label className="block text-xs text-gray-500 mb-1">วันที่สอบเทียบ ตั้งแต่</label>
                 <input type="date" className="input-field text-sm"
@@ -295,6 +306,7 @@ export default function RecordsPage() {
                 <input type="date" className="input-field text-sm"
                   value={fCalDateTo} onChange={e => { setFCalDateTo(e.target.value); setPage(1) }} />
               </div>
+              </>}
             </div>
             {hasActiveFilter && (
               <div className="flex justify-end">
@@ -314,17 +326,31 @@ export default function RecordsPage() {
           <table className="w-full text-sm">
             <thead className="bg-military-800 text-white select-none">
               <tr>
-                <th className="text-left py-3 px-3 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('calibrationType')}>ประเภท{sortIcon(sortKey, sortDir, 'calibrationType')}</th>
-                <th className="text-left py-3 px-3 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('amedNo')}>เลขที่อาร์เมด{sortIcon(sortKey, sortDir, 'amedNo')}</th>
-                <th className="text-left py-3 px-3 font-medium cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('deviceName')}>เครื่องมือ{sortIcon(sortKey, sortDir, 'deviceName')}</th>
-                <th className="text-left py-3 px-3 font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('unitName')}>โรงพยาบาล{sortIcon(sortKey, sortDir, 'unitName')}</th>
-                <th className="text-left py-3 px-3 font-medium hidden xl:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('section')}>แผนก{sortIcon(sortKey, sortDir, 'section')}</th>
-                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('certNo')}>ใบรับรอง{sortIcon(sortKey, sortDir, 'certNo')}</th>
-                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('calDate')}>วันที่สอบเทียบ{sortIcon(sortKey, sortDir, 'calDate')}</th>
-                <th className="text-left py-3 px-3 font-medium hidden lg:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('createdBy')}>สร้างโดย{sortIcon(sortKey, sortDir, 'createdBy')}</th>
-                <th className="text-left py-3 px-3 font-medium hidden md:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('approvalStatus')}>สถานะ{sortIcon(sortKey, sortDir, 'approvalStatus')}</th>
-                <th className="text-left py-3 px-3 font-medium hidden xl:table-cell cursor-pointer hover:bg-military-700 transition-colors" onClick={() => toggleSort('updatedAt')}>อัพเดทล่าสุด{sortIcon(sortKey, sortDir, 'updatedAt')}</th>
-                <th className="text-center py-3 px-3 font-medium">จัดการ</th>
+                {[
+                  ['calibrationType', 'ประเภท', ''],
+                  ['amedNo', 'เลขที่อาร์เมด', ''],
+                  ['deviceName', 'เครื่องมือ', ''],
+                  ['unitName', 'โรงพยาบาล', 'hidden md:table-cell'],
+                  ['section', 'แผนก', 'hidden xl:table-cell'],
+                  ['certNo', 'ใบรับรอง', 'hidden lg:table-cell'],
+                  ['calDate', 'วันที่สอบเทียบ', 'hidden lg:table-cell'],
+                  ['createdBy', 'สร้างโดย', 'hidden lg:table-cell'],
+                  ['approvalStatus', 'สถานะ', 'hidden md:table-cell'],
+                  ['updatedAt', 'อัพเดทล่าสุด', 'hidden xl:table-cell'],
+                ].map(([key, label, visibility]) => <th key={key}
+                  aria-sort={sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  className={`text-left p-0 font-medium ${visibility} ${sortKey === key ? 'bg-military-700' : ''}`}>
+                  <button type="button" onClick={() => toggleSort(key)}
+                    aria-label={`เรียงตาม${label}${sortKey === key && sortDir === 'asc' ? 'จากมากไปน้อย' : 'จากน้อยไปมาก'}`}
+                    className="group flex w-full items-center gap-2 whitespace-nowrap px-3 py-4 text-left transition-colors hover:bg-military-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-white">
+                    <span>{label}</span>
+                    <svg aria-hidden="true" className="h-4 w-3 shrink-0" viewBox="0 0 12 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m3 6 3-3 3 3" className={sortKey === key && sortDir === 'asc' ? 'text-white' : 'text-white/30 group-hover:text-white/60'} />
+                      <path d="m3 10 3 3 3-3" className={sortKey === key && sortDir === 'desc' ? 'text-white' : 'text-white/30 group-hover:text-white/60'} />
+                    </svg>
+                  </button>
+                </th>)}
+                <th className="w-10 px-3 py-3"><span className="sr-only">รายละเอียด</span></th>
               </tr>
             </thead>
             <tbody>
@@ -373,20 +399,6 @@ export default function RecordsPage() {
                     </td>
                     <td className="py-3 px-3">
                       <div className="flex items-center justify-center gap-1.5">
-                        <Link href={`/records/${r._id}`}
-                          className="text-military-600 hover:text-military-800 font-medium text-xs px-2 py-1 rounded border border-military-200 hover:bg-military-50">
-                          ดู / แก้ไข
-                        </Link>
-                        <Link href={`/records/${r._id}/pdf`}
-                          className="text-blue-600 hover:text-blue-800 font-medium text-xs px-2 py-1 rounded border border-blue-200 hover:bg-blue-50">
-                          PDF
-                        </Link>
-                        {isAdmin && (
-                          <button onClick={() => handleDelete(r._id)}
-                            className="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded border border-red-200 hover:bg-red-50">
-                            ลบ
-                          </button>
-                        )}
                         <button
                           type="button"
                           aria-expanded={expandedRecordId === r._id}
@@ -451,6 +463,19 @@ export default function RecordsPage() {
                                 เซอร์ผู้อนุมัติ
                               </button>
                             )}
+                            <RecordStandardCertificates recordId={r._id} />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3">
+                        <Link href={`/records/${r._id}`}
+                          className="text-military-600 hover:text-military-800 font-medium text-xs px-2 py-1 rounded border border-military-200 hover:bg-military-50">
+                          ดู / แก้ไข
+                        </Link>
+                        {isAdmin && (
+                          <button onClick={() => handleDelete(r._id)}
+                            className="text-red-500 hover:text-red-700 text-xs px-2 py-1 rounded border border-red-200 hover:bg-red-50">
+                            ลบ
+                          </button>
+                        )}
                           </div>
                         </div>
                       </td>

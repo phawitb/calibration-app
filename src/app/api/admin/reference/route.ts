@@ -1,3 +1,4 @@
+import StandardInstrumentYear from '@/models/StandardInstrumentYear'
 import AmedDevice from '@/models/AmedDevice'
 import { normalizeAmedUcFields } from '@/lib/amedUcOptions'
 import { NextRequest, NextResponse } from 'next/server'
@@ -91,6 +92,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'รูปแบบรายการ UC ไม่ถูกต้อง' }, { status: 400 })
     }
     await connectDB()
+    if (t === 'stdinstruments' && await StandardInstrumentYear.exists({ instrumentRefId: String(_id) })) {
+      return NextResponse.json({ error: 'กรุณาแก้ไขในข้อมูลรายปีของเครื่องมือ' }, { status: 409 })
+    }
     const M = getModel(modelMap[t])
     const id = new mongoose.Types.ObjectId(String(_id))
     const updated = await M.findByIdAndUpdate(
@@ -120,6 +124,9 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'type and id required' }, { status: 400 })
     }
     await connectDB()
+    if (type === 'stdinstruments' && await StandardInstrumentYear.exists({ instrumentRefId: String(id) })) {
+      return NextResponse.json({ error: 'เครื่องมือนี้มีประวัติรายปี ไม่สามารถลบประวัติได้' }, { status: 409 })
+    }
     const M = getModel(modelMap[type])
     const r = await M.findByIdAndDelete(new mongoose.Types.ObjectId(id))
     if (!r) return NextResponse.json({ error: 'Not found' }, { status: 404 })

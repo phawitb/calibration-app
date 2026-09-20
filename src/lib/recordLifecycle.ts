@@ -41,6 +41,8 @@ export function shouldAssignCertificateNumber(saveAction: string, certNo: unknow
 
 export function stripClientNumberFields<T extends Record<string, unknown>>(patch: T) {
   const safePatch = { ...patch }
+  delete safePatch.certificateRevision
+  delete safePatch.certificateArchiveTick
   delete safePatch.certNo
   delete safePatch.amedCertKey
   return safePatch as Omit<T, 'certNo' | 'amedCertKey'>

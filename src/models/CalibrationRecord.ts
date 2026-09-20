@@ -2,6 +2,11 @@ import mongoose, { Schema, Document } from 'mongoose'
 
 // Sub-schema for calibration instrument reference
 const StdInstrumentSchema = new Schema({
+  instrumentRefId: String,
+  referenceYear: Number,
+  referenceRevision: Number,
+  referenceVersionId: String,
+  expandedU: Number,
   no:          String,
   name:        String,
   manufacture: String,
@@ -17,6 +22,11 @@ const StdInstrumentSchema = new Schema({
   uTResStd:    Number,
   uTUuc:       Number,
   uTInt:       Number,
+  uT6: Number,
+  uT7: Number,
+  uT8: Number,
+  uT9: Number,
+  uT10: Number,
   tMin:        Number,
   tMax:        Number,
   hMin:        Number,
@@ -25,6 +35,8 @@ const StdInstrumentSchema = new Schema({
 
 // Sub-schema for a single calibration point reading
 const CalPointSchema = new Schema({
+  referenceStandards: [mongoose.Schema.Types.Mixed],
+  referencePoint: mongoose.Schema.Types.Mixed,
   point:  mongoose.Schema.Types.Mixed, // calibration point value
   readings: [mongoose.Schema.Types.Mixed], // UUC readings (up to 4)
   standards: [mongoose.Schema.Types.Mixed], // STD readings (up to 4)
@@ -32,6 +44,7 @@ const CalPointSchema = new Schema({
 
 // Sub-schema for one uncertainty component (Uc)
 const UcSchema = new Schema({
+  calibrationTableId: String,
   std:       StdInstrumentSchema,
   calPoints: [CalPointSchema], // up to 6 cal points
   formulaId:   { type: String, default: null },
@@ -40,6 +53,7 @@ const UcSchema = new Schema({
 
 // Sub-schema for time-based calibration (UcT)
 const UcTimeSchema = new Schema({
+  calibrationTableId: String,
   std:       StdInstrumentSchema,
   calPoints: [CalPointSchema], // up to 6 cal points
   formulaId:   { type: String, default: null },
@@ -48,6 +62,8 @@ const UcTimeSchema = new Schema({
 
 // Omit Document.model — field name "model" (device model) collides with Mongoose Document#model
 export interface ICalibrationRecord extends Omit<Document, 'model'> {
+  certificateRevision?: number
+  certificateArchiveTick?: number
   workOrderId?: string
   workOrderDeviceId?: string
   workOrderNo?: string
@@ -111,6 +127,11 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
     uTResStd:    number
     uTUuc:       number
     uTInt:       number
+    uT6?: number
+    uT7?: number
+    uT8?: number
+    uT9?: number
+    uT10?: number
     tMin:        number
     tMax:        number
     hMin:        number
@@ -243,6 +264,8 @@ const IsoDataSchema = new Schema({
 
 const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   workOrderId: {type: String, index: true},
+  certificateRevision: { type: Number, default: 0 },
+  certificateArchiveTick: { type: Number, default: 0 },
   workOrderDeviceId: {type: String, index: true},
   workOrderNo: String,
   recordNo:     { type: Number },
@@ -286,27 +309,7 @@ const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   rejectedByName: { type: String },
   rejectedAt: { type: Date },
 
-  std1: {
-    no:          String,
-    name:        String,
-    manufacture: String,
-    model:       String,
-    serialNo:    String,
-    certNo:      String,
-    measurement: String,
-    unit:        String,
-    calDate:     String,
-    correction:  Number,
-    uTStd:       Number,
-    uTDrif:      Number,
-    uTResStd:    Number,
-    uTUuc:       Number,
-    uTInt:       Number,
-    tMin:        Number,
-    tMax:        Number,
-    hMin:        Number,
-    hMax:        Number,
-  },
+  std1: StdInstrumentSchema,
 
   uc1: UcSchema,
   uc2: UcSchema,

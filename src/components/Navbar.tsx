@@ -89,14 +89,14 @@ export default function Navbar() {
       <div className="px-3 sm:px-4 lg:px-6">
         <div className="flex items-center justify-between h-14 gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <button
+            {role && role !== 'hospital_user' && <button
               type="button"
               className="lg:hidden h-9 w-9 rounded-lg border border-military-200 text-military-800 hover:bg-military-50"
               onClick={() => setSidebarOpen(true)}
               aria-label="เลือกโรงพยาบาล"
             >
               ☰
-            </button>
+            </button>}
             <SiteLogoHeader />
             {currentSection === 'add' && selectedOrder && (
               <Link href="/orders" className="text-xs text-military-700">

@@ -1,3 +1,4 @@
+import StandardInstrumentYear from '@/models/StandardInstrumentYear'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -14,6 +15,12 @@ export async function GET(req: NextRequest) {
   if (!instrumentId) return NextResponse.json({ error: 'instrumentId required' }, { status: 400 })
 
   await connectDB()
+  const versionId = searchParams.get('versionId')
+  const version = await StandardInstrumentYear.findOne(versionId
+    ? { _id: versionId, instrumentRefId: instrumentId }
+    : { instrumentRefId: instrumentId }).sort({ year: -1, revision: -1 }).lean() as any
+  if (versionId && !version) return NextResponse.json({ error: 'ไม่พบรุ่นข้อมูล' }, { status: 404 })
+  if (version) return NextResponse.json({ data: version.calPoints || [] })
   const configs = await StdCalPointConfig.find({ instrumentRefId: instrumentId })
     .sort({ order: 1, createdAt: 1 })
     .lean()

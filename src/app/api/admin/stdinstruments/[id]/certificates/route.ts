@@ -1,3 +1,4 @@
+import StandardInstrumentYear from '@/models/StandardInstrumentYear'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -36,6 +37,7 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   await connectDB()
+  if (await StandardInstrumentYear.exists({ instrumentRefId: params.id })) return NextResponse.json({ error: 'กรุณาแก้ไขผ่านข้อมูลรายปี' }, { status: 409 })
   const formData = await req.formData()
   const file = formData.get('file') as File | null
   const year = Number(formData.get('year'))
@@ -97,6 +99,7 @@ export async function DELETE(
   if (!certId) return NextResponse.json({ error: 'certId required' }, { status: 400 })
 
   await connectDB()
+  if (await StandardInstrumentYear.exists({ instrumentRefId: params.id })) return NextResponse.json({ error: 'กรุณาแก้ไขผ่านข้อมูลรายปี' }, { status: 409 })
   const r = await StdInstrumentCert.findOneAndDelete({ _id: certId, instrumentRefId: params.id })
   if (!r) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 

@@ -91,6 +91,10 @@ type FormulaOption = { _id: string; code: string; name: string; isActive: boolea
 
 function buildStdFromRef(ref: StdRef) {
   return {
+    instrumentRefId: ref?.instrumentRefId != null ? String(ref.instrumentRefId) : undefined,
+    referenceYear: ref?.referenceYear,
+    referenceRevision: ref?.referenceRevision,
+    referenceVersionId: ref?.referenceVersionId != null ? String(ref.referenceVersionId) : undefined,
     no: ref?.no != null ? String(ref.no) : '',
     name: ref?.name != null ? String(ref.name) : '',
     manufacture: ref?.manufacture != null ? String(ref.manufacture) : '',
@@ -101,11 +105,17 @@ function buildStdFromRef(ref: StdRef) {
     unit: ref?.unit != null ? String(ref.unit) : '',
     calDate: ref?.calDate != null ? String(ref.calDate) : '',
     correction: ref?.correction != null && !Number.isNaN(Number(ref.correction)) ? Number(ref.correction) : undefined,
+    expandedU: ref?.expandedU != null && !Number.isNaN(Number(ref.expandedU)) ? Number(ref.expandedU) : undefined,
     uTStd: ref?.uTStd != null && !Number.isNaN(Number(ref.uTStd)) ? Number(ref.uTStd) : undefined,
     uTDrif: ref?.uTDrif != null && !Number.isNaN(Number(ref.uTDrif)) ? Number(ref.uTDrif) : undefined,
     uTResStd: ref?.uTResStd != null && !Number.isNaN(Number(ref.uTResStd)) ? Number(ref.uTResStd) : undefined,
     uTUuc: ref?.uTUuc != null && !Number.isNaN(Number(ref.uTUuc)) ? Number(ref.uTUuc) : undefined,
     uTInt: ref?.uTInt != null && !Number.isNaN(Number(ref.uTInt)) ? Number(ref.uTInt) : undefined,
+    uT6: ref?.uT6 != null && !Number.isNaN(Number(ref.uT6)) ? Number(ref.uT6) : undefined,
+    uT7: ref?.uT7 != null && !Number.isNaN(Number(ref.uT7)) ? Number(ref.uT7) : undefined,
+    uT8: ref?.uT8 != null && !Number.isNaN(Number(ref.uT8)) ? Number(ref.uT8) : undefined,
+    uT9: ref?.uT9 != null && !Number.isNaN(Number(ref.uT9)) ? Number(ref.uT9) : undefined,
+    uT10: ref?.uT10 != null && !Number.isNaN(Number(ref.uT10)) ? Number(ref.uT10) : undefined,
   }
 }
 
@@ -144,13 +154,17 @@ function calPointsFromSingleConfig(
       point: String(p.pointValue),
       readings: ['', '', '', ''] as (number | string)[],
       standards: [std, std, std, std] as (number | string)[],
+      referenceStandards: [std, std, std, std] as (number | string)[],
+      referencePoint: String(p.pointValue),
     }
   })
 }
 
-async function fetchCalPointConfigs(instrumentId: string) {
+async function fetchCalPointConfigs(instrumentId: string, referenceVersionId?: string) {
   try {
-    const res = await fetch(`/api/reference/calpoints?instrumentId=${instrumentId}`)
+    const query = new URLSearchParams({ instrumentId })
+    if (referenceVersionId) query.set('versionId', referenceVersionId)
+    const res = await fetch(`/api/reference/calpoints?${query}`)
     if (!res.ok) return []
     const json = await res.json()
     return Array.isArray(json.data) ? json.data : []
@@ -166,12 +180,13 @@ const UC_STD_TEXT_FIELDS = [
 export function UcSection({
   label,
   value,
-  onChange,
+  onChange: onValueChange,
   stdRefs = [],
   instrumentNos,
   stdFieldOptions,
   formulaOptions = [],
   isTimeUnit = false,
+  allowAutoResolve = true,
 }: {
   label: string
   value: any
@@ -181,8 +196,16 @@ export function UcSection({
   stdFieldOptions?: StdFieldOptions
   formulaOptions?: FormulaOption[]
   isTimeUnit?: boolean
+  allowAutoResolve?: boolean
 }) {
   const uc = value || {}
+  const configRequestSequence = useRef(0)
+  // Any later edit or unmount invalidates a pending default-table application.
+  const onChange = (next: any) => {
+    configRequestSequence.current += 1
+    onValueChange(next)
+  }
+  useEffect(() => () => { configRequestSequence.current += 1 }, [])
   const configuredNos = instrumentNos?.length ? instrumentNos : undefined
   const availableNos = configuredNos || Array.from(new Set(stdRefs.map(ref => String(ref.no ?? '').trim()).filter(Boolean)))
   const selectedNo = String(uc.std?.no ?? '')
@@ -198,18 +221,18 @@ export function UcSection({
   // Auto-resolve std from reference when UC has std.no but no full data (e.g. created from AmedDevice registry)
   const autoResolvedRef = useRef(false)
   useEffect(() => {
-    if (autoResolvedRef.current || !stdRefs.length) return
+    if (!allowAutoResolve || autoResolvedRef.current || !stdRefs.length) return
     const no = String(uc.std?.no ?? '').trim()
     if (!no) return
     // Only auto-resolve if std data is incomplete (no manufacture/model/serialNo)
-    if (uc.std?.manufacture || uc.std?.model || uc.std?.serialNo) return
+    if (uc.std?.referenceVersionId || uc.std?.manufacture || uc.std?.model || uc.std?.serialNo) return
     const ref = stdRefs.find((r) => String(r?.no ?? '').trim() === no)
     if (ref) {
       autoResolvedRef.current = true
       applyUcFromRef(ref)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stdRefs])
+  }, [stdRefs, allowAutoResolve])
 
   const updateStd = (field: string, val: any) =>
     onChange({ ...uc, std: { ...(uc.std || {}), [field]: val } })
@@ -223,7 +246,7 @@ export function UcSection({
       if (isTimeUnit) {
         // Time format: just set point and auto-fill STD with same value
         const stds: (number | string)[] = raw === '' ? ['', '', '', ''] : [raw, raw, raw, raw]
-        pts[idx] = { ...prev, point: raw, standards: stds }
+        pts[idx] = { ...prev, point: raw, standards: stds, referenceStandards: [...stds], referencePoint: raw }
       } else {
         const p = raw === '' ? NaN : parseFloat(raw)
         const corrRaw = uc.std?.correction
@@ -234,7 +257,7 @@ export function UcSection({
         const co = Number.isNaN(c) ? 0 : c
         const stds: (number | string)[] =
           raw === '' || Number.isNaN(p) ? ['', '', '', ''] : [p + co, p + co, p + co, p + co]
-        pts[idx] = { ...prev, point: raw, standards: stds }
+        pts[idx] = { ...prev, point: raw, standards: stds, referenceStandards: [...stds], referencePoint: raw }
       }
     } else if (field === 'readings') {
       pts[idx] = { ...prev, readings: val }
@@ -252,7 +275,8 @@ export function UcSection({
     // If both key fields are empty, clear all std data
     if (!n && !na) {
       setFromRef(false)
-      onChange({ ...uc, std: {} })
+      setCalPointConfigs([])
+      onChange({ ...uc, std: {}, calibrationTableId: undefined })
       return
     }
     if (!stdRefs.length) return
@@ -269,7 +293,7 @@ export function UcSection({
     const correction = std?.correction != null && !Number.isNaN(Number(std.correction)) ? Number(std.correction) : 0
     const defaultPoints = calPointsFromSingleConfig(configs[idx], correction)
     if (defaultPoints.length > 0) {
-      onChange({ ...uc, std: std || uc.std, calPoints: defaultPoints })
+      onChange({ ...uc, std: std || uc.std, calibrationTableId: configs[idx]._id != null ? String(configs[idx]._id) : undefined, calPoints: defaultPoints })
     }
   }
 
@@ -286,19 +310,21 @@ export function UcSection({
     setFromRef(true)
     // Apply std fields immediately with empty cal points
     const fallbackPoints = calPointsFromRef(pointCount)
-    onChange({ ...uc, std, calPoints: fallbackPoints })
+    onChange({ ...uc, std, calibrationTableId: undefined, calPoints: fallbackPoints })
     setCalPointConfigs([])
     setSelectedConfigIdx(0)
 
-    // Fetch cal point configs and apply first table as default
-    if (ref._id) {
-      fetchCalPointConfigs(String(ref._id)).then((configs) => {
+    // Fetch from the selected immutable yearly version, never from a newer projection.
+    const requestSequence = configRequestSequence.current
+    if (ref.instrumentRefId || ref._id) {
+      fetchCalPointConfigs(String(ref.instrumentRefId || ref._id), std.referenceVersionId).then((configs) => {
+        if (requestSequence !== configRequestSequence.current) return
         if (configs.length > 0) {
           setCalPointConfigs(configs)
           setSelectedConfigIdx(0)
           const defaultPoints = calPointsFromSingleConfig(configs[0], correction)
           if (defaultPoints.length > 0) {
-            onChange({ ...uc, std, calPoints: defaultPoints })
+            onChange({ ...uc, std, calibrationTableId: configs[0]._id != null ? String(configs[0]._id) : undefined, calPoints: defaultPoints })
           }
         }
       })
@@ -331,7 +357,7 @@ export function UcSection({
       <div className="flex items-center justify-between">
         <h4 className="font-medium text-military-700 text-sm">{label}</h4>
         {(uc.std?.no || uc.std?.name) && (
-          <button type="button" onClick={() => { setFromRef(false); onChange({ ...uc, std: {}, calPoints: [] }) }}
+          <button type="button" onClick={() => { setFromRef(false); setCalPointConfigs([]); onChange({ ...uc, std: {}, calibrationTableId: undefined, calPoints: [] }) }}
             className="text-[11px] px-2 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50">
             ล้างเครื่องมือ
           </button>
@@ -394,7 +420,7 @@ export function UcSection({
                     setFromRef(false)
                     setCalPointConfigs([])
                     setSelectedConfigIdx(0)
-                    onChange({ ...uc, std: no ? { no } : {}, calPoints: [] })
+                    onChange({ ...uc, std: no ? { no } : {}, calibrationTableId: undefined, calPoints: [] })
                   }
                 }}>
                 <option value="">— เลือกรหัสเครื่องมือ —</option>
@@ -1596,6 +1622,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         </p>
         <div className="space-y-4">
           <UcSection
+            allowAutoResolve={mode === 'create' || initialData?.savedOnce === false}
             stdRefs={stdInstruments}
             stdFieldOptions={ucStdFieldOptions}
             formulaOptions={formulaOptions}
@@ -1617,6 +1644,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
               {ucExpanded[uc] && (
                 <div className="p-4 pt-0">
                   <UcSection
+                    allowAutoResolve={mode === 'create' || initialData?.savedOnce === false}
                     stdRefs={stdInstruments}
                     stdFieldOptions={ucStdFieldOptions}
                     formulaOptions={formulaOptions}
@@ -1641,6 +1669,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
             {ucExpanded.ucT && (
               <div className="p-4 pt-0">
                 <UcSection
+                  allowAutoResolve={mode === 'create' || initialData?.savedOnce === false}
                   stdRefs={timeStdInstruments}
                   stdFieldOptions={timeUcStdFieldOptions}
                   formulaOptions={formulaOptions}

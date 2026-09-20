@@ -1,5 +1,6 @@
 'use client'
 
+import { useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
 import { useOrderWorkspace } from './OrderWorkspace'
 import { useHospitalWorkspace } from './HospitalWorkspace'
@@ -13,6 +14,9 @@ export default function AppShell({
   children: React.ReactNode
   contentClassName?: string
 }) {
+  const { data: session } = useSession()
+  const role = (session?.user as any)?.role
+  const isHospitalUser = role === 'hospital_user'
   const { selectedOrder, loading } = useOrderWorkspace()
   const {
     selectedHospital,
@@ -23,10 +27,10 @@ export default function AppShell({
   const requiresOrder = pathname === '/records/new' || pathname === '/hospital'
   return (
     <div className="min-h-screen bg-military-50 flex">
-      <HospitalSidebar />
+      {role && !isHospitalUser && <HospitalSidebar />}
       <div className="flex-1 min-w-0 flex flex-col">
         <Navbar />
-        <main className={`flex-1 w-full ${contentClassName}`}>
+        <main className={`flex-1 w-full ${isHospitalUser ? contentClassName.replace('max-w-7xl', 'max-w-none') : contentClassName}`}>
           {requiresOrder &&
           (loading || (!!selectedOrder && hospitalsLoading)) ? (
             <p className="py-12 text-center">กำลังโหลดคำสั่ง…</p>

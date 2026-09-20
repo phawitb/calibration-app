@@ -1,12 +1,17 @@
+import { renderCertificatePdf } from '@/lib/renderCertificatePdf'
+import { pdfBytes } from '@/lib/pdfBytes'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
 import ArchivedCertificatePdf from '@/models/ArchivedCertificatePdf'
+import CertificateRevision from '@/models/CertificateRevision'
 import mongoose from 'mongoose'
 import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
 import { inlineContentDisposition } from '@/lib/contentDisposition'
+
+export const maxDuration = 60
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -37,20 +42,38 @@ export async function GET(
 
   await connectDB()
   const recordId = String(params.recordId || '').trim()
-  const record = await CalibrationRecord.findById(recordId).select('_id certNo unitName').lean()
+  const record = await CalibrationRecord.findById(recordId).select('_id certNo unitName certificateRevision').lean()
   if (!record) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const role = (session.user as any)?.role
   const hospitalUnit = (session.user as any)?.hospitalUnit
-  if (role === 'hospital_user' && hospitalUnit) {
+  if (role === 'hospital_user') {
+    if (!hospitalUnit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const allowed = await getUnitVariants(hospitalUnit)
     if (!allowed.includes(String((record as any).unitName || ''))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
   }
 
-  const archived = await ArchivedCertificatePdf.findOne({ recordId }).lean()
-  if (!archived || !(archived as any).pdfData) {
+  const revisionId = new URL(req.url).searchParams.get('revisionId')
+  if (revisionId && !mongoose.isValidObjectId(revisionId)) return NextResponse.json({ error: 'Invalid revision' }, { status: 400 })
+  const archived = revisionId
+    ? await CertificateRevision.findOne({ _id: revisionId, recordId }).select('+pdfData').lean()
+    : await ArchivedCertificatePdf.findOne({ recordId }).lean()
+  if (revisionId && !archived) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!archived || !(archived as any).pdfData || (!revisionId && Number((archived as any).certificateRevision || 0) !== Number((record as any).certificateRevision || 0))) {
+    if (req.nextUrl.searchParams.get('download') === '1') {
+      try {
+        const fullRecord = await CalibrationRecord.findById(recordId).lean()
+        if (!fullRecord) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+        const data = await renderCertificatePdf(fullRecord)
+        return new NextResponse(new Uint8Array(data), { headers: {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': inlineContentDisposition(`calibration-${(record as any).certNo || recordId}.pdf`),
+          'Cache-Control': 'private, no-store',
+        } })
+      } catch { return NextResponse.json({ error: 'สร้างใบรับรอง PDF ไม่สำเร็จ กรุณาตรวจข้อมูลรายการสอบเทียบ' }, { status: 422 }) }
+    }
     const previewUrl = new URL(`/records/${recordId}/pdf`, req.url)
     return NextResponse.redirect(previewUrl)
   }
@@ -58,15 +81,15 @@ export async function GET(
   const certNo = String((archived as any).certNo || (record as any).certNo || recordId)
   const fileName = String((archived as any).fileName || `calibration-${certNo}.pdf`)
   const contentType = String((archived as any).contentType || 'application/pdf')
-  const dataBuffer = Buffer.from((archived as any).pdfData)
+  const dataBuffer = pdfBytes((archived as any).pdfData)
 
-  return new NextResponse(dataBuffer, {
+  return new NextResponse(new Uint8Array(dataBuffer), {
     status: 200,
     headers: {
       'Content-Type': contentType,
       'Content-Length': String(dataBuffer.length),
       'Content-Disposition': inlineContentDisposition(fileName),
-      'Cache-Control': 'private, max-age=60',
+      'Cache-Control': 'private, no-store',
     },
   })
 }

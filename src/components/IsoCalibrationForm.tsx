@@ -488,6 +488,10 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   }, [stdInstruments])
 
   const buildStdFromRef = (ref: Record<string, any>) => ({
+    instrumentRefId: ref?.instrumentRefId != null ? String(ref.instrumentRefId) : undefined,
+    referenceYear: ref?.referenceYear,
+    referenceRevision: ref?.referenceRevision,
+    referenceVersionId: ref?.referenceVersionId != null ? String(ref.referenceVersionId) : undefined,
     no: ref?.no != null ? String(ref.no) : '',
     name: ref?.name != null ? String(ref.name) : '',
     manufacture: ref?.manufacture != null ? String(ref.manufacture) : '',
@@ -498,11 +502,17 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     unit: ref?.unit != null ? String(ref.unit) : '',
     calDate: ref?.calDate != null ? String(ref.calDate) : '',
     correction: ref?.correction != null && !Number.isNaN(Number(ref.correction)) ? Number(ref.correction) : undefined,
+    expandedU: ref?.expandedU != null && !Number.isNaN(Number(ref.expandedU)) ? Number(ref.expandedU) : undefined,
     uTStd: ref?.uTStd != null && !Number.isNaN(Number(ref.uTStd)) ? Number(ref.uTStd) : undefined,
     uTDrif: ref?.uTDrif != null && !Number.isNaN(Number(ref.uTDrif)) ? Number(ref.uTDrif) : undefined,
     uTResStd: ref?.uTResStd != null && !Number.isNaN(Number(ref.uTResStd)) ? Number(ref.uTResStd) : undefined,
     uTUuc: ref?.uTUuc != null && !Number.isNaN(Number(ref.uTUuc)) ? Number(ref.uTUuc) : undefined,
     uTInt: ref?.uTInt != null && !Number.isNaN(Number(ref.uTInt)) ? Number(ref.uTInt) : undefined,
+    uT6: ref?.uT6 != null && !Number.isNaN(Number(ref.uT6)) ? Number(ref.uT6) : undefined,
+    uT7: ref?.uT7 != null && !Number.isNaN(Number(ref.uT7)) ? Number(ref.uT7) : undefined,
+    uT8: ref?.uT8 != null && !Number.isNaN(Number(ref.uT8)) ? Number(ref.uT8) : undefined,
+    uT9: ref?.uT9 != null && !Number.isNaN(Number(ref.uT9)) ? Number(ref.uT9) : undefined,
+    uT10: ref?.uT10 != null && !Number.isNaN(Number(ref.uT10)) ? Number(ref.uT10) : undefined,
   })
 
   const tryApplyStd1FromRef = () => {

@@ -1,3 +1,4 @@
+import StandardInstrumentYear from '@/models/StandardInstrumentYear'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -36,6 +37,7 @@ export async function POST(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   await connectDB()
+  if (await StandardInstrumentYear.exists({ instrumentRefId: params.id })) return NextResponse.json({ error: 'กรุณาแก้ไขผ่านข้อมูลรายปี' }, { status: 409 })
   const body = await req.json()
   const { points, stdValues, _id } = body
 
@@ -83,6 +85,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   await connectDB()
+  if (await StandardInstrumentYear.exists({ instrumentRefId: params.id })) return NextResponse.json({ error: 'กรุณาแก้ไขผ่านข้อมูลรายปี' }, { status: 409 })
   const body = await req.json()
   const { orderedIds } = body
 
@@ -115,6 +118,7 @@ export async function DELETE(
   if (!configId) return NextResponse.json({ error: 'configId required' }, { status: 400 })
 
   await connectDB()
+  if (await StandardInstrumentYear.exists({ instrumentRefId: params.id })) return NextResponse.json({ error: 'กรุณาแก้ไขผ่านข้อมูลรายปี' }, { status: 409 })
   const r = await StdCalPointConfig.findOneAndDelete({ _id: configId, instrumentRefId: params.id })
   if (!r) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 

@@ -28,6 +28,7 @@ function routes(writeError) {
   }
   const mocks = {
     '@/models/AmedDevice': model,
+    '@/models/StandardInstrumentYear': { exists: async () => false },
     '@/lib/workOrderService': {},
     '@/lib/workOrderHttp': { orderFailure: error => { throw error } },
     '@/lib/unitVariants': {},

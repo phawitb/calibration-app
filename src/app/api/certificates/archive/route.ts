@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import ArchivedCertificatePdf from '@/models/ArchivedCertificatePdf'
 import CalibrationRecord from '@/models/CalibrationRecord'
+import mongoose from 'mongoose'
 
 function decodePdfDataUrl(dataUrl: string): Buffer | null {
   const m = dataUrl.match(/^data:application\/pdf;base64,(.+)$/)
@@ -40,21 +41,28 @@ export async function POST(req: NextRequest) {
   }
 
   await connectDB()
-  const record = await CalibrationRecord.findById(recordId).select('_id certNo').lean()
-  if (!record) return NextResponse.json({ error: 'Record not found' }, { status: 404 })
-
-  await ArchivedCertificatePdf.findOneAndUpdate(
-    { recordId },
-    {
-      $set: {
-        certNo,
-        fileName: `calibration-${certNo || recordId}.pdf`,
-        contentType: 'application/pdf',
-        pdfData: pdfBuffer,
-      },
-    },
-    { upsert: true, new: true }
-  )
-
-  return NextResponse.json({ ok: true })
+  try {
+    const expectedRevision = Number(body?.certificateRevision ?? 0)
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 0 || !body?.recordUpdatedAt || Number.isNaN(new Date(body.recordUpdatedAt).getTime())) {
+      return NextResponse.json({ error: 'กรุณาโหลดข้อมูลใบเซอร์ใหม่' }, { status: 409 })
+    }
+    let stale = false
+    await mongoose.connection.transaction(async transaction => {
+      // Lock the source revision so a simultaneous reference update cannot be overwritten.
+      const record = await CalibrationRecord.findOneAndUpdate({
+        _id: recordId, certNo, updatedAt: new Date(body.recordUpdatedAt),
+        $expr: { $eq: [{ $ifNull: ['$certificateRevision', 0] }, expectedRevision] },
+      }, { $inc: { certificateArchiveTick: 1 } }, { new: true, session: transaction, timestamps: false }).lean()
+      if (!record) { stale = true; return }
+      await ArchivedCertificatePdf.findOneAndUpdate({ recordId }, { $set: {
+        certNo, fileName: `calibration-${certNo || recordId}.pdf`, contentType: 'application/pdf',
+        pdfData: pdfBuffer, certificateRevision: expectedRevision,
+      } }, { upsert: true, new: true, session: transaction })
+    })
+    if (stale) return NextResponse.json({ error: 'ข้อมูลใบเซอร์เปลี่ยนแล้ว กรุณาโหลดใหม่' }, { status: 409 })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    console.error('Certificate archive failed', error)
+    return NextResponse.json({ error: 'จัดเก็บใบเซอร์ไม่สำเร็จ' }, { status: 500 })
+  }
 }
