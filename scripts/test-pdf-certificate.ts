@@ -55,3 +55,10 @@ test('defines corrected labels for standard-instrument sections', () => {
   assert.equal(formatPdfUncertainty(59.999,true),'00:01:00.00')
   assert.equal(formatPdfUncertainty(NaN),'-')
 })
+
+test('reference date range is preserved without losing single-date formatting',async()=>{
+ const {formatPdfStandardDate}=await import('../src/lib/pdfDate')
+ assert.equal(formatPdfStandardDate('30 Sep - 2 Oct 2025'),'30 Sep - 2 Oct 2025')
+ assert.equal(formatPdfStandardDate('2025-08-14 00:00:00'),'14 Aug 2025')
+ assert.equal(formatPdfStandardDate('invalid'),'-')
+})

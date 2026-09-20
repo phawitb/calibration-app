@@ -1225,7 +1225,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         router.push(`/records/new?${params.toString()}`)
         return
       } else if (json.record) {
-        setData((d: any) => ({ ...d, ...json.record }))
+        setData((d: any) => ({ ...d, ...normalizeInitialData(json.record) }))
         if (saveAction === 'draft') setCanRequestApprovalNow(true)
       }
       if (pendingContinueRef.current) {
@@ -1416,7 +1416,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
             { field: 'receivedDate', label: 'วันที่รับเครื่อง',   type: 'date' },
-            { field: 'receivedN',    label: 'ผู้รับเครื่อง',       type: 'text' },
+            { field: 'receivedN',    label: 'เลขรับเครื่อง (Received No.)',       type: 'text' },
             { field: 'calDate',      label: 'วันที่สอบเทียบ',     type: 'date' },
             { field: 'location',     label: 'สถานที่สอบเทียบ',    type: 'text' },
             { field: 'lapTemp',      label: 'อุณหภูมิห้อง (°C)',  type: 'number' },

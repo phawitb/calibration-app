@@ -3,7 +3,7 @@ import { formatPdfUncertainty } from '@/lib/pdfUncertainty'
 import { certificateText, type CertificateTexts } from '@/lib/certificateTexts'
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { buildPdfCertificateInfo, PDF_LABELS } from '@/lib/pdfCertificate'
-import { formatPdfDate } from '@/lib/pdfDate'
+import { formatPdfDate, formatPdfStandardDate } from '@/lib/pdfDate'
 import { fmt, formatCalibrationValue, parseCalibrationValue } from '@/lib/uncertainty'
 
 export type SummaryRow = {
@@ -177,7 +177,6 @@ export default function CalibrationPDF({
   const ucSections = buildUcSections(r, summaryRows)
   const isoSections = buildIsoSections(r, isoResult)
   const resultSections: any[] = [...ucSections, ...isoSections]
-  const totalPages = resultSections.length > 4 ? 3 : 2
   // Extract English-only from unitName: "Fort Surasi Hospital(รพ.ค่ายสุรสีห์)" → "Fort Surasi Hospital"
   const customerEn = String(r.unitName || '').replace(/\(.*\)$/, '').trim() || f(r.unitName)
   const locationDisplay = (r.location === 'lab' || r.location === 'Lab') ? t('Medical Depot Division of Royal Thai Army Medical Department') : (r.location === 'outside' ? customerEn : f(r.location))
@@ -209,11 +208,11 @@ export default function CalibrationPDF({
   )
 
   /* ---- Page 2+ header ---- */
-  const PageHeader = ({ pageNum, totalPg }: { pageNum: number; totalPg: number }) => (
-    <View style={s.p2Header}>
+  const PageHeader = () => (
+    <View style={s.p2Header} fixed>
       <Text style={s.p2HeaderText}>{t('Amed No.')} {f(r.amedNo)}</Text>
       <Text style={s.p2HeaderText}>{t('Certificate No.')} {f(r.certNo)}</Text>
-      <Text style={s.p2HeaderText}>{t('Page')} {pageNum}/{totalPg}</Text>
+      <Text style={s.p2HeaderText} render={({pageNumber,totalPages}) => `${t('Page')} ${pageNumber}/${totalPages}`} />
     </View>
   )
 
@@ -221,7 +220,7 @@ export default function CalibrationPDF({
     <Document>
       {/* ===================== PAGE 1 ===================== */}
       <Page size="A4" style={s.page}>
-        <Text style={s.pageNo}>{t('Page')} 1/{totalPages}</Text>
+        <Text style={s.pageNo} render={({pageNumber,totalPages}) => `${t('Page')} ${pageNumber}/${totalPages}`} />
 
         <View style={s.headerRow}>
           <Image style={s.logo} src={logoSrc} />
@@ -308,7 +307,7 @@ export default function CalibrationPDF({
 
       {/* ===================== PAGE 2+ ===================== */}
       <Page size="A4" style={s.page} wrap>
-        <PageHeader pageNum={2} totalPg={totalPages} />
+        <PageHeader />
 
         {/* Environmental – Std1 */}
         <Text style={s.sectionTitle}>{t("Environmental")}</Text>
@@ -329,7 +328,7 @@ export default function CalibrationPDF({
             <Text style={[s.td, { width: '15%' }]}>{f(std1.model)}</Text>
             <Text style={[s.td, { width: '20%' }]}>{f(std1.serialNo)}</Text>
             <Text style={[s.td, { width: '20%' }]}>{f(std1.certNo)}</Text>
-            <Text style={[s.td, { width: '20%' }]}>{formatPdfDate(std1.calDate)}</Text>
+            <Text style={[s.td, { width: '20%' }]}>{formatPdfStandardDate(std1.calDate)}</Text>
           </View>
         </View>
 
@@ -382,7 +381,7 @@ export default function CalibrationPDF({
               <Text style={[s.bodyText, { width: colW.model }]}>{f(sec.std.model)}</Text>
               <Text style={[s.bodyText, { width: colW.serial }]}>{f(sec.std.serialNo)}</Text>
               <Text style={[s.bodyText, { width: colW.cert }]}>{f(sec.std.certNo)}</Text>
-              <Text style={[s.bodyText, { width: colW.caldt }]}>{formatPdfDate(sec.std.calDate)}</Text>
+              <Text style={[s.bodyText, { width: colW.caldt }]}>{formatPdfStandardDate(sec.std.calDate)}</Text>
             </View>
 
             {/* Measurement row */}

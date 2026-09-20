@@ -1,3 +1,5 @@
+import { listOrders } from '@/lib/workOrderService'
+import { redirect, notFound } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
@@ -37,7 +39,8 @@ function StatusLabel({ status }: { status?: string }) {
     pending_approval: 'รออนุมัติ',
     approved: 'อนุมัติแล้ว',
   }
-  return <span className="text-xs text-gray-600">{labels[status || ''] || '-'}</span>
+  const tones: Record<string,string> = {draft:'bg-slate-100 text-slate-700',rejected:'bg-rose-50 text-rose-700',pending_approval:'bg-amber-50 text-amber-800',approved:'bg-emerald-50 text-emerald-700'}
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs whitespace-nowrap ${tones[status || ''] || 'bg-gray-100 text-gray-600'}`}>{labels[status || ''] || '-'}</span>
 }
 
 function WorkList({
@@ -70,7 +73,7 @@ function WorkList({
           <tbody>
             {rows.map((r: any) => (
               <tr key={r._id} className="border-b border-gray-50 hover:bg-military-50">
-                <td className="py-2 px-3 font-medium text-military-800">{r.deviceName || r.amedNo || '-'}</td>
+                <td className="py-2 px-3 font-medium text-military-800"><Link href={`/records/${r._id}`} className="hover:underline">{r.deviceName || r.amedNo || '-'}<span className="block text-xs text-gray-500 font-normal mt-1">{r.amedNo || '—'}</span></Link></td>
                 <td className="py-2 px-3 text-gray-600">{r.certNo || '-'}</td>
                 <td className="py-2 px-3"><StatusLabel status={r.approvalStatus} /></td>
                 <td className="py-2 px-3 text-gray-500 text-xs">{r.updatedAt ? new Date(r.updatedAt).toLocaleDateString('th-TH') : '-'}</td>
@@ -84,8 +87,9 @@ function WorkList({
   )
 }
 
-async function getStats() {
+async function getStats(orderId?: string) {
   const session = await getServerSession(authOptions)
+  if (!session?.user) redirect('/login')
   const role = (session?.user as any)?.role
   const hospitalUnit = (session?.user as any)?.hospitalUnit
   const username = String((session?.user as any)?.username || '')
@@ -98,10 +102,15 @@ async function getStats() {
   }
 
   await connectDB()
+  const orders = await listOrders(session.user as any)
+  const selectedOrder = orderId ? orders.find(order=>order._id===orderId) : undefined
+  if (orderId && !selectedOrder) notFound()
   const unitVariants = await getUnitVariants(scopeHospital)
   const scope: any = withSavedRecords(scopeHospital ? {
     unitName: { $in: unitVariants.length ? unitVariants : [scopeHospital] },
   } : {})
+  if (selectedOrder) scope.workOrderId = selectedOrder._id
+  const rejectedCount = await CalibrationRecord.countDocuments({...scope,approvalStatus:'rejected'})
   const [
     total,
     thisYear,
@@ -232,15 +241,15 @@ async function getStats() {
       ? { ...scope, ...technicianOwnScope, approvalStatus: { $in: ['draft', 'rejected', 'pending_approval'] } }
       : role === 'hospital_user'
         ? { ...scope, approvalStatus: 'approved' }
-        : { ...scope }
+        : { ...scope, approvalStatus: { $in: ['draft','rejected','pending_approval'] } }
 
   const [approverQueue, recent, thisWeekRecent, pendingList, workList, expiringSoonList, overdueList] =
     await Promise.all([
       approverQueuePromise,
       CalibrationRecord.find()
         .where(scope)
-        .select('deviceName certNo calDate unitName lapTemp lapHumid approvalStatus requestedApproverName amedNo')
-        .sort({ createdAt: -1, calDate: -1 })
+        .select('deviceName certNo calDate unitName lapTemp lapHumid approvalStatus requestedApproverName amedNo updatedAt')
+        .sort({ updatedAt: -1 })
         .limit(10)
         .lean(),
       CalibrationRecord.find({
@@ -366,7 +375,7 @@ async function getStats() {
   }
   const monthlyTrend = monthKeys.map((key) => {
     const [y, m] = key.split('-')
-    return { key, label: `${m}/${y.slice(2)}`, count: monthMap.get(key) || 0 }
+    return { key, label: `${m}/${String(Number(y)+543).slice(-2)}`, count: monthMap.get(key) || 0 }
   })
 
   const usernames = topCreatedBy.map((x: any) => String(x._id || '')).filter(Boolean)
@@ -390,6 +399,7 @@ async function getStats() {
   }))
 
   return {
+    orders, selectedOrder, rejectedCount,
     total,
     thisYear,
     thisMonth,
@@ -431,403 +441,70 @@ async function getStats() {
   }
 }
 
-export default async function DashboardPage() {
-  const stats = await getStats()
-  if (stats.needsHospital) {
-    return (
-      <SelectHospitalHint
-        title="ยังไม่ได้กำหนดโรงพยาบาลให้บัญชีนี้"
-        detail="กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดโรงพยาบาลก่อนดูข้อมูล"
-      />
-    )
-  }
-  const session = stats.session
-  const role = stats.role as string | undefined
-  const isAdmin = role === 'admin'
+export default async function DashboardPage({searchParams}:{searchParams?:{order?:string}}) {
+  const stats = await getStats(searchParams?.order)
+  if (stats.needsHospital) return <SelectHospitalHint title="ยังไม่ได้กำหนดโรงพยาบาลให้บัญชีนี้" detail="กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดโรงพยาบาลก่อนดูข้อมูล" />
   const hospitalTitle = stats.scopeHospital ? (displayHospitalName(stats.scopeHospital).title || stats.scopeHospital) : 'ทุกโรงพยาบาล'
-  const canAddRecord = role === 'admin' || role === 'technician'
-  const currency = (v: number) => new Intl.NumberFormat('th-TH').format(Number(v || 0))
-
-  const defaultStatCards = [
-    { label: 'รวมทั้งหมด', value: stats.total, icon: '📊', color: 'bg-military-600', cardFilter: '' },
-    { label: 'รออนุมัติ', value: stats.pendingApproval, icon: '⏳', color: 'bg-amber-500', cardFilter: 'pending' },
-    { label: 'ใกล้ครบอายุ', value: stats.expiringSoon, icon: '⏰', color: 'bg-orange-600', cardFilter: 'expiring' },
-    { label: 'เกินกำหนดสอบใหม่', value: stats.overdueRecalibration, icon: '🚨', color: 'bg-red-600', cardFilter: 'overdue' },
-    { label: 'รายการสัปดาห์นี้', value: stats.thisWeek, icon: '🗓️', color: 'bg-blue-600', cardFilter: 'week' },
-    { label: 'เพิ่มวันนี้', value: stats.todayAdded, icon: '🆕', color: 'bg-indigo-600', cardFilter: 'today' },
-    { label: 'อนุมัติแล้ว', value: stats.approvedCount, icon: '✅', color: 'bg-emerald-600', cardFilter: 'approved' },
-    { label: 'ฉบับร่าง', value: stats.draftCount, icon: '📝', color: 'bg-slate-600', cardFilter: 'draft' },
+  const canAdd = ['admin','technician'].includes(stats.role || '')
+  const number = (value:number) => new Intl.NumberFormat('th-TH').format(value)
+  const progress = stats.total ? Math.round(stats.approvedCount / stats.total * 100) : 0
+  const rejected = stats.rejectedCount
+  const statusRows = [
+    {label:'ฉบับร่าง',count:stats.draftCount,color:'bg-slate-400'},
+    {label:'รออนุมัติ',count:stats.pendingApproval,color:'bg-amber-400'},
+    {label:'ตีกลับให้แก้ไข',count:rejected,color:'bg-rose-400'},
+    {label:'อนุมัติแล้ว',count:stats.approvedCount,color:'bg-emerald-600'},
   ]
-  const statCards =
-    role === 'approver'
-      ? [
-          { label: 'คิวรออนุมัติของฉัน', value: stats.approverQueue, icon: '✅', color: 'bg-amber-500', cardFilter: 'pending' },
-          { label: 'คิวค้างเกิน 3 วัน', value: stats.pendingLong, icon: '⏳', color: 'bg-red-600', cardFilter: 'pending' },
-          { label: 'อนุมัติแล้วทั้งระบบ', value: stats.approvedCount, icon: '📄', color: 'bg-emerald-600', cardFilter: 'approved' },
-        ]
-      : role === 'technician'
-        ? [
-            { label: 'ร่างของฉัน', value: stats.myDraft, icon: '📝', color: 'bg-slate-600', cardFilter: 'draft' },
-            { label: 'รอผู้อนุมัติ', value: stats.myPending, icon: '⏳', color: 'bg-amber-500', cardFilter: 'pending' },
-            { label: 'ใกล้ครบอายุ', value: stats.expiringSoon, icon: '⏰', color: 'bg-orange-600', cardFilter: 'expiring' },
-          ]
-      : role === 'hospital_user'
-      ? [
-          { label: 'เครื่องมือของหน่วยงาน', value: stats.total, icon: '🏥', color: 'bg-military-600', cardFilter: '' },
-          { label: 'ใกล้ครบอายุ', value: stats.expiringSoon, icon: '⏰', color: 'bg-orange-600', cardFilter: 'expiring' },
-          { label: 'เกินกำหนดสอบใหม่', value: stats.overdueRecalibration, icon: '🚨', color: 'bg-red-600', cardFilter: 'overdue' },
-          {
-            label: 'ค่าสอบเทียบรวม (อนุมัติแล้ว)',
-            value: `฿${currency(stats.calPriceTotal)}`,
-            icon: '💰',
-            color: 'bg-emerald-700',
-            cardFilter: 'approved',
-          },
-          {
-            label: 'ค่าปบ.รวม (อนุมัติแล้ว)',
-            value: `฿${currency(stats.mainPriceTotal)}`,
-            icon: '🧾',
-            color: 'bg-violet-700',
-            cardFilter: 'approved',
-          },
-        ]
-      : defaultStatCards
+  const trendMax = Math.max(1,...stats.monthlyTrend.map(p=>p.count))
+  return <div className="space-y-6 pb-8">
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div><p className="text-sm text-military-600 mb-1">{hospitalTitle}</p><h1 className="text-3xl font-semibold text-military-900">ภาพรวมงานสอบเทียบ</h1><p className="text-sm text-gray-500 mt-2">ติดตามสถานะและงานที่ต้องดำเนินการในที่เดียว</p></div>
+      <div className="flex gap-2"><Link className="btn-secondary text-sm" href="/records">ประวัติสอบเทียบ</Link>{canAdd && <Link className="btn-primary text-sm" href="/records/new">+ เพิ่มข้อมูล</Link>}</div>
+    </header>
 
-  if (!isAdmin) {
-    const workConfig = role === 'approver'
-      ? { title: 'คิวที่รอการอนุมัติของฉัน', emptyText: 'ไม่มีรายการรออนุมัติ', actionHref: '/approvals', actionText: 'เปิดคิวอนุมัติ' }
-      : role === 'technician'
-        ? { title: 'งานที่ต้องดำเนินการของฉัน', emptyText: 'ไม่มีงานร่าง งานตีกลับ หรือรายการรออนุมัติ', actionHref: '/records', actionText: 'ดูงานของฉัน' }
-        : { title: 'ใบเซอร์ล่าสุดของหน่วยงาน', emptyText: 'ยังไม่มีใบเซอร์ที่อนุมัติแล้ว', actionHref: '/hospital', actionText: 'ดูเครื่องมือของหน่วย' }
+    <section className="card !p-5" aria-label="ตัวกรองคำสั่ง">
+      <form action="/dashboard" method="get" className="flex flex-wrap items-end gap-3">
+        <label className="flex-1 min-w-[220px] text-sm font-medium text-gray-700">ดูข้อมูลตามคำสั่ง
+          <select name="order" defaultValue={stats.selectedOrder?._id || ''} className="input-field mt-2" key={stats.selectedOrder?._id || 'all'}>
+            <option value="">ทุกคำสั่ง รวมรายการที่ไม่ผูกคำสั่ง</option>
+            {stats.orders.map(order=><option key={order._id} value={order._id}>{order.orderNo} · {order.title}</option>)}
+          </select>
+        </label>
+        <button className="btn-primary" type="submit">ดูข้อมูล</button>
+        {stats.selectedOrder && <Link href="/dashboard" className="btn-secondary">ล้างตัวกรอง</Link>}
+      </form>
+      <p className="mt-3 text-xs text-gray-500">{stats.selectedOrder ? `คำสั่ง ${stats.selectedOrder.orderNo} · ${stats.selectedOrder.title}` : 'ภาพรวมทุกคำสั่ง'} · {hospitalTitle} · นับเฉพาะรายการที่บันทึกแล้ว</p>
+    </section>
 
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-military-900">สวัสดี, {session?.user?.name}</h1>
-            <p className="text-gray-500 text-sm mt-1">
-              สรุปงานของ {hospitalTitle} — {role === 'approver' ? 'ตรวจสอบและอนุมัติรายการที่มอบหมายให้คุณ' : role === 'technician' ? 'ติดตามงานสอบเทียบและดำเนินการในขั้นตอนถัดไป' : 'ติดตามสถานะและกำหนดสอบเทียบของหน่วยงานนี้'}
-            </p>
-          </div>
-          {canAddRecord && <Link href="/records/new" className="btn-primary">+ สร้างรายการใหม่</Link>}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {statCards.map((card) => (
-            <Link key={card.label} href={card.cardFilter ? `/records?cardFilter=${card.cardFilter}` : '/records'} className="card flex items-center gap-3 hover:ring-2 hover:ring-military-300 transition-all">
-              <div className={`${card.color} rounded-lg w-10 h-10 flex items-center justify-center text-xl`}>{card.icon}</div>
-              <div><p className="text-2xl font-bold text-military-900 leading-tight">{card.value}</p><p className="text-gray-500 text-xs">{card.label}</p></div>
-            </Link>
-          ))}
-        </div>
-        <WorkList {...workConfig} rows={stats.workList} />
-        {role !== 'approver' && (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <WorkList title="ใกล้ครบกำหนดสอบเทียบใหม่" rows={stats.expiringSoonList} emptyText="ยังไม่มีรายการใกล้ครบกำหนด" actionHref="/records?cardFilter=expiring" actionText="ดูทั้งหมด" />
-            <WorkList title="เกินกำหนดสอบเทียบใหม่" rows={stats.overdueList} emptyText="ยังไม่มีรายการเกินกำหนด" actionHref="/records?cardFilter=overdue" actionText="ดูทั้งหมด" />
-          </div>
-        )}
-      </div>
-    )
-  }
+    <section className="grid grid-cols-2 xl:grid-cols-4 gap-4" aria-label="สรุปสถานะ">
+      {[
+        {label:'รายการทั้งหมด',value:stats.total,detail:'ในขอบเขตที่เลือก',tone:'text-military-900'},
+        {label:'ต้องกรอก / แก้ไข',value:stats.draftCount+rejected,detail:`ฉบับร่าง ${number(stats.draftCount)} · ตีกลับ ${number(rejected)}`,tone:'text-slate-700'},
+        {label:'รออนุมัติ',value:stats.pendingApproval,detail:`รอเกิน 3 วัน ${number(stats.pendingLong)} รายการ`,tone:'text-amber-700'},
+        {label:'อนุมัติแล้ว',value:stats.approvedCount,detail:`${progress}% ของรายการทั้งหมด`,tone:'text-emerald-700'},
+      ].map(card=><div key={card.label} className="card !p-5"><p className="text-sm text-gray-500">{card.label}</p><p className={`text-4xl font-semibold tracking-tight mt-3 ${card.tone}`}>{number(card.value)}</p><p className="text-xs text-gray-500 mt-3">{card.detail}</p></div>)}
+    </section>
 
-  return (
-    <div className="space-y-6">
-      {/* Welcome */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-military-900">
-            สวัสดี, {session?.user?.name}
-          </h1>
-          <p className="text-gray-500 text-sm mt-1">{stats.scopeHospital ? `สรุปงานสอบเทียบของ ${hospitalTitle}` : 'ภาพรวมงานสอบเทียบทุกโรงพยาบาล'}</p>
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+      <section className="card xl:col-span-2">
+        <div className="flex items-center justify-between gap-3"><h2 className="font-semibold text-military-900">ความคืบหน้าการอนุมัติ</h2><span className="text-2xl font-semibold text-emerald-700">{progress}%</span></div>
+        <p className="mt-1 text-sm text-gray-500">อนุมัติแล้ว {number(stats.approvedCount)} จาก {number(stats.total)} รายการ</p>
+        <div className="flex h-3 overflow-hidden rounded-full bg-gray-100 mt-5" aria-label={`อนุมัติแล้ว ${progress}%`}>
+          {statusRows.map(row=><div key={row.label} className={row.color} style={{width:stats.total?`${row.count/stats.total*100}%`:'0%'}} />)}
         </div>
-        {canAddRecord && (
-          <Link href="/records/new" className="btn-primary flex items-center gap-2">
-            <span>➕</span>
-            <span className="hidden sm:inline">เพิ่มข้อมูลใหม่</span>
-          </Link>
-        )}
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-        {statCards.map(card => (
-          <Link
-            key={card.label}
-            href={card.cardFilter ? `/records?cardFilter=${card.cardFilter}` : '/records'}
-            className="card flex items-center gap-3 hover:ring-2 hover:ring-military-300 transition-all"
-          >
-            <div className={`${card.color} rounded-lg w-10 h-10 flex items-center justify-center text-xl`}>
-              {card.icon}
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-military-900 leading-tight">{card.value}</p>
-              <p className="text-gray-500 text-xs">{card.label}</p>
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      {/* Role quick summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card">
-          <h2 className="font-semibold text-military-800 mb-3">งานที่ต้องทำ</h2>
-          <p className="text-xs text-gray-500 mb-2">
-            เกณฑ์แจ้งเตือน: อายุใบเซอร์ {stats.certValidityMonths} เดือน / เตือนล่วงหน้า {stats.alertBeforeDays} วัน
-          </p>
-          <div className="space-y-2 text-sm">
-            <p>• โรงพยาบาลที่ใช้งาน: <span className="font-semibold">{stats.hospitals}</span> หน่วย</p>
-            <p>• รายการปีนี้: <span className="font-semibold">{stats.thisYear}</span> รายการ</p>
-            <p>• รายการค้างเกิน 3 วัน: <span className="font-semibold">{stats.pendingLong}</span> รายการ</p>
-            <p>• ใกล้ครบอายุ/เกินกำหนด: <span className="font-semibold">{stats.expiringSoon + stats.overdueRecalibration}</span> รายการ</p>
-          </div>
-        </div>
-        <div className="card">
-          <h2 className="font-semibold text-military-800 mb-3">ทางลัด</h2>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/reports" className="btn-secondary text-sm">รายงานผล</Link>
-            <Link href="/records" className="btn-secondary text-sm">ดูข้อมูลสอบเทียบ</Link>
-            <Link href="/approvals" className="btn-secondary text-sm">งานรออนุมัติ</Link>
-            {canAddRecord && (
-              <Link href="/records/new" className="btn-secondary text-sm">สร้างรายการใหม่</Link>
-            )}
-            <Link href="/admin?tab=data" className="btn-secondary text-sm">จัดการระบบ</Link>
-          </div>
-        </div>
-      </div>
-
-      {/* Proactive alerts */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div className="card">
-          <h2 className="font-semibold text-military-800 mb-3">แจ้งเตือนเชิงรุก: ใกล้ครบอายุสอบเทียบใหม่</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Amed</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Cert No.</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">วันที่สอบเทียบ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.expiringSoonList.map((r: any) => (
-                  <tr key={r._id} className="border-b border-gray-50 hover:bg-orange-50">
-                    <td className="py-2 px-3 font-medium text-military-800">{r.amedNo || '-'}</td>
-                    <td className="py-2 px-3">{r.certNo || '-'}</td>
-                    <td className="py-2 px-3">{r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}</td>
-                  </tr>
-                ))}
-                {stats.expiringSoonList.length === 0 && (
-                  <tr><td colSpan={3} className="py-8 text-center text-gray-400">ยังไม่มีรายการใกล้ครบอายุ</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div className="card">
-          <h2 className="font-semibold text-military-800 mb-3">แจ้งเตือนเชิงรุก: เกินกำหนดสอบเทียบใหม่</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Amed</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">Cert No.</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">วันที่สอบเทียบ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.overdueList.map((r: any) => (
-                  <tr key={r._id} className="border-b border-gray-50 hover:bg-red-50">
-                    <td className="py-2 px-3 font-medium text-military-800">{r.amedNo || '-'}</td>
-                    <td className="py-2 px-3">{r.certNo || '-'}</td>
-                    <td className="py-2 px-3">{r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}</td>
-                  </tr>
-                ))}
-                {stats.overdueList.length === 0 && (
-                  <tr><td colSpan={3} className="py-8 text-center text-gray-400">ยังไม่มีรายการเกินกำหนด</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Pending + weekly recents */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-military-800">รายการรออนุมัติล่าสุด</h2>
-            <Link href="/approvals" className="text-military-600 text-sm hover:underline">เปิดคิวอนุมัติ →</Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">เลขใบรับรอง</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">เครื่องมือ</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">หน่วยงาน</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.pendingList.map((r: any) => (
-                  <tr key={r._id} className="border-b border-gray-50 hover:bg-military-50 transition-colors">
-                    <td className="py-2 px-3 font-medium text-military-800">{r.certNo || '-'}</td>
-                    <td className="py-2 px-3 text-gray-600">{r.deviceName || '-'}</td>
-                    <td className="py-2 px-3 text-gray-600">{r.unitName || '-'}</td>
-                  </tr>
-                ))}
-                {stats.pendingList.length === 0 && (
-                  <tr><td colSpan={3} className="py-8 text-center text-gray-400">ไม่มีรายการรออนุมัติ</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-military-800">รายการที่เพิ่มล่าสุดของสัปดาห์</h2>
-            <Link href="/records" className="text-military-600 text-sm hover:underline">ดูทั้งหมด →</Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">เลขใบรับรอง</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">เครื่องมือ</th>
-                  <th className="text-left py-2 px-3 text-gray-500 font-medium">สถานะ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.thisWeekRecent.map((r: any) => (
-                  <tr key={r._id} className="border-b border-gray-50 hover:bg-military-50 transition-colors">
-                    <td className="py-2 px-3 font-medium text-military-800">{r.certNo || '-'}</td>
-                    <td className="py-2 px-3 text-gray-600">{r.deviceName || '-'}</td>
-                    <td className="py-2 px-3 text-gray-600">{r.approvalStatus || '-'}</td>
-                  </tr>
-                ))}
-                {stats.thisWeekRecent.length === 0 && (
-                  <tr><td colSpan={3} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูลในสัปดาห์นี้</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Trend + tops */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="card xl:col-span-2">
-          <h2 className="font-semibold text-military-800 mb-3">แนวโน้มรายการใหม่ 12 สัปดาห์</h2>
-          <div className="h-52 flex items-end gap-2 border-b border-l border-gray-200 p-2">
-            {stats.weeklyTrend.map((p: any) => {
-              const max = Math.max(...stats.weeklyTrend.map((x: any) => x.count), 1)
-              const h = Math.max(6, Math.round((p.count / max) * 170))
-              return (
-                <div key={p.key} className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1">
-                  <div className="text-[10px] text-military-700 font-medium">{p.count}</div>
-                  <div className="w-full bg-military-700/85 rounded-t" style={{ height: `${h}px` }} />
-                  <div className="text-[10px] text-gray-500">{p.label}</div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-        <div className="space-y-4">
-          <div className="card">
-            <h2 className="font-semibold text-military-800 mb-3">Top หน่วยงาน</h2>
-            <div className="space-y-2">
-              {stats.topUnits.map((u: any, idx: number) => (
-                <div key={`${u.name}-${idx}`} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700 truncate pr-2">{u.name || '-'}</span>
-                  <span className="font-semibold text-military-800">{u.count}</span>
-                </div>
-              ))}
-              {stats.topUnits.length === 0 && <p className="text-sm text-gray-400">ยังไม่มีข้อมูล</p>}
-            </div>
-          </div>
-          <div className="card">
-            <h2 className="font-semibold text-military-800 mb-3">Top จนท.ผู้บันทึกงาน</h2>
-            <div className="space-y-2">
-              {stats.topTechnicians.map((u: any, idx: number) => (
-                <div key={`${u.username}-${idx}`} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-700 truncate pr-2">{u.name || u.username || '-'}</span>
-                  <span className="font-semibold text-military-800">{u.count}</span>
-                </div>
-              ))}
-              {stats.topTechnicians.length === 0 && <p className="text-sm text-gray-400">ยังไม่มีข้อมูล</p>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="card xl:col-span-2">
-          <h2 className="font-semibold text-military-800 mb-3">แนวโน้มรายเดือน 12 เดือน</h2>
-          <div className="h-52 flex items-end gap-2 border-b border-l border-gray-200 p-2">
-            {stats.monthlyTrend.map((p: any) => {
-              const max = Math.max(...stats.monthlyTrend.map((x: any) => x.count), 1)
-              const h = Math.max(6, Math.round((p.count / max) * 170))
-              return (
-                <div key={p.key} className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1">
-                  <div className="text-[10px] text-military-700 font-medium">{p.count}</div>
-                  <div className="w-full bg-blue-700/85 rounded-t" style={{ height: `${h}px` }} />
-                  <div className="text-[10px] text-gray-500">{p.label}</div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-        <div className="card">
-          <h2 className="font-semibold text-military-800 mb-3">Top Amed ส่งสอบเทียบซ้ำ</h2>
-          <div className="space-y-2">
-            {stats.topRecalibration.map((r: any, idx: number) => (
-              <div key={`${r.amedNo}-${idx}`} className="flex items-center justify-between text-sm">
-                <span className="text-gray-700 truncate pr-2">
-                  {r.amedNo} <span className="text-gray-400">({r.latestCertNo})</span>
-                </span>
-                <span className="font-semibold text-military-800">{r.count}</span>
-              </div>
-            ))}
-            {stats.topRecalibration.length === 0 && <p className="text-sm text-gray-400">ยังไม่มีข้อมูลส่งซ้ำ</p>}
-          </div>
-        </div>
-      </div>
-
-      {/* Recent records */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-military-800">รายการล่าสุด</h2>
-          <Link href="/records" className="text-military-600 text-sm hover:underline">ดูทั้งหมด →</Link>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">เครื่องมือ</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">เลขที่ใบรับรอง</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">โรงพยาบาล</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">วันที่สอบเทียบ</th>
-                <th className="text-left py-2 px-3 text-gray-500 font-medium">อุณหภูมิ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.recent.map((r: any) => (
-                <tr key={r._id} className="border-b border-gray-50 hover:bg-military-50 transition-colors">
-                  <td className="py-2 px-3 font-medium text-military-800">{r.deviceName || '-'}</td>
-                  <td className="py-2 px-3 text-gray-600">{r.certNo || '-'}</td>
-                  <td className="py-2 px-3 text-gray-600">{r.unitName || '-'}</td>
-                  <td className="py-2 px-3 text-gray-600">
-                    {r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}
-                  </td>
-                  <td className="py-2 px-3 text-gray-600">{r.lapTemp ? `${r.lapTemp}°C` : '-'}</td>
-                </tr>
-              ))}
-              {stats.recent.length === 0 && (
-                <tr><td colSpan={5} className="py-8 text-center text-gray-400">ยังไม่มีข้อมูล</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5">{statusRows.map(row=><div key={row.label}><div className="flex items-center gap-2 text-xs text-gray-500"><span className={`h-2 w-2 rounded-full ${row.color}`} />{row.label}</div><p className="text-lg font-semibold mt-1">{number(row.count)}</p></div>)}</div>
+      </section>
+      <section className="card"><h2 className="font-semibold text-military-900">กำหนดสอบเทียบซ้ำ</h2><p className="mt-1 text-xs text-gray-500">จากใบรับรองที่อนุมัติแล้วในขอบเขตนี้</p><div className="mt-4 space-y-3"><div className="flex justify-between rounded-lg bg-rose-50 p-3 text-rose-800"><span>เกินกำหนด</span><strong>{number(stats.overdueRecalibration)}</strong></div><div className="flex justify-between rounded-lg bg-amber-50 p-3 text-amber-800"><span>ใกล้ครบกำหนด</span><strong>{number(stats.expiringSoon)}</strong></div></div><p className="mt-3 text-xs text-gray-500">อายุใบรับรอง {stats.certValidityMonths} เดือน · แจ้งล่วงหน้า {stats.alertBeforeDays} วัน</p></section>
     </div>
-  )
+
+    <WorkList title={stats.role==='approver'?'งานที่รอคุณอนุมัติ':stats.role==='hospital_user'?'ใบรับรองล่าสุดของโรงพยาบาล':'งานที่ต้องติดตาม'} rows={stats.workList} emptyText="ไม่มีงานในขอบเขตที่เลือก" actionHref="/records" actionText="เปิดประวัติทั้งหมด" />
+
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+      <section className="card xl:col-span-2"><h2 className="font-semibold text-military-900">รายการที่เพิ่มใน 12 เดือน</h2><p className="text-xs text-gray-500 mt-1">นับตามวันที่สร้างรายการ</p>
+        <div className="flex items-end gap-2 h-48 mt-5 border-b border-gray-100">{stats.monthlyTrend.map(p=><div key={p.key} className="flex-1 min-w-0 flex flex-col items-center justify-end h-full gap-2"><span className="text-xs text-gray-600">{p.count}</span><div className="w-full max-w-10 rounded-t bg-military-600" style={{height:`${p.count/trendMax*120}px`}} /><span className="text-[10px] text-gray-500 pb-2">{p.label}</span></div>)}</div>
+      </section>
+      <section className="card"><h2 className="font-semibold text-military-900">มูลค่างานที่อนุมัติแล้ว</h2><p className="text-xs text-gray-500 mt-1">เฉพาะขอบเขตที่เลือก</p><p className="text-3xl font-semibold text-military-900 mt-6">{number(stats.calPriceTotal+stats.mainPriceTotal)} <span className="text-sm font-normal">บาท</span></p><dl className="space-y-3 mt-6 text-sm"><div className="flex justify-between"><dt className="text-gray-500">ค่าสอบเทียบ</dt><dd>{number(stats.calPriceTotal)}</dd></div><div className="flex justify-between"><dt className="text-gray-500">ค่าปบ.</dt><dd>{number(stats.mainPriceTotal)}</dd></div></dl></section>
+    </div>
+    <WorkList title="รายการอัปเดตล่าสุด" rows={stats.recent} emptyText="ยังไม่มีรายการที่บันทึกในขอบเขตนี้" actionHref="/records" actionText="เปิดประวัติทั้งหมด" />
+  </div>
 }

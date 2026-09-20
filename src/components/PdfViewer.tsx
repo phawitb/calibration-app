@@ -1,5 +1,5 @@
 'use client'
-import { PDFViewer, BlobProvider, Font, pdf } from '@react-pdf/renderer'
+import { BlobProvider, Font, pdf } from '@react-pdf/renderer'
 import { Component, useEffect, useState, type ReactNode } from 'react'
 import { type CertificateTexts } from '@/lib/certificateTexts'
 import CalibrationPDF, { type SummaryRow } from './CalibrationPDF'
@@ -299,13 +299,16 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
       {!isMobile && (
       <PdfRenderErrorBoundary>
         <div className="card p-0 overflow-hidden min-h-[400px] w-full max-w-full">
-          <PDFViewer
-            showToolbar
-            className="border-0 w-full"
-            style={{ width: '100%', height: 800 }}
-          >
-            {pdfDocument}
-          </PDFViewer>
+          <BlobProvider document={pdfDocument}>
+            {({ url, loading, error }) => {
+              if (error) return <p role="alert" className="p-4 text-red-600">สร้างตัวอย่าง PDF ไม่สำเร็จ กรุณาลองใหม่</p>
+              if (loading || !url) return <p className="p-4 text-gray-500">กำลังสร้างตัวอย่าง PDF…</p>
+              // A new frame has an initial navigation, not a history entry pointing
+              // back to a revoked blob URL. Never update src on an existing frame.
+              return <iframe key={url} title="ตัวอย่างใบรับรอง PDF" src={`${url}#toolbar=1`}
+                className="border-0 w-full" style={{ width: '100%', height: 800 }} />
+            }}
+          </BlobProvider>
         </div>
       </PdfRenderErrorBoundary>
       )}

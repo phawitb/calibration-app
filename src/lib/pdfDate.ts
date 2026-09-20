@@ -18,3 +18,10 @@ export function formatPdfDate(value: unknown): string {
   const day = String(date.getDate()).padStart(2, '0')
   return `${day} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`
 }
+
+/** Annual reference certificates may specify a date range rather than a single date. */
+export function formatPdfStandardDate(value: unknown): string {
+  const text = String(value ?? '').trim()
+  if (/^\d{1,2}\s+[A-Za-z]{3,9}\s*[-–]\s*\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}$/.test(text)) return text
+  return formatPdfDate(value)
+}
