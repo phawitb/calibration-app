@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation'
 import { useOrderWorkspace } from './OrderWorkspace'
 import { useHospitalWorkspace } from './HospitalWorkspace'
 import HospitalSidebar from '@/components/HospitalSidebar'
+import PageFeedback, { FeedbackProvider } from './PageFeedback'
+import { Suspense } from 'react'
 import Navbar from '@/components/Navbar'
 
 export default function AppShell({
@@ -26,7 +28,7 @@ export default function AppShell({
   const isNewRecord = pathname === '/records/new'
   const requiresOrder = pathname === '/records/new' || pathname === '/hospital'
   return (
-    <div className="min-h-screen bg-military-50 flex">
+    <FeedbackProvider><div className="min-h-screen bg-military-50 flex">
       {role && !isHospitalUser && <HospitalSidebar />}
       <div className="flex-1 min-w-0 flex flex-col">
         <Navbar />
@@ -58,6 +60,7 @@ export default function AppShell({
           )}
         </main>
       </div>
-    </div>
+      <Suspense fallback={null}><PageFeedback /></Suspense>
+    </div></FeedbackProvider>
   )
 }

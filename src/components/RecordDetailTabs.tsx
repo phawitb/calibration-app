@@ -1,5 +1,6 @@
 'use client'
 
+import { useFeedbackSection } from './PageFeedback'
 import { useState, useCallback, useRef, type ReactNode } from 'react'
 import { StepNavContext } from '@/lib/stepNavContext'
 
@@ -48,6 +49,7 @@ export default function RecordDetailTabs({
     ? (initialStep as Tab)
     : 'edit'
   const [tab, setTab] = useState<Tab>(validInitial)
+  useFeedbackSection(tab)
   const [calcMounted, setCalcMounted] = useState(validInitial === 'calc' || validInitial === 'preview')
   const [previewMounted, setPreviewMounted] = useState(validInitial === 'preview')
   const [historyMounted, setHistoryMounted] = useState(false)
