@@ -1,3 +1,6 @@
+import mongoose from 'mongoose'
+import { getCertificateTextConfig } from '@/lib/certificateTextService'
+import { defaultCertificateTexts, type CertificateTexts } from '@/lib/certificateTexts'
 import React from 'react'
 import path from 'node:path'
 import { Font, renderToBuffer } from '@react-pdf/renderer'
@@ -28,7 +31,7 @@ export async function getCertificateSignatures(record: any) {
 }
 
 /** Caller establishes the database connection. All PDF assets are read locally. */
-export async function renderCertificatePdf(record: any): Promise<Buffer> {
+export async function renderCertificatePdf(record: any, textOverrides?: CertificateTexts): Promise<Buffer> {
   if (!fontsRegistered) {
     Font.register({ family: 'NotoSansThai', fonts: [
       { src: path.join(process.cwd(), 'public/fonts/noto-sans-thai-400.woff'), fontWeight: 400 },
@@ -36,6 +39,7 @@ export async function renderCertificatePdf(record: any): Promise<Buffer> {
     ] })
     fontsRegistered = true
   }
+  const texts = textOverrides || (mongoose.connection.readyState === 1 ? (await getCertificateTextConfig()).texts : defaultCertificateTexts)
   const [calculation, signatures] = await Promise.all([calculateRecord(record), getCertificateSignatures(record)])
   if (record.calibrationType === 'iso' && record.isoData?.calPoints?.length) {
     const hasResults = calculation.isoResult?.calPointResults?.length ||
@@ -43,6 +47,7 @@ export async function renderCertificatePdf(record: any): Promise<Buffer> {
     if (!hasResults) throw new Error('ISO calculation produced no results for the recorded calibration points')
   }
   return renderToBuffer(<CalibrationPDF
+    texts={texts}
     record={record}
     summaryRows={calculation.summary || null}
     isoResult={calculation.isoResult}

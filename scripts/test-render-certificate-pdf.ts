@@ -71,3 +71,22 @@ test('ISO rendering rejects populated records without calculated results but all
   const pdf = await renderCertificatePdf({ ...record, approvalStatus: 'draft', isoData: { calPoints: [] } })
   assert.equal(pdf.subarray(0, 5).toString(), '%PDF-')
 })
+
+test('configured certificate text appears in generated PDF without changing record data', async () => {
+  const { CERTIFICATE_TEXT_FIELDS, defaultCertificateTexts } = await import('../src/lib/certificateTexts')
+  const { execFileSync } = await import('node:child_process')
+  const texts = {...defaultCertificateTexts}
+  for (const [original, replacement] of [['Calibration Certificate','Custom Certificate Title'], ['Equipment','Custom Equipment'], ['Calibration Procedure','Custom Procedure']]) {
+    const field = CERTIFICATE_TEXT_FIELDS.find(field => field.defaultValue === original)!
+    texts[field.key] = replacement
+  }
+  const record = { ...common, calibrationType: 'sbcal', uc1: { std: standard, calPoints: [{ point:37, readings:[37.1,37.2],standards:[37,37] }] } }
+  const before = JSON.stringify(record)
+  const pdf = await renderCertificatePdf(record, texts)
+  const text = execFileSync('pdftotext', ['-layout', '-', '-'], { input: pdf }).toString()
+  assert.match(text,/Custom Certificate Title/)
+  assert.match(text,/Custom Equipment/)
+  assert.match(text,/Custom Procedure/)
+  assert.match(text,/CAL-2026-0001/)
+  assert.equal(JSON.stringify(record),before)
+})

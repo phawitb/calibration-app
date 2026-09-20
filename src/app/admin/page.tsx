@@ -1,3 +1,4 @@
+import AdminCertificateTexts from '@/components/AdminCertificateTexts'
 import AdminUsers from '@/components/AdminUsers'
 import ReferenceDataManager from '@/components/ReferenceDataManager'
 import AdminCertNumberConfig from '@/components/AdminCertNumberConfig'
@@ -23,6 +24,7 @@ export default async function AdminPage({
       <h1 className="text-2xl font-bold text-military-900">จัดการระบบ</h1>
       {tab === 'users' && <AdminUsers />}
       {tab === 'data' && <ReferenceDataManager initialCategory={searchParams?.category} />}
+      {tab === 'certificate-texts' && <AdminCertificateTexts />}
       {tab === 'cert' && <AdminCertNumberConfig />}
       {tab === 'formulas' && <AdminFormulaManager />}
       {tab === 'iso-methods' && <AdminIsoMethods />}

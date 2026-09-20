@@ -1,6 +1,7 @@
 'use client'
 import { PDFViewer, BlobProvider, Font, pdf } from '@react-pdf/renderer'
 import { Component, useEffect, useState, type ReactNode } from 'react'
+import { type CertificateTexts } from '@/lib/certificateTexts'
 import CalibrationPDF, { type SummaryRow } from './CalibrationPDF'
 
 /** WOFF จาก /public/fonts — โหลด same-origin กว่า woff2 แบบ remote (มักทำให้ @react-pdf ไม่ render) */
@@ -45,6 +46,16 @@ class PdfRenderErrorBoundary extends Component<
 }
 
 export default function PdfViewer({ record, recordId }: { record: any; recordId: string }) {
+  const [texts, setTexts] = useState<CertificateTexts | null>(null)
+  const [textError, setTextError] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/certificate-texts', {cache: 'no-store', signal: controller.signal})
+      .then(response => { if (!response.ok) throw Error('Text settings unavailable'); return response.json() })
+      .then(data => setTexts(data.texts))
+      .catch(() => { if (!controller.signal.aborted) setTextError(true) })
+    return () => controller.abort()
+  }, [])
   const [mounted, setMounted] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const [decimals, setDecimals] = useState(1)
@@ -164,13 +175,14 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
   }, [recordId, requestKey])
 
   useEffect(() => {
-    if (!mounted || !recordId || archiveDone || summaryLoading || summaryError ||
+    if (!texts || !mounted || !recordId || archiveDone || summaryLoading || summaryError ||
       calculationReadyKey !== requestKey || signaturesReadyKey !== requestKey) return
     let disposed = false
     ;(async () => {
       try {
         const blob = await pdf(
           <CalibrationPDF
+            texts={texts}
             record={record}
             summaryRows={summaryRows}
             isoResult={isoResult}
@@ -206,9 +218,10 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
     return () => {
       disposed = true
     }
-  }, [mounted, recordId, archiveDone, record, summaryRows, isoResult, calibratorSignature, approverSignature, decimals, summaryLoading, summaryError, calculationReadyKey, signaturesReadyKey, requestKey])
+  }, [texts, mounted, recordId, archiveDone, record, summaryRows, isoResult, calibratorSignature, approverSignature, decimals, summaryLoading, summaryError, calculationReadyKey, signaturesReadyKey, requestKey])
 
-  if (!mounted) {
+  if (textError) return <div role="alert" className="card text-red-700">โหลดข้อความในใบรับรองไม่สำเร็จ กรุณารีเฟรชหน้า</div>
+  if (!mounted || !texts) {
     return (
       <div className="flex items-center justify-center h-64 card">
         <p className="text-gray-400">กำลังเตรียมตัวอย่าง PDF…</p>
@@ -218,6 +231,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
 
   const pdfDocument = (
     <CalibrationPDF
+            texts={texts}
       record={record}
       summaryRows={summaryRows}
       isoResult={isoResult}

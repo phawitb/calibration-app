@@ -1,4 +1,5 @@
 import React from 'react'
+import { certificateText, type CertificateTexts } from '@/lib/certificateTexts'
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { buildPdfCertificateInfo, PDF_LABELS } from '@/lib/pdfCertificate'
 import { formatPdfDate } from '@/lib/pdfDate'
@@ -152,6 +153,7 @@ export default function CalibrationPDF({
   approverSignature,
   decimals = 4,
   logoSrc = "/logo.jpg",
+  texts = {},
 }: {
   record: any
   summaryRows: SummaryRow[] | null
@@ -159,8 +161,10 @@ export default function CalibrationPDF({
   calibratorSignature?: string | null
   approverSignature?: string | null
   decimals?: number
+  texts?: CertificateTexts
   logoSrc?: string
 }) {
+  const t = (original: string) => certificateText(original, texts)
   const fmtVal = (n: number | undefined | null, precision = decimals) =>
     n == null || Number.isNaN(Number(n)) ? '-' : fmt(Number(n), precision)
   const r = record
@@ -175,19 +179,19 @@ export default function CalibrationPDF({
   const totalPages = resultSections.length > 4 ? 3 : 2
   // Extract English-only from unitName: "Fort Surasi Hospital(รพ.ค่ายสุรสีห์)" → "Fort Surasi Hospital"
   const customerEn = String(r.unitName || '').replace(/\(.*\)$/, '').trim() || f(r.unitName)
-  const locationDisplay = (r.location === 'lab' || r.location === 'Lab') ? 'Medical Depot Division of Royal Thai Army Medical Department' : (r.location === 'outside' ? customerEn : f(r.location))
+  const locationDisplay = (r.location === 'lab' || r.location === 'Lab') ? t('Medical Depot Division of Royal Thai Army Medical Department') : (r.location === 'outside' ? customerEn : f(r.location))
   const certificateInfo = buildPdfCertificateInfo(r, customerEn, locationDisplay)
 
   /* ---- Reusable info row ---- */
   const InfoRow2 = ({ l1, v1, l2, v2, last }: { l1: string; v1: string; l2?: string; v2?: string; last?: boolean }) => (
     <View style={last ? s.infoRowLast : s.infoRow}>
       <View style={s.infoLeft}>
-        <Text style={[s.infoLabel, s.infoLabelW]}>{l1}</Text>
+        <Text style={[s.infoLabel, s.infoLabelW]}>{t(l1)}</Text>
         <Text style={[s.infoValue, s.infoValueFlex]}>{v1}</Text>
       </View>
       {l2 != null && (
         <View style={s.infoRight}>
-          <Text style={[s.infoLabel, s.infoLabelW2]}>{l2}</Text>
+          <Text style={[s.infoLabel, s.infoLabelW2]}>{t(l2 || '')}</Text>
           <Text style={[s.infoValue, s.infoValueFlex]}>{v2 || '-'}</Text>
         </View>
       )}
@@ -197,7 +201,7 @@ export default function CalibrationPDF({
   const InfoRowFull = ({ label, value, last }: { label: string; value: string; last?: boolean }) => (
     <View style={last ? s.infoRowLast : s.infoRow}>
       <View style={s.infoFull}>
-        <Text style={[s.infoLabel, s.infoLabelW]}>{label}</Text>
+        <Text style={[s.infoLabel, s.infoLabelW]}>{t(label)}</Text>
         <Text style={[s.infoValue, s.infoValueFlex]}>{value}</Text>
       </View>
     </View>
@@ -206,9 +210,9 @@ export default function CalibrationPDF({
   /* ---- Page 2+ header ---- */
   const PageHeader = ({ pageNum, totalPg }: { pageNum: number; totalPg: number }) => (
     <View style={s.p2Header}>
-      <Text style={s.p2HeaderText}>Amed No. {f(r.amedNo)}</Text>
-      <Text style={s.p2HeaderText}>Certificate No. {f(r.certNo)}</Text>
-      <Text style={s.p2HeaderText}>Page {pageNum}/{totalPg}</Text>
+      <Text style={s.p2HeaderText}>{t('Amed No.')} {f(r.amedNo)}</Text>
+      <Text style={s.p2HeaderText}>{t('Certificate No.')} {f(r.certNo)}</Text>
+      <Text style={s.p2HeaderText}>{t('Page')} {pageNum}/{totalPg}</Text>
     </View>
   )
 
@@ -216,19 +220,19 @@ export default function CalibrationPDF({
     <Document>
       {/* ===================== PAGE 1 ===================== */}
       <Page size="A4" style={s.page}>
-        <Text style={s.pageNo}>Page 1/{totalPages}</Text>
+        <Text style={s.pageNo}>{t('Page')} 1/{totalPages}</Text>
 
         <View style={s.headerRow}>
           <Image style={s.logo} src={logoSrc} />
           <View style={{ flex: 1 }}>
-            <Text style={s.orgName}>MEDICAL DEPOT DIVISION OF ROYAL THAI ARMY MEDICAL DEPARTMENT</Text>
-            <Text style={s.orgAddr}>8 Phaya Thai Road, Thung Phaya Thai, Ratchathewi, Bangkok, 10400 Thailand</Text>
+            <Text style={s.orgName}>{t("MEDICAL DEPOT DIVISION OF ROYAL THAI ARMY MEDICAL DEPARTMENT")}</Text>
+            <Text style={s.orgAddr}>{t("8 Phaya Thai Road, Thung Phaya Thai, Ratchathewi, Bangkok, 10400 Thailand")}</Text>
           </View>
         </View>
 
-        <Text style={s.certTitle}>Calibration Certificate</Text>
+        <Text style={s.certTitle}>{t("Calibration Certificate")}</Text>
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 4 }}>
-          <Text style={{ fontSize: 10, fontWeight: 700 }}>Certificate </Text>
+          <Text style={{ fontSize: 10, fontWeight: 700 }}>{t("Certificate")} </Text>
           <Text style={{ fontSize: 10 }}>{f(r.certNo)}</Text>
         </View>
 
@@ -248,11 +252,11 @@ export default function CalibrationPDF({
           )}
           <View style={s.infoRow}>
             <View style={s.infoLeft}>
-              <Text style={[s.infoLabel, s.infoLabelW]}>Environment</Text>
+              <Text style={[s.infoLabel, s.infoLabelW]}>{t("Environment")}</Text>
               <Text style={[s.infoValue, s.infoValueFlex]}></Text>
             </View>
             <View style={s.infoRight}>
-              <Text style={[s.infoLabel, { width: 70 }]}>Temperature</Text>
+              <Text style={[s.infoLabel, { width: 70 }]}>{t("Temperature")}</Text>
               <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapTemp, 1)}</Text>
               <Text style={[s.infoValue, { marginLeft: 4 }]}>°C</Text>
             </View>
@@ -263,7 +267,7 @@ export default function CalibrationPDF({
               <Text style={[s.infoValue, s.infoValueFlex]}></Text>
             </View>
             <View style={s.infoRight}>
-              <Text style={[s.infoLabel, { width: 70 }]}>Humidity</Text>
+              <Text style={[s.infoLabel, { width: 70 }]}>{t("Humidity")}</Text>
               <Text style={[s.infoValue, { width: 40, textAlign: 'right' }]}>{fmtVal(r.lapHumid, 1)}</Text>
               <Text style={[s.infoValue, { marginLeft: 4 }]}>%RH</Text>
             </View>
@@ -272,7 +276,7 @@ export default function CalibrationPDF({
 
         {/* Calibration method */}
         <Text style={s.methodText}>
-          <Text style={{ fontWeight: 700 }}>Calibration method</Text> : By comparison with standard tools. This certificate is traceable to the SI units.
+          <Text style={{ fontWeight: 700 }}>{t("Calibration method")}</Text> : {t('By comparison with standard tools. This certificate is traceable to the SI units.')}
         </Text>
 
         {/* Signatures */}
@@ -283,7 +287,7 @@ export default function CalibrationPDF({
             </View>
             <View style={s.sigLine} />
             <Text style={s.sigText}>{f(r.calibrate)}</Text>
-            <Text style={s.sigText}>Calibrate</Text>
+            <Text style={s.sigText}>{t("Calibrate")}</Text>
           </View>
           <View style={s.sigBox}>
             <View style={s.sigArea}>
@@ -291,20 +295,14 @@ export default function CalibrationPDF({
             </View>
             <View style={s.sigLine} />
             <Text style={s.sigText}>{approvedDisplayName}</Text>
-            <Text style={s.sigText}>Approve</Text>
+            <Text style={s.sigText}>{t("Approve")}</Text>
           </View>
         </View>
 
         {/* Disclaimer */}
-        <Text style={s.disclaimer}>
-          This certificate is valid only to the item calibrated on date and place of calibration. The report shall not be reproduced except in full without approval of Medical depot division of royal Thai army medical department.
-        </Text>
-        <Text style={s.disclaimer}>
-          This certificate is issued the units of measurement according to the International System of units (SI unit). It provides traceability of measurement to international or national standard or other recognized national standard laboratories.
-        </Text>
-        <Text style={s.disclaimer}>
-          The measurement uncertainty stated is the expanded uncertainty which is obtained from the standard uncertainty multiplied by the coverage factor ( k = 2 ) to provide a level of confidence of approximately 95%. It is determined in accordance with the Guide to Expression of Uncertainty in Measurement (GUM).
-        </Text>
+        <Text style={s.disclaimer}>{t("This certificate is valid only to the item calibrated on date and place of calibration. The report shall not be reproduced except in full without approval of Medical depot division of royal Thai army medical department.")}</Text>
+        <Text style={s.disclaimer}>{t("This certificate is issued the units of measurement according to the International System of units (SI unit). It provides traceability of measurement to international or national standard or other recognized national standard laboratories.")}</Text>
+        <Text style={s.disclaimer}>{t("The measurement uncertainty stated is the expanded uncertainty which is obtained from the standard uncertainty multiplied by the coverage factor ( k = 2 ) to provide a level of confidence of approximately 95%. It is determined in accordance with the Guide to Expression of Uncertainty in Measurement (GUM).")}</Text>
       </Page>
 
       {/* ===================== PAGE 2+ ===================== */}
@@ -312,18 +310,18 @@ export default function CalibrationPDF({
         <PageHeader pageNum={2} totalPg={totalPages} />
 
         {/* Environmental – Std1 */}
-        <Text style={s.sectionTitle}>Environmental</Text>
-        <Text style={[s.bodyText, { fontWeight: 700 }]}>Reference Standard Instrument</Text>
+        <Text style={s.sectionTitle}>{t("Environmental")}</Text>
+        <Text style={[s.bodyText, { fontWeight: 700 }]}>{t("Reference Standard Instrument")}</Text>
         {(std1.name || std1.no) && (
           <Text style={[s.bodyText, { marginBottom: 2 }]}>- {f(std1.name)}</Text>
         )}
         <View style={s.table}>
           <View style={s.tRow}>
-            <Text style={[s.th, { width: '25%' }]}>{PDF_LABELS.manufacturer}</Text>
-            <Text style={[s.th, { width: '15%' }]}>Model</Text>
-            <Text style={[s.th, { width: '20%' }]}>Serial NO.</Text>
-            <Text style={[s.th, { width: '20%' }]}>Cert. NO.</Text>
-            <Text style={[s.th, { width: '20%' }]}>Cal.Date</Text>
+            <Text style={[s.th, { width: '25%' }]}>{t(PDF_LABELS.manufacturer)}</Text>
+            <Text style={[s.th, { width: '15%' }]}>{t("Model")}</Text>
+            <Text style={[s.th, { width: '20%' }]}>{t("Serial NO.")}</Text>
+            <Text style={[s.th, { width: '20%' }]}>{t("Cert. NO.")}</Text>
+            <Text style={[s.th, { width: '20%' }]}>{t("Cal.Date")}</Text>
           </View>
           <View style={s.tRowLast}>
             <Text style={[s.td, { width: '25%' }]}>{f(std1.manufacture)}</Text>
@@ -337,12 +335,12 @@ export default function CalibrationPDF({
         {/* Temp / Humidity min-max */}
         <View style={s.table}>
           <View style={s.tRow}>
-            <Text style={[s.th, { width: '20%' }]}>Temp ( °C )</Text>
-            <Text style={[s.th, { width: '15%' }]}>Min.Value</Text>
-            <Text style={[s.th, { width: '15%' }]}>Max.Value</Text>
-            <Text style={[s.th, { width: '20%' }]}>Humidity(%)</Text>
-            <Text style={[s.th, { width: '15%' }]}>Min.Value</Text>
-            <Text style={[s.th, { width: '15%' }]}>Max.Value</Text>
+            <Text style={[s.th, { width: '20%' }]}>{t("Temp ( °C )")}</Text>
+            <Text style={[s.th, { width: '15%' }]}>{t("Min.Value")}</Text>
+            <Text style={[s.th, { width: '15%' }]}>{t("Max.Value")}</Text>
+            <Text style={[s.th, { width: '20%' }]}>{t("Humidity(%)")}</Text>
+            <Text style={[s.th, { width: '15%' }]}>{t("Min.Value")}</Text>
+            <Text style={[s.th, { width: '15%' }]}>{t("Max.Value")}</Text>
           </View>
           <View style={s.tRowLast}>
             <Text style={[s.td, { width: '20%' }]}></Text>
@@ -355,16 +353,12 @@ export default function CalibrationPDF({
         </View>
 
         {/* Calibration Procedure */}
-        <Text style={s.sectionTitle}>Calibration Procedure</Text>
-        <Text style={s.bodyText}>
-          This calibration was performed by direct measurement of the unit under calibration using calibrated standard instrument. The data was recorded in steady state at the calibrate point values.
-        </Text>
+        <Text style={s.sectionTitle}>{t("Calibration Procedure")}</Text>
+        <Text style={s.bodyText}>{t("This calibration was performed by direct measurement of the unit under calibration using calibrated standard instrument. The data was recorded in steady state at the calibrate point values.")}</Text>
 
         {/* Result of Calibration */}
-        <Text style={[s.sectionTitle, { marginTop: 8 }]}>Result of Calibration</Text>
-        <Text style={[s.bodyText, { fontWeight: 700, marginBottom: 4 }]}>
-          STD = Standard Instrument  UUC = Unit Under Calibration
-        </Text>
+        <Text style={[s.sectionTitle, { marginTop: 8 }]}>{t("Result of Calibration")}</Text>
+        <Text style={[s.bodyText, { fontWeight: 700, marginBottom: 4 }]}>{t("STD = Standard Instrument  UUC = Unit Under Calibration")}</Text>
 
         {/* Per-UC result tables */}
         {resultSections.map((sec) => {
@@ -374,12 +368,12 @@ export default function CalibrationPDF({
             {/* Row 1: header labels */}
             <View style={{ flexDirection: 'row' }}>
               <Text style={[s.bodyText, { fontWeight: 700, width: colW.left }]}>
-                Reference Standard Instrument {sec.index}
+                {t('Reference Standard Instrument')} {sec.index}
               </Text>
-              <Text style={[s.bodyText, { fontWeight: 700, width: colW.model }]}>Model</Text>
-              <Text style={[s.bodyText, { fontWeight: 700, width: colW.serial }]}>Serial NO.</Text>
-              <Text style={[s.bodyText, { fontWeight: 700, width: colW.cert }]}>Cert. NO.</Text>
-              <Text style={[s.bodyText, { fontWeight: 700, width: colW.caldt }]}>Cal.Date</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.model }]}>{t("Model")}</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.serial }]}>{t("Serial NO.")}</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.cert }]}>{t("Cert. NO.")}</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: colW.caldt }]}>{t("Cal.Date")}</Text>
             </View>
             {/* Row 2: instrument values */}
             <View style={{ flexDirection: 'row', marginBottom: 2 }}>
@@ -392,22 +386,22 @@ export default function CalibrationPDF({
 
             {/* Measurement row */}
             <View style={{ flexDirection: 'row', marginBottom: 3 }}>
-              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>Measurement</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>{t("Measurement")}</Text>
               <Text style={[s.bodyText, { width: 90 }]}>{sec.measurement}</Text>
-              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>{PDF_LABELS.measureUnit}</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: 80 }]}>{t(PDF_LABELS.measureUnit)}</Text>
               <Text style={[s.bodyText, { width: 60 }]}>{sec.unit}</Text>
-              <Text style={[s.bodyText, { fontWeight: 700, width: 50 }]}>Remark</Text>
+              <Text style={[s.bodyText, { fontWeight: 700, width: 50 }]}>{t("Remark")}</Text>
               <Text style={s.bodyText}>-</Text>
             </View>
 
             {/* Cal point table */}
             <View style={s.table}>
               <View style={s.tRow}>
-                <Text style={[s.th, { width: '20%' }]}>Cal.point</Text>
-                <Text style={[s.th, { width: '20%' }]}>UUC reading</Text>
-                <Text style={[s.th, { width: '20%' }]}>STD reading</Text>
-                <Text style={[s.th, { width: '20%' }]}>Correction</Text>
-                <Text style={[s.th, { width: '20%' }]}>± Uncertainty</Text>
+                <Text style={[s.th, { width: '20%' }]}>{t("Cal.point")}</Text>
+                <Text style={[s.th, { width: '20%' }]}>{t("UUC reading")}</Text>
+                <Text style={[s.th, { width: '20%' }]}>{t("STD reading")}</Text>
+                <Text style={[s.th, { width: '20%' }]}>{t("Correction")}</Text>
+                <Text style={[s.th, { width: '20%' }]}>{t("± Uncertainty")}</Text>
               </View>
               {/* Units row */}
               <View style={s.tRow}>
@@ -435,7 +429,7 @@ export default function CalibrationPDF({
         {/* Remarks */}
         {Array.isArray(r.remarks) && r.remarks.some((rm: string) => rm) && (
           <View style={{ marginTop: 4 }}>
-            <Text style={[s.bodyText, { fontWeight: 700, marginBottom: 2 }]}>Remark</Text>
+            <Text style={[s.bodyText, { fontWeight: 700, marginBottom: 2 }]}>{t("Remark")}</Text>
             {r.remarks.filter(Boolean).map((rm: string, i: number) => (
               <Text key={i} style={[s.bodyText, { marginBottom: 1 }]}>- {rm}</Text>
             ))}
