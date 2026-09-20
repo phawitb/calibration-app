@@ -90,3 +90,26 @@ test('configured certificate text appears in generated PDF without changing reco
   assert.match(text,/CAL-2026-0001/)
   assert.equal(JSON.stringify(record),before)
 })
+
+ test('polynomial certificate uses mean of individually corrected raw STD samples', async () => {
+  const std = {...standard, correctionModel:'polynomial-v1',correctionA:0,correctionB:1,correctionC:0,correctionD:0}
+  const record = {...common,std1:std,calibrationType:'sbcal',uc1:{std,calPoints:[{point:2,readings:[1,3,1,3],standards:[1,3,1,3]}]}}
+  const before = JSON.stringify(record)
+  const calculated = await calculateRecord(record)
+  assert.equal(calculated.summary[0].avgSTDRead,7)
+  assert.equal(calculated.summary[0].correction,5)
+  const pdf = await renderCertificatePdf(record)
+  const {execFileSync} = await import('node:child_process')
+  const text = execFileSync('pdftotext',['-layout','-','-'],{input:pdf}).toString()
+  assert.match(text,/7\.0/)
+  assert.equal(JSON.stringify(record),before)
+})
+
+ test('PDF uncertainty column renders two digits rounded upward', async () => {
+  const std={...standard,uTStd:0.641,uTDrif:0,uTResStd:0,uTUuc:0,uTInt:0}
+  const record={...common,calibrationType:'sbcal',uc1:{std,calPoints:[{point:10,readings:[10,10,10,10],standards:[10,10,10,10]}]}}
+  const {execFileSync}=await import('node:child_process')
+  const pdf=await renderCertificatePdf(record)
+  const text=execFileSync('pdftotext',['-layout','-','-'],{input:pdf}).toString()
+  assert.match(text,/0\.65/)
+})

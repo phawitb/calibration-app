@@ -1,3 +1,4 @@
+import { STANDARD_DIVISOR_FIELDS } from '../lib/formulaDivisors'
 import mongoose, { Schema, Document } from 'mongoose'
 
 // Sub-schema for calibration instrument reference
@@ -17,6 +18,9 @@ const StdInstrumentSchema = new Schema({
   unit:        String,
   calDate:     String,
   correction:  Number,
+  correctionModel: String,
+  correctionA: Number, correctionB: Number, correctionC: Number, correctionD: Number,
+  ...Object.fromEntries(STANDARD_DIVISOR_FIELDS.map(c=>[c.field,{type:Number}])),
   uTStd:       Number,
   uTDrif:      Number,
   uTResStd:    Number,
@@ -122,6 +126,11 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
     unit:        string
     calDate:     string
     correction:  number
+    correctionModel?: string
+    correctionA?: number
+    correctionB?: number
+    correctionC?: number
+    correctionD?: number
     uTStd:       number
     uTDrif:      number
     uTResStd:    number

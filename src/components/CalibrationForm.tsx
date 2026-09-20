@@ -6,6 +6,8 @@ import toast from 'react-hot-toast'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
 import { useStepNav } from '@/lib/stepNavContext'
 import { formatPersonName } from '@/lib/personName'
+import { standardDivisorFields } from '../lib/formulaDivisors'
+import { getStandardCoefficients, hasPolynomialCorrection } from '@/lib/standardCorrection'
 import { parseCalibrationValue } from '@/lib/uncertainty'
 import { normalizeUcOptions, type AmedUcValues } from '@/lib/amedUcOptions'
 
@@ -91,6 +93,7 @@ type FormulaOption = { _id: string; code: string; name: string; isActive: boolea
 
 function buildStdFromRef(ref: StdRef) {
   return {
+    ...standardDivisorFields(ref),
     instrumentRefId: ref?.instrumentRefId != null ? String(ref.instrumentRefId) : undefined,
     referenceYear: ref?.referenceYear,
     referenceRevision: ref?.referenceRevision,
@@ -104,6 +107,11 @@ function buildStdFromRef(ref: StdRef) {
     measurement: ref?.measurement != null ? String(ref.measurement) : '',
     unit: ref?.unit != null ? String(ref.unit) : '',
     calDate: ref?.calDate != null ? String(ref.calDate) : '',
+    correctionModel: ref?.correctionModel,
+    correctionA: ref?.correctionA,
+    correctionB: ref?.correctionB,
+    correctionC: ref?.correctionC,
+    correctionD: ref?.correctionD,
     correction: ref?.correction != null && !Number.isNaN(Number(ref.correction)) ? Number(ref.correction) : undefined,
     expandedU: ref?.expandedU != null && !Number.isNaN(Number(ref.expandedU)) ? Number(ref.expandedU) : undefined,
     uTStd: ref?.uTStd != null && !Number.isNaN(Number(ref.uTStd)) ? Number(ref.uTStd) : undefined,
@@ -133,7 +141,7 @@ function isTimeStandard(ref: StdRef): boolean {
   return String(ref?.measurement ?? '').trim().toLowerCase() === 'time'
 }
 
-/** หลังเลือกจากฐานอ้างอิง: จุดว่าง — STD คำนวณตอนกรอก Cal.Point (point + correction) */
+/** Raw STD readings are entered by the operator for each sample. */
 function calPointsFromRef(pointCount: number) {
   return Array.from({ length: pointCount }, () => ({
     point: '',
@@ -142,22 +150,22 @@ function calPointsFromRef(pointCount: number) {
   }))
 }
 
-/** Build calPoints from a single StdCalPointConfig */
-function calPointsFromSingleConfig(
-  cfg: { points: Array<{ pointValue: number; unit?: string }>; stdValues?: number[] },
-  correction: number,
-) {
-  return cfg.points.map((p, i) => {
-    const stdVal = cfg.stdValues?.[i]
-    const std = stdVal != null ? stdVal : p.pointValue + correction
+/** Seed editable raw readings from the selected table, before polynomial correction. */
+function calPointsFromSingleConfig(cfg: { points: Array<{ pointValue: number | string; unit?: string }>; stdValues?: (number | string | null)[] }) {
+  return cfg.points.map((p, index) => {
+    const configured = cfg.stdValues?.[index]
+    const initialRead = configured == null || String(configured).trim() === '' ? p.pointValue : configured
     return {
       point: String(p.pointValue),
       readings: ['', '', '', ''] as (number | string)[],
-      standards: [std, std, std, std] as (number | string)[],
-      referenceStandards: [std, std, std, std] as (number | string)[],
+      standards: Array(4).fill(initialRead) as (number | string)[],
       referencePoint: String(p.pointValue),
     }
   })
+}
+
+function legacyCoefficientFields(std: any): Record<string, any> {
+  return hasPolynomialCorrection(std) ? {} : { correctionA: 0, correctionB: 0, correctionC: 0, correctionD: std?.correction ?? 0 }
 }
 
 async function fetchCalPointConfigs(instrumentId: string, referenceVersionId?: string) {
@@ -235,7 +243,7 @@ export function UcSection({
   }, [stdRefs, allowAutoResolve])
 
   const updateStd = (field: string, val: any) =>
-    onChange({ ...uc, std: { ...(uc.std || {}), [field]: val } })
+    onChange({ ...uc, std: { ...(uc.std || {}), ...(field.startsWith('correction') ? { ...legacyCoefficientFields(uc.std), correctionModel: 'polynomial-v1' } : {}), [field]: val } })
   const updatePoint = (idx: number, field: string, val: any) => {
     const emptyRow = { point: '', readings: ['', '', '', ''], standards: ['', '', '', ''] as (number | string)[] }
     const pts = [...(uc.calPoints || [emptyRow])]
@@ -243,22 +251,7 @@ export function UcSection({
     const prev = { ...emptyRow, ...pts[idx] }
     if (field === 'point') {
       const raw = val === '' || val == null ? '' : String(val)
-      if (isTimeUnit) {
-        // Time format: just set point and auto-fill STD with same value
-        const stds: (number | string)[] = raw === '' ? ['', '', '', ''] : [raw, raw, raw, raw]
-        pts[idx] = { ...prev, point: raw, standards: stds, referenceStandards: [...stds], referencePoint: raw }
-      } else {
-        const p = raw === '' ? NaN : parseFloat(raw)
-        const corrRaw = uc.std?.correction
-        const c =
-          corrRaw != null && corrRaw !== ''
-            ? parseFloat(String(corrRaw))
-            : 0
-        const co = Number.isNaN(c) ? 0 : c
-        const stds: (number | string)[] =
-          raw === '' || Number.isNaN(p) ? ['', '', '', ''] : [p + co, p + co, p + co, p + co]
-        pts[idx] = { ...prev, point: raw, standards: stds, referenceStandards: [...stds], referencePoint: raw }
-      }
+      pts[idx] = { ...prev, point: raw, referencePoint: raw }
     } else if (field === 'readings') {
       pts[idx] = { ...prev, readings: val }
     } else if (field === 'standards') {
@@ -290,8 +283,7 @@ export function UcSection({
 
   const applyConfigToCalPoints = (configs: any[], idx: number, std: any) => {
     if (!configs[idx]) return
-    const correction = std?.correction != null && !Number.isNaN(Number(std.correction)) ? Number(std.correction) : 0
-    const defaultPoints = calPointsFromSingleConfig(configs[idx], correction)
+    const defaultPoints = calPointsFromSingleConfig(configs[idx])
     if (defaultPoints.length > 0) {
       onChange({ ...uc, std: std || uc.std, calibrationTableId: configs[idx]._id != null ? String(configs[idx]._id) : undefined, calPoints: defaultPoints })
     }
@@ -305,7 +297,6 @@ export function UcSection({
   const applyUcFromRef = (ref: StdRef) => {
     const std = buildStdFromRef(ref)
     const pointCount = std.no != null && String(std.no).trim() ? inferPointCountFromStdNo(std.no) : 4
-    const correction = std.correction != null && !Number.isNaN(Number(std.correction)) ? Number(std.correction) : 0
 
     setFromRef(true)
     // Apply std fields immediately with empty cal points
@@ -322,7 +313,7 @@ export function UcSection({
         if (configs.length > 0) {
           setCalPointConfigs(configs)
           setSelectedConfigIdx(0)
-          const defaultPoints = calPointsFromSingleConfig(configs[0], correction)
+          const defaultPoints = calPointsFromSingleConfig(configs[0])
           if (defaultPoints.length > 0) {
             onChange({ ...uc, std, calibrationTableId: configs[0]._id != null ? String(configs[0]._id) : undefined, calPoints: defaultPoints })
           }
@@ -338,11 +329,6 @@ export function UcSection({
         new Set(stdRefs.map((r) => String((r as any)?.[k] ?? '').trim()).filter(Boolean))
       ).sort((a, b) => a.localeCompare(b, 'th'))
     }
-    const corr = stdRefs
-      .map((r) => r?.correction)
-      .filter((c) => c != null && c !== '' && !Number.isNaN(Number(c)))
-      .map((c) => String(Number(c)))
-    m.correction = Array.from(new Set(corr)).sort((a, b) => Number(a) - Number(b))
     return m
   }, [stdRefs])
   const resolvedStdFieldOptions = stdFieldOptions || localStdFieldOptions
@@ -363,33 +349,6 @@ export function UcSection({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-xs text-gray-500 mb-1">สูตรการคำนวณ</label>
-          <select
-            className="input-field text-sm py-1.5"
-            value={String(uc?.formulaId || 'standard')}
-            onChange={(e) =>
-              onChange({
-                ...uc,
-                formulaId: e.target.value === 'standard' ? null : e.target.value,
-                formulaCode:
-                  e.target.value === 'standard'
-                    ? 'standard'
-                    : (formulaOptions.find((f) => f._id === e.target.value)?.code || 'standard'),
-              })
-            }
-          >
-            <option value="standard">สูตรมาตรฐาน (95.45%) - ค่าเริ่มต้น</option>
-            {formulaOptions
-              .filter((f) => f.isActive && f.code !== 'standard')
-              .map((f) => (
-                <option key={f._id} value={f._id}>{f.name}</option>
-              ))}
-          </select>
-        </div>
-      </div>
-
       {/* Std instrument info */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
@@ -402,8 +361,9 @@ export function UcSection({
           { field: 'measurement', label: 'ประเภทการวัด', num: false },
           { field: 'unit', label: 'หน่วย', num: false },
           { field: 'calDate', label: 'วันที่สอบเทียบ', num: false },
-          { field: 'correction', label: 'Correction (ใช้คำนวณ STD)', num: true },
+          ...['A', 'B', 'C', 'D'].map(letter => ({ field: `correction${letter}`, label: `สัมประสิทธิ์ ${letter}`, num: true })),
         ].map((f) => {
+          const fieldValue = uc.std?.[f.field] ?? legacyCoefficientFields(uc.std)[f.field]
           const isKeyField = f.field === 'no' || f.field === 'name'
           const isLocked = (fromRef && !isKeyField) || (f.field === 'name' && !!configuredNos)
           return (
@@ -429,16 +389,16 @@ export function UcSection({
               </select>
             ) : isLocked ? (
               <input type="text" className="input-field text-xs py-1.5 bg-gray-100 text-gray-500 cursor-not-allowed"
-                value={uc.std?.[f.field] ?? ''} readOnly />
+                value={fieldValue ?? ''} readOnly />
             ) : f.num ? (
               <FilteredOptionsInput
                 className="input-field text-xs py-1.5"
                 num
-                value={uc.std?.[f.field] != null && uc.std[f.field] !== '' ? uc.std[f.field] : ''}
+                value={fieldValue ?? ''}
                 onChange={(v) =>
                   updateStd(f.field, v !== '' && v != null ? Number(v) : undefined)
                 }
-                options={resolvedStdFieldOptions.correction}
+                options={[]}
               />
             ) : (
               <FilteredOptionsInput
@@ -504,10 +464,10 @@ export function UcSection({
                 <th className="border border-gray-200 px-2 py-1">UUC 2</th>
                 <th className="border border-gray-200 px-2 py-1">UUC 3</th>
                 <th className="border border-gray-200 px-2 py-1">UUC 4</th>
-                <th className="border border-gray-200 px-2 py-1">STD 1</th>
-                <th className="border border-gray-200 px-2 py-1">STD 2</th>
-                <th className="border border-gray-200 px-2 py-1">STD 3</th>
-                <th className="border border-gray-200 px-2 py-1">STD 4</th>
+                <th className="border border-gray-200 px-2 py-1">STD Read 1</th>
+                <th className="border border-gray-200 px-2 py-1">STD Read 2</th>
+                <th className="border border-gray-200 px-2 py-1">STD Read 3</th>
+                <th className="border border-gray-200 px-2 py-1">STD Read 4</th>
               </tr>
             </thead>
             <tbody>
@@ -546,10 +506,10 @@ export function UcSection({
                           pattern={isTimeUnit ? '\\d{1,3}:[0-5]\\d:[0-5]\\d(\\.\\d+)?' : undefined}
                           title={isTimeUnit ? timeFormatHint : undefined}
                           aria-invalid={isTimeUnit && !!pt.standards?.[s] && !isTimeFormat(pt.standards[s])}
-                          value={pt.standards?.[s] || ''}
+                          value={pt.standards?.[s] ?? ''}
                           onChange={e => {
                             const arr = [...(pt.standards || [])]
-                            arr[s] = isTimeUnit ? e.target.value : Number(e.target.value)
+                            arr[s] = isTimeUnit || e.target.value === '' ? e.target.value : Number(e.target.value)
                             updatePoint(i, 'standards', arr)
                           }} />
                       </td>
@@ -888,33 +848,6 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
   }, [])
 
   useEffect(() => {
-    let mounted = true
-    const loadFormulas = async () => {
-      try {
-        const res = await fetch('/api/admin/formulas')
-        if (!res.ok) return
-        const json = await res.json()
-        if (!mounted) return
-        const options = Array.isArray(json.formulas)
-          ? json.formulas.map((f: any) => ({
-              _id: String(f._id || ''),
-              code: String(f.code || ''),
-              name: String(f.name || f.code || 'สูตร'),
-              isActive: Boolean(f.isActive),
-            }))
-          : []
-        setFormulaOptions(options)
-      } catch {
-        // fallback to standard formula only
-      }
-    }
-    loadFormulas()
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  useEffect(() => {
     if (mode !== 'create') return
     const user = session?.user as any
     if (!user) return
@@ -1052,11 +985,6 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         new Set(stdInstruments.map((r) => String((r as any)?.[k] ?? '').trim()).filter(Boolean))
       ).sort((a, b) => a.localeCompare(b, 'th'))
     }
-    const corr = stdInstruments
-      .map((r) => r?.correction)
-      .filter((c) => c != null && c !== '' && !Number.isNaN(Number(c)))
-      .map((c) => String(Number(c)))
-    m.correction = Array.from(new Set(corr)).sort((a, b) => Number(a) - Number(b))
     return m
   }, [stdInstruments])
   const timeStdInstruments = useMemo(
@@ -1070,11 +998,6 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         new Set(timeStdInstruments.map((r) => String((r as any)?.[k] ?? '').trim()).filter(Boolean))
       ).sort((a, b) => a.localeCompare(b, 'th'))
     }
-    const corr = timeStdInstruments
-      .map((r) => r?.correction)
-      .filter((c) => c != null && c !== '' && !Number.isNaN(Number(c)))
-      .map((c) => String(Number(c)))
-    m.correction = Array.from(new Set(corr)).sort((a, b) => Number(a) - Number(b))
     return m
   }, [timeStdInstruments])
 
@@ -1170,13 +1093,16 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
       const hasReadings = Array.isArray(uc?.calPoints) && uc.calPoints.some(
         (p: any) => Array.isArray(p.readings) && p.readings.some((r: any) => {
           const parsed = parseCalibrationValue(r)
-          return Number.isFinite(parsed) && parsed !== 0
+          return Number.isFinite(parsed)
         })
       )
       if (stdNo || hasReadings) {
         // This Uc section has data — validate it's complete
+        try { getStandardCoefficients(uc.std || {}) } catch { errors[`${key}.coefficients`] = `${key.toUpperCase()}: กรุณาระบุสัมประสิทธิ์ A–D ให้ครบ` }
         if (!stdNo) errors[`${key}.std`] = `${key.toUpperCase()}: กรุณาเลือกเครื่องมือมาตรฐาน`
         if (!hasReadings) errors[`${key}.readings`] = `${key.toUpperCase()}: กรุณากรอกค่า Readings อย่างน้อย 1 จุด`
+        const missingStd = (uc.calPoints || []).some((p: any) => (p.readings || []).some((r: any) => Number.isFinite(parseCalibrationValue(r))) && !(p.standards || []).some((r: any) => Number.isFinite(parseCalibrationValue(r))))
+        if (missingStd) errors[`${key}.standards`] = `${key.toUpperCase()}: กรุณากรอก STD Read ที่อ่านจริงในทุกจุดที่มีค่า UUC`
         if (stdNo && hasReadings) hasAnyUc = true
       }
 
@@ -1615,10 +1541,8 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
       <div className="card space-y-4">
         <h3 className="section-title">ข้อมูลการสอบเทียบ (Uncertainty Components)</h3>
         <p className="text-xs text-gray-500 -mt-1">
-          รหัสเครื่องมือ: เลือกจากรายการในแต่ละ UC — ดึงข้อมูลเครื่องมือจากฐานอ้างอิงทันที — กรอก <span className="font-medium">Cal. Point</span> แต่ละแถว
-          แล้วคอลัมน์ <span className="font-medium">STD 1–4</span> จะคำนวณอัตโนมัติ ตาม
-          <span className="font-mono"> Cal.Point + (correction หรือ 0) </span>
-          ทั้ง 4 ช่องเท่ากัน — แก้ STD เองทีหลังได้ — <span className="font-medium">UUC</span> กรอกเอง
+          เลือกเครื่องมือมาตรฐาน ระบบเติม STD Read 1–4 จากค่า STD ในตาราง (หากไม่มี ใช้ Cal. Point) สามารถแก้แต่ละช่องให้ตรงกับค่าที่อ่านจริงได้
+          ระบบคำนวณ Correction = A×x³ + B×x² + C×x + D โดย x คือ STD Read และ True = Read + Correction
         </p>
         <div className="space-y-4">
           <UcSection

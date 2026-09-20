@@ -22,5 +22,9 @@ export async function GET(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  return NextResponse.json({ recordId: params.id, ...await calculateRecord(record) })
+  try {
+    return NextResponse.json({ recordId: params.id, ...await calculateRecord(record) })
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message || 'คำนวณไม่สำเร็จ' }, { status: 422 })
+  }
 }

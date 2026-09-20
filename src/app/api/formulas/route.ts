@@ -28,7 +28,7 @@ export async function GET() {
   await connectDB()
   await ensureStandardFormula()
   const rows = await CalculationFormula.find({ isActive: true })
-    .select('_id code name description isDefault isActive confidenceLevel divisorNormal divisorRect numReadings forceK')
+    .select('_id code name description isDefault isActive confidenceLevel divisorNormal divisorRect numReadings forceK componentDivisors')
     .sort({ createdAt: -1 })
     .lean()
 

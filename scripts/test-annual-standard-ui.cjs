@@ -1,3 +1,4 @@
+require('sucrase/register')
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
 const fs = require('node:fs')
@@ -68,7 +69,7 @@ function mountAnnual(fetcher) {
   const mocked = new Module(filename, module)
   mocked.filename = filename
   mocked.paths = loaded.paths
-  mocked.require = name => name === 'react' ? react : name === 'react-hot-toast' ? { success() {} } : require(name)
+  mocked.require = name => name === '../lib/formulaDivisors' ? require('../src/lib/formulaDivisors.ts') : name === 'react' ? react : name === 'react-hot-toast' ? { success() {} } : require(name)
   mocked._compile(transform(fs.readFileSync(filename, 'utf8'), { transforms: ['typescript', 'jsx', 'imports'], jsxRuntime: 'automatic' }).code.replace('await fetch(url,', 'await globalThis.__annualTestFetch(url,'), filename)
   globalThis.__annualTestFetch = fetcher
   function render() {
@@ -167,4 +168,19 @@ test('updates require explicit preview confirmation, run serially, report each r
   ui.button('พ.ศ. 2568').props.onClick()
   ui.render()
   assert.equal(ui.button('Check update'), undefined)
+})
+
+test('adding a year clears every coefficient and annual measurement value while retaining instrument identity', async () => {
+  const version = sampleVersion(2026)
+  version.fields = { ...version.fields, correctionModel: 'polynomial-v1', correctionA: 1, correctionB: 2, correctionC: 3, correctionD: 4, calDate: '2026-01-01', uTStd: 0.1, expandedU: 0.2 }
+  const ui = mountAnnual(async () => response({ data: [version], legacy: {} }))
+  await ui.flush()
+  ui.button('+ เพิ่มปี').props.onClick(); ui.render()
+  const labels = ui.find(n => n.type === 'label')
+  for (const label of ['A (x³)', 'B (x²)', 'C (x)', 'D', 'วันที่สอบเทียบ', 'uTStd', 'expandedU']) {
+    const node = labels.find(n => n.props.children?.[0] === label)
+    assert.ok(node, label)
+    assert.equal(node.props.children[1].props.value, '', label)
+  }
+  assert.equal(labels.find(n => n.props.children?.[0] === 'รหัส').props.children[1].props.value, 'S1')
 })

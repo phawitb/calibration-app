@@ -7,6 +7,7 @@ import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/h
 import { getIsoMethod, type IsoMethodConfig } from '@/lib/isoMethods'
 import { useStepNav } from '@/lib/stepNavContext'
 import ExcelPasteInput from '@/components/ExcelPasteInput'
+import { correctStandardReading, getStandardCoefficients, hasPolynomialCorrection } from '@/lib/standardCorrection'
 import { formatPersonName } from '@/lib/personName'
 
 interface Props {
@@ -174,6 +175,7 @@ function buildInitialIsoData(method: IsoMethodConfig) {
 function buildInitialState(method: IsoMethodConfig, methodCode: string) {
   return {
     calibrationType: 'iso' as const,
+    std1: { correctionModel: 'polynomial-v1', correctionA: '', correctionB: '', correctionC: '', correctionD: '' },
     isoMethodCode: methodCode,
     amedNo: '',
     unitName: '', address: '', section: '',
@@ -285,7 +287,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         Object.entries(current.isoData?.methodFields || {}).filter(([, value]) => value !== '' && value !== null && value !== undefined)
       )
       const methodFields = { ...(legacyDefaults?.methodFields || {}), ...templateDefaults, ...enteredMethodFields }
-      const configuredVertical = methodTemplate.gridConfig?.defaultVerticalReadings || legacyDefaults?.verticalReadings
+      const configuredVertical = hasPolynomialCorrection(current.std1) ? undefined : methodTemplate.gridConfig?.defaultVerticalReadings || legacyDefaults?.verticalReadings
       const calPoints = (current.isoData?.calPoints || []).map((point: any) => {
         const hasVertical = point.verticalReadings && ['center', 'top', 'bottom'].some((key) =>
           point.verticalReadings[key]?.some((value: any) => value !== '' && value !== null && value !== undefined)
@@ -476,6 +478,17 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const setStd1 = (field: string, value: any) =>
     setData((d: any) => ({ ...d, std1: { ...(d.std1 || {}), [field]: value } }))
 
+  const usesStandardPolynomial = hasPolynomialCorrection(data.std1)
+  const standardTrue = (raw: any, legacyCorrection = 0) => {
+    if (raw == null || String(raw).trim() === '' || !Number.isFinite(Number(raw))) return '-'
+    try {
+      const value = usesStandardPolynomial
+        ? correctStandardReading(Number(raw), data.std1).trueValue
+        : Number(raw) + Number(legacyCorrection || 0)
+      return Number.isFinite(value) ? String(Number(value.toPrecision(10))) : '-'
+    } catch { return '-' }
+  }
+
   const std1FieldOptions = useMemo(() => {
     const keys = ['no', 'name', 'manufacture', 'model', 'serialNo', 'certNo', 'measurement', 'unit', 'calDate'] as const
     const m: Record<string, string[]> = {}
@@ -501,7 +514,11 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     measurement: ref?.measurement != null ? String(ref.measurement) : '',
     unit: ref?.unit != null ? String(ref.unit) : '',
     calDate: ref?.calDate != null ? String(ref.calDate) : '',
-    correction: ref?.correction != null && !Number.isNaN(Number(ref.correction)) ? Number(ref.correction) : undefined,
+    correctionModel: 'polynomial-v1',
+    correctionA: ref?.correctionA ?? '',
+    correctionB: ref?.correctionB ?? '',
+    correctionC: ref?.correctionC ?? '',
+    correctionD: ref?.correctionD ?? '',
     expandedU: ref?.expandedU != null && !Number.isNaN(Number(ref.expandedU)) ? Number(ref.expandedU) : undefined,
     uTStd: ref?.uTStd != null && !Number.isNaN(Number(ref.uTStd)) ? Number(ref.uTStd) : undefined,
     uTDrif: ref?.uTDrif != null && !Number.isNaN(Number(ref.uTDrif)) ? Number(ref.uTDrif) : undefined,
@@ -534,7 +551,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
   const clearStd1Ref = () => {
     setStd1FromRef(false)
-    setData((d: any) => ({ ...d, std1: {} }))
+    setData((d: any) => ({ ...d, std1: { correctionModel: 'polynomial-v1', correctionA: '', correctionB: '', correctionC: '', correctionD: '' } }))
   }
 
   const onFormKeyDown = (e: KeyboardEvent<HTMLFormElement>) => {
@@ -572,6 +589,14 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     const errors: Record<string, string> = {}
     const std1 = data.std1 || {}
     const isoCalPoints = data.isoData?.calPoints || []
+    if (usesStandardPolynomial) {
+      try { getStandardCoefficients(std1) } catch { errors['std1.coefficients'] = 'กรุณากรอกสัมประสิทธิ์ A, B, C, D ให้ครบ (ใช้ 0 หากไม่มีพจน์นั้น)' }
+    }
+    if (usesStandardPolynomial && !usesUucDisplayReadings(methodCode)) {
+      const hasMissingStd = isoCalPoints.some((cp: any) => cp.sensorReadings?.some((row: any[]) => row?.some(v => v !== '' && v != null))
+        && !cp.stdReadings?.some((row: any) => { const v = Array.isArray(row) ? row[0] : row; return v != null && String(v).trim() !== '' && Number.isFinite(Number(v)) }))
+      if (hasMissingStd) errors['iso.stdReadings'] = 'กรุณากรอก STD Read ในแต่ละจุดสอบเทียบ'
+    }
 
     // ต้องมีเครื่องมือมาตรฐาน
     if (!String(std1.no || '').trim()) {
@@ -582,7 +607,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     const hasReadings = isoCalPoints.some((cp: any) => {
       if (!cp?.sensorReadings || !Array.isArray(cp.sensorReadings)) return false
       return cp.sensorReadings.some((row: any[]) =>
-        Array.isArray(row) && row.some((v: any) => v !== '' && v != null && !isNaN(Number(v)) && Number(v) !== 0)
+        Array.isArray(row) && row.some((v: any) => v !== '' && v != null && !isNaN(Number(v)) && (usesStandardPolynomial || Number(v) !== 0))
       )
     })
     if (!hasReadings) {
@@ -591,7 +616,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
     if (usesUucDisplayReadings(methodCode)) {
       const hasUucReadings = isoCalPoints.some((cp: any) =>
-        Array.isArray(cp?.uucReadings) && cp.uucReadings.some((v: any) => v !== '' && v != null && Number.isFinite(Number(v)) && Number(v) !== 0)
+        Array.isArray(cp?.uucReadings) && cp.uucReadings.some((v: any) => v !== '' && v != null && Number.isFinite(Number(v)) && (usesStandardPolynomial || Number(v) !== 0))
       )
       if (!hasUucReadings) {
         errors['iso.uucReadings'] = methodCode === 'TEM-001-1'
@@ -606,8 +631,9 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
     // ต้องมี calPoint value
     const hasPoint = isoCalPoints.some((cp: any) => {
-      const p = Number(cp?.point ?? NaN)
-      return !isNaN(p) && p !== 0
+      const raw = cp?.point
+      const p = raw === '' || raw == null ? NaN : Number(raw)
+      return Number.isFinite(p) && (usesStandardPolynomial || p !== 0)
     })
     if (!hasPoint) {
       errors['iso.point'] = 'กรุณากรอกค่าจุดสอบเทียบ (Cal. Point) อย่างน้อย 1 จุด'
@@ -769,7 +795,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     if (!method) return
     const sc = effectiveSensorCount
     const rpp = effectiveReadingsPerPoint
-    const verticalDefaults = methodCode === 'TEM-002'
+    const verticalDefaults = methodCode === 'TEM-002' && !usesStandardPolynomial
       ? (methodTemplate?.gridConfig?.defaultVerticalReadings || LIQUID_BATH_DEFAULTS.verticalReadings)
       : undefined
     const newPoint = {
@@ -849,15 +875,15 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Cal. Point ({method.unit})</label>
                   <input type="number" className="input-field text-sm"
-                    value={pt.point || ''}
+                    value={pt.point ?? ''}
                     onChange={(e) => updateCalPoint(ptIdx, 'point', e.target.value)} />
                 </div>
-                <div>
+                {!usesStandardPolynomial && <div>
                   <label className="block text-xs text-gray-500 mb-1">Std Correction (ค่าแก้ interpolation)</label>
                   <input type="number" step="any" className="input-field text-sm"
                     value={pt.standardCorrection ?? 0}
                     onChange={(e) => updateCalPoint(ptIdx, 'standardCorrection', Number(e.target.value) || 0)} />
-                </div>
+                </div>}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">
@@ -865,20 +891,20 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                     <tr className="bg-gray-50">
                       <th className="border border-gray-200 px-2 py-1 text-left">Reading</th>
                       <th className="border border-gray-200 px-2 py-1">UUC ({method.unit})</th>
-                      <th className="border border-gray-200 px-2 py-1">STD tachometer</th>
-                      <th className="border border-gray-200 px-2 py-1">STD + Corr</th>
+                      <th className="border border-gray-200 px-2 py-1">STD Read</th>
+                      <th className="border border-gray-200 px-2 py-1">STD True</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Array.from({ length: method.readingsPerPoint }).map((_, rIdx) => {
-                      const stdRaw = Number(Array.isArray(pt.stdReadings?.[rIdx]) ? pt.stdReadings[rIdx][0] : pt.stdReadings?.[rIdx])
+                      const stdRaw = Array.isArray(pt.stdReadings?.[rIdx]) ? pt.stdReadings[rIdx][0] : pt.stdReadings?.[rIdx]
                       const corr = Number(pt.standardCorrection || 0)
                       return (
                         <tr key={rIdx}>
                           <td className="border border-gray-200 px-2 py-1 text-center font-medium">{rIdx + 1}</td>
                           <td className="border border-gray-200 p-0.5">
                             <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
-                              value={pt.sensorReadings?.[rIdx]?.[0] || ''}
+                              value={pt.sensorReadings?.[rIdx]?.[0] ?? ''}
                               onChange={(e) => updateSensorReading(ptIdx, rIdx, 0, e.target.value)} />
                           </td>
                           <td className="border border-gray-200 p-0.5">
@@ -887,7 +913,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                               onChange={(e) => updateStdReading(ptIdx, rIdx, e.target.value)} />
                           </td>
                           <td className="border border-gray-200 p-0.5 bg-gray-50 text-center">
-                            {Number.isFinite(stdRaw) ? (stdRaw + corr).toFixed(1) : '-'}
+                            {standardTrue(stdRaw, corr)}
                           </td>
                         </tr>
                       )
@@ -924,7 +950,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Set Point ({method.unit})</label>
                   <input type="number" step="any" className="input-field text-sm"
-                    value={pt.point || ''}
+                    value={pt.point ?? ''}
                     onChange={(e) => updateCalPoint(ptIdx, 'point', e.target.value)} />
                 </div>
                 <div>
@@ -933,12 +959,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                     value={pt.uucSetting ?? ''}
                     onChange={(e) => updateCalPoint(ptIdx, 'uucSetting', e.target.value)} />
                 </div>
-                <div>
+                {!usesStandardPolynomial && <div>
                   <label className="block text-xs text-gray-500 mb-1">Std Correction</label>
                   <input type="number" step="any" className="input-field text-sm"
                     value={pt.standardCorrection ?? 0}
                     onChange={(e) => updateCalPoint(ptIdx, 'standardCorrection', Number(e.target.value) || 0)} />
-                </div>
+                </div>}
                 {method.code === 'TEM-001-2' && (
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">T no load ({method.unit})</label>
@@ -1023,7 +1049,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                       <tbody>{Array.from({ length: Math.max(10, pt.verticalReadings?.center?.length || 0, pt.verticalReadings?.top?.length || 0, pt.verticalReadings?.bottom?.length || 0) }).map((_, rIdx) => (
                         <tr key={rIdx}>
                           <td className="border border-gray-200 px-2 py-1 text-center">{rIdx + 1}</td>
-                          {(['center', 'top', 'bottom'] as const).map(position => <td key={position} className="border border-gray-200 p-0.5"><input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none" value={pt.verticalReadings?.[position]?.[rIdx] || ''} onChange={(e) => updateVerticalReading(ptIdx, rIdx, position, e.target.value)} /></td>)}
+                          {(['center', 'top', 'bottom'] as const).map(position => <td key={position} className="border border-gray-200 p-0.5"><input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none" value={pt.verticalReadings?.[position]?.[rIdx] ?? ''} onChange={(e) => updateVerticalReading(ptIdx, rIdx, position, e.target.value)} />{usesStandardPolynomial && <div className="text-center text-blue-700 py-1">True: {standardTrue(pt.verticalReadings?.[position]?.[rIdx])}</div>}</td>)}
                         </tr>
                       ))}</tbody>
                     </table>
@@ -1031,7 +1057,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 </div>
               )}
               <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-medium text-gray-700">Sensor Readings</p>
+                <p className="text-xs font-medium text-gray-700">STD Read — Sensor Readings</p>
                 <ExcelPasteInput
                   expectedCols={sc}
                   columnLabels={sensorLabels.length > 0
@@ -1059,7 +1085,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                       <th className="border border-gray-200 px-2 py-1 text-left w-12">No.</th>
                       {Array.from({ length: sc }).map((_, sIdx) => (
                         <th key={sIdx} className="border border-gray-200 px-2 py-1">
-                          {sensorLabels[sIdx] || `Sensor ${sIdx + 1}`} ({method.unit})
+                          {sensorLabels[sIdx] || `Sensor ${sIdx + 1}`} — STD Read ({method.unit})
                         </th>
                       ))}
                     </tr>
@@ -1071,8 +1097,9 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                         {Array.from({ length: sc }).map((_, sIdx) => (
                           <td key={sIdx} className="border border-gray-200 p-0.5">
                             <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
-                              value={pt.sensorReadings?.[rIdx]?.[sIdx] || ''}
+                              value={pt.sensorReadings?.[rIdx]?.[sIdx] ?? ''}
                               onChange={(e) => updateSensorReading(ptIdx, rIdx, sIdx, e.target.value)} />
+                            {usesStandardPolynomial && <div className="text-center text-blue-700 py-1">True: {standardTrue(pt.sensorReadings?.[rIdx]?.[sIdx])}</div>}
                           </td>
                         ))}
                       </tr>
@@ -1102,7 +1129,8 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
               <tr className="bg-gray-50">
                 <th className="border border-gray-200 px-2 py-1 text-left">Reading</th>
                 <th className="border border-gray-200 px-2 py-1">UUC ({method.unit})</th>
-                <th className="border border-gray-200 px-2 py-1">STD ({method.unit})</th>
+                <th className="border border-gray-200 px-2 py-1">STD Read ({method.unit})</th>
+                <th className="border border-gray-200 px-2 py-1">STD True ({method.unit})</th>
               </tr>
             </thead>
             <tbody>
@@ -1111,7 +1139,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                   <td className="border border-gray-200 px-2 py-1 text-center font-medium">{rIdx + 1}</td>
                   <td className="border border-gray-200 p-0.5">
                     <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
-                      value={pt.sensorReadings?.[rIdx]?.[0] || ''}
+                      value={pt.sensorReadings?.[rIdx]?.[0] ?? ''}
                       onChange={(e) => onUuc(rIdx, e.target.value)} />
                   </td>
                   <td className="border border-gray-200 p-0.5">
@@ -1119,6 +1147,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                       value={Array.isArray(pt.stdReadings?.[rIdx]) ? (pt.stdReadings[rIdx][0] ?? '') : (pt.stdReadings?.[rIdx] ?? '')}
                       onChange={(e) => onStd(rIdx, e.target.value)} />
                   </td>
+                  <td className="border border-gray-200 bg-gray-50 text-center">{standardTrue(Array.isArray(pt.stdReadings?.[rIdx]) ? pt.stdReadings[rIdx][0] : pt.stdReadings?.[rIdx], pt.standardCorrection)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1147,7 +1176,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Cal. Point ({method.unit})</label>
                   <input type="number" step="any" className="input-field text-sm"
-                    value={pt.point || ''}
+                    value={pt.point ?? ''}
                     onChange={(e) => updateCalPoint(ptIdx, 'point', e.target.value)} />
                 </div>
               </div>
@@ -1206,15 +1235,15 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Cal. Point ({method.unit})</label>
                 <input type="number" step="any" className="input-field text-sm"
-                  value={pt.point || ''}
+                  value={pt.point ?? ''}
                   onChange={(e) => updateCalPoint(ptIdx, 'point', e.target.value)} />
               </div>
-              <div>
+              {!usesStandardPolynomial && <div>
                 <label className="block text-xs text-gray-500 mb-1">Std Correction</label>
                 <input type="number" step="any" className="input-field text-sm"
                   value={pt.standardCorrection ?? 0}
                   onChange={(e) => updateCalPoint(ptIdx, 'standardCorrection', Number(e.target.value) || 0)} />
-              </div>
+              </div>}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
@@ -1222,7 +1251,8 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                   <tr className="bg-gray-50">
                     <th className="border border-gray-200 px-2 py-1 text-left">Reading</th>
                     <th className="border border-gray-200 px-2 py-1">UUC ({method.unit})</th>
-                    <th className="border border-gray-200 px-2 py-1">STD ({method.unit})</th>
+                    <th className="border border-gray-200 px-2 py-1">STD Read ({method.unit})</th>
+                <th className="border border-gray-200 px-2 py-1">STD True ({method.unit})</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1231,13 +1261,16 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                       <td className="border border-gray-200 px-2 py-1 text-center font-medium">{rIdx + 1}</td>
                       <td className="border border-gray-200 p-0.5">
                         <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
-                          value={pt.sensorReadings?.[rIdx]?.[0] || ''}
+                          value={pt.sensorReadings?.[rIdx]?.[0] ?? ''}
                           onChange={(e) => updateSensorReading(ptIdx, rIdx, 0, e.target.value)} />
                       </td>
+                      <td className="border border-gray-200 p-0.5">
+                        <input type="number" step="any" className="w-full px-1 py-0.5 text-center outline-none"
+                          value={pt.stdReadings?.[rIdx]?.[0] ?? ''}
+                          onChange={(e) => updateStdReading(ptIdx, rIdx, e.target.value)} />
+                      </td>
                       <td className="border border-gray-200 p-0.5 bg-gray-50 text-center">
-                        {pt.point && !Number.isNaN(Number(pt.point))
-                          ? (Number(pt.point) + (pt.standardCorrection || 0)).toFixed(2)
-                          : '-'}
+                        {standardTrue(usesStandardPolynomial ? pt.stdReadings?.[rIdx]?.[0] : pt.point, pt.standardCorrection)}
                       </td>
                     </tr>
                   ))}
@@ -1655,6 +1688,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                           className="input-field text-sm"
                           value={getMethodFieldValue(ff.key)}
                           onChange={(e) => setMethodFieldValue(ff.key, e.target.value)} />
+                        {usesStandardPolynomial && /^irjStd[12]$/.test(ff.key) && <p className="text-xs text-blue-700 mt-1">STD True: {standardTrue(getMethodFieldValue(ff.key))}</p>}
                       </div>
                     ))}
                   </div>
@@ -1684,6 +1718,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                         value={getMethodFieldValue(ff.key)}
                         onChange={(e) => setMethodFieldValue(ff.key, e.target.value)} />
                     )}
+                    {usesStandardPolynomial && /^irjStd[12]$/.test(ff.key) && <p className="text-xs text-blue-700 mt-1">STD True: {standardTrue(getMethodFieldValue(ff.key))}</p>}
                   </div>
                 ))}
               </div>
@@ -1742,12 +1777,23 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div>
+            {usesStandardPolynomial ? <>
+              <p className="col-span-full text-sm text-blue-800">True = Read + A×Read³ + B×Read² + C×Read + D · ใช้ค่า STD Read แต่ละครั้ง</p>
+              {['A', 'B', 'C', 'D'].map(coefficient => (
+                <div key={coefficient}>
+                  <label className="block text-xs text-gray-500 mb-1">Correction {coefficient}</label>
+                  <input type="number" step="any" className="input-field text-sm"
+                    value={data.std1?.[`correction${coefficient}`] ?? ''}
+                    onChange={e => setStd1(`correction${coefficient}`, e.target.value === '' ? '' : Number(e.target.value))} />
+                </div>
+              ))}
+              {fieldErrors['std1.coefficients'] && <p className="col-span-full text-sm text-red-600">{fieldErrors['std1.coefficients']}</p>}
+            </> : <div>
               <label className="block text-xs text-gray-500 mb-1">Correction</label>
               <input type="number" step="any" className="input-field text-sm"
                 value={data.std1?.correction ?? ''}
                 onChange={(e) => setStd1('correction', e.target.value === '' ? '' : Number(e.target.value))} />
-            </div>
+            </div>}
             <div>
               <label className="block text-xs text-gray-500 mb-1">uT STD</label>
               <input type="number" step="any" className="input-field text-sm"
@@ -1792,7 +1838,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           <h3 className="section-title">ข้อมูลจุดสอบเทียบ (Calibration Readings)</h3>
           <p className="text-xs text-gray-500 -mt-1">
             {method.measurementType === 'speed'
-              ? 'กรอก UUC และ STD จาก tachometer อย่างละ 4 ครั้ง — ค่า STD+Corr = STD + Std Correction ตาม Excel'
+              ? 'กรอก UUC และ STD Read จาก tachometer อย่างละ 4 ครั้ง — STD True คำนวณจากสัมประสิทธิ์ A, B, C, D'
               : method.code === 'TEM-001-1'
                 ? 'กรอก Sensor 9 ตัว × 30 ครั้ง (#9 คือจุดกลาง) และ UUC Reading ของจอตู้ 30 ค่า'
               : method.code === 'TEM-001-2'
@@ -1807,7 +1853,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 ? 'กรอก Sensor 3 ตัว × 30 ครั้ง (P2 คือจุดกลาง) และ UUC Reading ของจอหม้อแรงดัน 30 ค่า'
               : method.measurementType === 'temperature_multi_sensor'
                 ? `กรอกค่า ${effectiveSensorCount} Sensor x ${effectiveReadingsPerPoint} readings ต่อจุด`
-                : `กรอก UUC ${method.readingsPerPoint} ครั้งต่อจุด - STD คำนวณจาก Cal.Point + Correction`
+                : `กรอก UUC และ STD Read ${method.readingsPerPoint} ครั้งต่อจุด — STD True คำนวณจากสัมประสิทธิ์`
             }
           </p>
           {renderCalibrationReadings()}

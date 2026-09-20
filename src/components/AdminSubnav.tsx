@@ -8,7 +8,6 @@ const TABS = [
   { href: '/admin?tab=data', label: 'จัดการข้อมูล', tab: 'data' },
   { href: '/admin?tab=certificate-texts', label: 'จัดการข้อความในใบรับรอง', tab: 'certificate-texts' },
   { href: '/admin?tab=cert', label: 'จัดการรูปแบบเลขใบรับรอง', tab: 'cert' },
-  { href: '/admin?tab=formulas', label: 'จัดการสูตรการคำนวณ', tab: 'formulas' },
   { href: '/admin?tab=iso-methods', label: 'วิธีการ ISO', tab: 'iso-methods' },
 ] as const
 

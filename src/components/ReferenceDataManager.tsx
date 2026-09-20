@@ -1,5 +1,6 @@
 'use client'
 
+import { STANDARD_DIVISOR_FIELDS } from '../lib/formulaDivisors'
 import { useCallback, useEffect, useState, useMemo, Fragment } from 'react'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
@@ -67,7 +68,7 @@ const SUBTABS: {
     key: 'stdinstruments',
     label: 'เครื่องมือมาตรฐาน (ฉบับเต็ม)',
     type: 'stdinstruments',
-    desc: 'รายการ STD ฉบับเต็ม — รวม correction / uT',
+    desc: 'รายการ STD ฉบับเต็ม — รวมสัมประสิทธิ์ A–D / uT',
     fields: [
       { key: 'no' },
       { key: 'name' },
@@ -78,7 +79,11 @@ const SUBTABS: {
       { key: 'measurement' },
       { key: 'unit' },
       { key: 'calDate' },
-      { key: 'correction', input: 'number' as const },
+      ...STANDARD_DIVISOR_FIELDS.map(c=>({key:c.field,label:`Divisor — ${c.label}`,input:'number' as const})),
+      { key: 'correctionA', label: 'A (x³)', input: 'number' as const },
+      { key: 'correctionB', label: 'B (x²)', input: 'number' as const },
+      { key: 'correctionC', label: 'C (x)', input: 'number' as const },
+      { key: 'correctionD', label: 'D', input: 'number' as const },
       { key: 'uTStd', input: 'number' as const },
       { key: 'uTDrif', input: 'number' as const },
       { key: 'uTResStd', input: 'number' as const },
@@ -384,7 +389,8 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
     setEditId(r._id)
     const o: Record<string, any> = {}
     for (const f of sub.fields) {
-      const v = r[f.key]
+      const v = sub.key === 'stdinstruments' && r.correctionModel !== 'polynomial-v1' && f.key.startsWith('correction')
+        ? (f.key === 'correctionD' ? r.correction ?? 0 : 0) : r[f.key]
       o[f.key] = v != null && v !== '' ? v : ''
     }
     setEditing(o)
@@ -393,6 +399,7 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
 
   const save = async () => {
     const payload: Record<string, any> = { type: sub.type }
+    if (sub.key === 'stdinstruments') payload.correctionModel = 'polynomial-v1'
     for (const f of sub.fields) {
       const v = editing[f.key]
       if (f.input === 'number') {

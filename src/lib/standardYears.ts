@@ -1,5 +1,7 @@
-export const STANDARD_FIELDS = ['no','name','manufacture','model','serialNo','certNo','measurement','unit','calDate','correction','uTStd','uTDrif','uTResStd','uTUuc','uTInt','uT6','uT7','uT8','uT9','uT10','expandedU'] as const
-export const STANDARD_NUMBERS = ['correction','uTStd','uTDrif','uTResStd','uTUuc','uTInt','uT6','uT7','uT8','uT9','uT10','expandedU']
+import { STANDARD_DIVISOR_FIELDS, standardDivisorFields, standardComponentDivisors } from './formulaDivisors'
+import { CORRECTION_FIELDS, getStandardCoefficients, hasPolynomialCorrection } from './standardCorrection'
+export const STANDARD_FIELDS = ['no','name','manufacture','model','serialNo','certNo','measurement','unit','calDate','correction','correctionModel',...CORRECTION_FIELDS,...STANDARD_DIVISOR_FIELDS.map(c=>c.field),'uTStd','uTDrif','uTResStd','uTUuc','uTInt','uT6','uT7','uT8','uT9','uT10','expandedU'] as const
+export const STANDARD_NUMBERS = ['correction',...CORRECTION_FIELDS,...STANDARD_DIVISOR_FIELDS.map(c=>c.field),'uTStd','uTDrif','uTResStd','uTUuc','uTInt','uT6','uT7','uT8','uT9','uT10','expandedU']
 export const STANDARD_SLOTS = ['std1','uc1','uc2','uc3','uc4','uc5','uc6','ucT'] as const
 export type StandardYear = { _id: any; instrumentRefId: string; year: number; revision: number; fields: Record<string, any>; calPoints: any[]; pdf?: any }
 export class StandardYearError extends Error { constructor(message: string, public status = 400) { super(message) } }
@@ -28,6 +30,14 @@ export function normalizeStandardFields(input: any) {
       fields[key] = n
     } else fields[key] = String(value ?? '').trim()
   }
+  if (hasPolynomialCorrection(input)) {
+    let coefficients
+    try { coefficients = getStandardCoefficients(input) } catch (error) { throw new StandardYearError((error as Error).message) }
+    fields.correctionModel = 'polynomial-v1'
+    CORRECTION_FIELDS.forEach((key, index) => { fields[key] = coefficients[(['a','b','c','d'] as const)[index]] })
+    delete fields.correction
+  }
+  try { standardComponentDivisors(input); Object.assign(fields,standardDivisorFields(input)) } catch (error) { throw new StandardYearError((error as Error).message) }
   if (!fields.no || !fields.name) throw new StandardYearError('กรุณาระบุรหัสและชื่อเครื่องมือ')
   return fields
 }
@@ -86,11 +96,20 @@ export function planStandardUpdate(record: any, target: StandardYear, versions: 
     Object.assign(nextStd, standardSnapshot(target))
     const changedFields = STANDARD_FIELDS.filter(k => str(std[k]) !== str(nextStd[k]))
     changes.push(`${slot}: ${changedFields.length ? changedFields.join(', ') : 'รุ่นข้อมูล/PDF'}`)
+    if (hasPolynomialCorrection(nextStd)) {
+      try { getStandardCoefficients(nextStd) } catch (error) { warnings.push(`${slot}: ${(error as Error).message}`) }
+    }
     if (slot === 'std1') {
-      if (record.calibrationType === 'iso' && str(source.fields.correction) !== str(target.fields.correction)) warnings.push('std1: ค่า correction ของ ISO ต้องตรวจสอบค่าชดเชยรายจุดก่อนอัปเดต')
+      if (!hasPolynomialCorrection(std) && record.calibrationType === 'iso' && str(source.fields.correction) !== str(target.fields.correction)) warnings.push('std1: ค่า correction ของ ISO ต้องตรวจสอบค่าชดเชยรายจุดก่อนอัปเดต')
       patch.std1 = nextStd; continue
     }
     const uc = record[slot]
+    if (hasPolynomialCorrection(std) && hasPolynomialCorrection(nextStd)) {
+      try { getStandardCoefficients(nextStd) } catch (error) { warnings.push(`${slot}: ${(error as Error).message}`) }
+      // Polynomial records store actual raw STD reads; only the coefficient snapshot changes.
+      patch[slot] = { ...uc, std: nextStd }
+      continue
+    }
     const sourceTable = source.calPoints?.find(t => str(t._id) === str(uc.calibrationTableId))
     const targetTable = target.calPoints?.find(t => str(t._id) === str(uc.calibrationTableId))
     const standardChanged = str(source.fields.correction) !== str(target.fields.correction) || !equal(source.calPoints,target.calPoints)

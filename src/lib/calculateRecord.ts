@@ -1,4 +1,3 @@
-import CalculationFormula from '@/models/CalculationFormula'
 import {
   calculateAllUcComponents,
   calculateIsoRecord,
@@ -13,39 +12,6 @@ import { calculateIsoUncertainty, type IsoCalcInput } from '@/lib/isoUncertainty
 export async function calculateRecord(record: any): Promise<any> {
   const ucKeys = ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT'] as const
   const formulaMap: Partial<Record<string, FormulaConfig>> = {}
-
-  const formulaIds = new Set<string>()
-  for (const key of ucKeys) {
-    const fid = String((record as any)?.[key]?.formulaId || '')
-    if (fid && fid !== 'standard') formulaIds.add(fid)
-  }
-
-  const formulaDocs = formulaIds.size > 0
-    ? await CalculationFormula.find({ _id: { $in: Array.from(formulaIds) }, isActive: true }).lean()
-    : []
-  const formulaById = new Map(formulaDocs.map((f: any) => [String(f._id), f]))
-
-  for (const key of ucKeys) {
-    const uc = (record as any)?.[key]
-    if (!uc) continue
-    const fid = String(uc?.formulaId || '')
-    if (!fid || fid === 'standard') {
-      formulaMap[key] = STANDARD_FORMULA
-      continue
-    }
-    const doc = formulaById.get(fid)
-    formulaMap[key] = doc
-      ? {
-          code: String(doc.code || 'standard'),
-          name: String(doc.name || 'สูตร'),
-          confidenceLevel: Number(doc.confidenceLevel ?? 0.9545),
-          divisorNormal: Number(doc.divisorNormal ?? 2),
-          divisorRect: Number(doc.divisorRect ?? 1.732050808),
-          numReadings: Number(doc.numReadings ?? 4),
-          forceK: doc.forceK == null ? null : Number(doc.forceK),
-        }
-      : STANDARD_FORMULA
-  }
 
   // ISO records: use ISO-specific calculation
   if ((record as any).calibrationType === 'iso') {

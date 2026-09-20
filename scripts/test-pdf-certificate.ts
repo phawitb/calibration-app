@@ -48,3 +48,10 @@ test('defines corrected labels for standard-instrument sections', () => {
   assert.equal(PDF_LABELS.manufacturer, 'Manufacturer')
   assert.equal(PDF_LABELS.measureUnit, 'Measure Unit')
 })
+
+ test('PDF uncertainty always rounds upward to two decimal places', async () => {
+  const {formatPdfUncertainty}=await import('../src/lib/pdfUncertainty')
+  for(const [value,expected] of [[0.645237,'0.65'],[1.001,'1.01'],[1.1,'1.10'],[1,'1.00'],[0,'0.00'],[1e-8,'0.01'],[0.29,'0.29']] as const) assert.equal(formatPdfUncertainty(value),expected)
+  assert.equal(formatPdfUncertainty(59.999,true),'00:01:00.00')
+  assert.equal(formatPdfUncertainty(NaN),'-')
+})

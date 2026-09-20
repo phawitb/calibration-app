@@ -1,5 +1,6 @@
 'use client'
 
+import { STANDARD_DIVISOR_FIELDS, standardDivisorFields } from '../lib/formulaDivisors'
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 
@@ -15,10 +16,11 @@ type Draft = { year: string; expectedRevision: number; fields: Fields; tables: T
 const FIELDS = [
   ['no', 'รหัส'], ['name', 'ชื่อเครื่องมือ'], ['manufacture', 'ผู้ผลิต'], ['model', 'รุ่น'],
   ['serialNo', 'Serial No.'], ['certNo', 'เลขที่ใบรับรอง'], ['measurement', 'การวัด'], ['unit', 'หน่วย'],
-  ['calDate', 'วันที่สอบเทียบ'], ['correction', 'Correction'], ['uTStd', 'uTStd'], ['uTDrif', 'uTDrif'],
+  ['calDate', 'วันที่สอบเทียบ'], ['correctionA', 'A (x³)'], ['correctionB', 'B (x²)'], ['correctionC', 'C (x)'], ['correctionD', 'D'], ['uTStd', 'uTStd'], ['uTDrif', 'uTDrif'],
+  ...STANDARD_DIVISOR_FIELDS.map(c=>[c.field,`Divisor — ${c.label}`]),
   ['uTResStd', 'uTResStd'], ['uTUuc', 'uTUuc'], ['uTInt', 'uTInt'], ['uT6', 'uT6'], ['uT7', 'uT7'], ['uT8', 'uT8'], ['uT9', 'uT9'], ['uT10', 'uT10'], ['expandedU', 'expandedU'],
 ]
-const NUMBERS = new Set(['correction', 'uTStd', 'uTDrif', 'uTResStd', 'uTUuc', 'uTInt', 'uT6', 'uT7', 'uT8', 'uT9', 'uT10', 'expandedU'])
+const NUMBERS = new Set([...STANDARD_DIVISOR_FIELDS.map(c=>c.field),'correctionA', 'correctionB', 'correctionC', 'correctionD', 'uTStd', 'uTDrif', 'uTResStd', 'uTUuc', 'uTInt', 'uT6', 'uT7', 'uT8', 'uT9', 'uT10', 'expandedU'])
 const beYear = (year: number) => year > 2400 ? year : year + 543
 const ceYear = (year: number) => year > 2400 ? year - 543 : year
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'
@@ -120,15 +122,22 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
     setDraftPdfExpiry(mode === 'edit' ? selected?.pdf?.expiryDate?.slice(0, 10) || '' : '')
     const source = mode === 'legacy' ? legacy : mode === 'copy' ? versions[0] : selected
     const fields = { ...(source?.fields || {}) }
+    if (fields.correctionModel !== 'polynomial-v1') {
+      fields.correctionA = 0; fields.correctionB = 0; fields.correctionC = 0
+      fields.correctionD = fields.correction ?? 0
+    }
+    fields.correctionModel = 'polynomial-v1'
+    delete fields.correction
     if (mode === 'copy') {
       setSelectedYear(null)
       for (const key of ['calDate', ...Array.from(NUMBERS)]) fields[key] = ''
     }
+    Object.assign(fields,standardDivisorFields(source?.fields || {}))
     setDraft({
       year: mode === 'edit' && selected ? String(beYear(selected.year)) : '',
       expectedRevision: mode === 'edit' ? selected?.revision || 0 : 0,
       fields, tables: toTables(source?.calPoints),
-      source: mode === 'legacy' ? 'เริ่มจากข้อมูลเดิมที่ยังไม่ได้ระบุปี กรุณาตรวจสอบข้อมูลทุกช่องและยืนยันปี พ.ศ. ก่อนบันทึก ข้อมูลนี้ไม่ใช่ประวัติของปีใน PDF เดิม' : mode === 'copy' ? `ใช้ข้อมูลเครื่องมือจากปี พ.ศ. ${beYear(versions[0].year)} กรุณาระบุปีใหม่ วันที่สอบเทียบ Correction ค่า uT และ expandedU (PDF ไม่ถูกคัดลอก)` : '',
+      source: mode === 'legacy' ? 'เริ่มจากข้อมูลเดิมที่ยังไม่ได้ระบุปี กรุณาตรวจสอบข้อมูลทุกช่องและยืนยันปี พ.ศ. ก่อนบันทึก ข้อมูลนี้ไม่ใช่ประวัติของปีใน PDF เดิม' : mode === 'copy' ? `ใช้ข้อมูลเครื่องมือจากปี พ.ศ. ${beYear(versions[0].year)} กรุณาระบุปีใหม่ วันที่สอบเทียบ สัมประสิทธิ์ A–D ค่า uT และ expandedU (PDF ไม่ถูกคัดลอก)` : '',
     })
   }
 
@@ -143,6 +152,7 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
         if (NUMBERS.has(key) && input !== '' && !Number.isFinite(Number(input))) throw new Error(`${key}: ต้องเป็นตัวเลข`)
         return [key, NUMBERS.has(key) && input !== '' ? Number(input) : input]
       }))
+      fields.correctionModel = 'polynomial-v1'
       const payload = { year, fields, calPoints: annualTablesFromDraft(draft.tables, fields), expectedRevision: draft.expectedRevision, pdfExpiryDate: draftPdfExpiry }
       let init: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
       if (draftPdf) {
@@ -223,7 +233,8 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
       {draft ? <div className="space-y-4 rounded border border-military-200 bg-white p-4">
         {draft.source && <p className="rounded bg-amber-50 p-3 text-sm text-amber-900">{draft.source}</p>}
         <label className="block text-sm font-medium">ปี พ.ศ. (รับ ค.ศ. ได้เช่นกัน)<input aria-label="ปีของข้อมูลที่จะบันทึก" type="number" className="input-field mt-1 max-w-48" placeholder="เช่น 2569" value={draft.year} disabled={draft.expectedRevision > 0} onChange={event => setDraft({ ...draft, year: event.target.value })} /></label>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{FIELDS.map(([key, label]) => <label key={key} className="block text-xs text-gray-600">{label}<input className="input-field mt-1 text-sm" type={key === 'calDate' ? 'date' : NUMBERS.has(key) ? 'number' : 'text'} step="any" value={key === 'calDate' ? String(draft.fields[key] || '').slice(0, 10) : draft.fields[key] ?? ''} onChange={event => setDraft({ ...draft, fields: { ...draft.fields, [key]: event.target.value } })} /></label>)}</div>
+        <p className="text-xs text-gray-600">Correction = A×x³ + B×x² + C×x + D โดย x คือ STD Read แต่ละครั้ง · True = Read + Correction</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{FIELDS.map(([key, label]) => <label key={key} className="block text-xs text-gray-600">{label}<input className="input-field mt-1 text-sm" min={key.startsWith('divisor') ? '0.000000001' : undefined} required={key.startsWith('divisor')} type={key === 'calDate' ? 'date' : NUMBERS.has(key) ? 'number' : 'text'} step="any" value={key === 'calDate' ? String(draft.fields[key] || '').slice(0, 10) : draft.fields[key] ?? ''} onChange={event => setDraft({ ...draft, fields: { ...draft.fields, [key]: event.target.value } })} /></label>)}</div>
         <div className="flex items-center justify-between"><h4 className="text-sm font-semibold">ตารางจุดสอบเทียบ ({draft.tables.length})</h4><button type="button" className={buttonClass} onClick={() => setDraft({ ...draft, tables: [...draft.tables, { _id: crypto.randomUUID(), tableName: '', points: '', units: String(draft.fields.unit || ''), stdValues: '' }] })}>+ เพิ่มตาราง</button></div>
         <p className="text-xs text-gray-500">คั่นแต่ละค่าด้วยจุลภาค (,) ช่องค่า STD ว่างจะคงตำแหน่งเดิม การวัด Time รองรับข้อความเวลา เช่น 01:30 สามารถบันทึกโดยไม่มีตารางได้</p>
         {draft.tables.map((table, index) => <div key={table._id} className="space-y-3 rounded border p-3">
@@ -239,7 +250,7 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
         </div>
         <div className="flex gap-2"><button type="button" className={primaryClass} onClick={save}>ยืนยันปีและบันทึกข้อมูลทั้งหมด</button><button type="button" className={buttonClass} onClick={() => setDraft(null)}>ยกเลิก</button></div>
       </div> : selected && <>
-        <dl className="grid grid-cols-2 gap-3 rounded border bg-white p-3 lg:grid-cols-4">{FIELDS.map(([key, label]) => <div key={key}><dt className="text-xs text-gray-500">{label}</dt><dd className="break-words text-sm">{selected.fields[key] === '' || selected.fields[key] == null ? '—' : String(selected.fields[key])}</dd></div>)}</dl>
+        <dl className="grid grid-cols-2 gap-3 rounded border bg-white p-3 lg:grid-cols-4">{FIELDS.map(([key, label]) => <div key={key}><dt className="text-xs text-gray-500">{label}</dt><dd className="break-words text-sm">{STANDARD_DIVISOR_FIELDS.some(c=>c.field===key) ? String(standardDivisorFields(selected.fields)[key]) : selected.fields[key] === '' || selected.fields[key] == null ? '—' : String(selected.fields[key])}</dd></div>)}</dl>
         <div className="space-y-3"><h4 className="text-sm font-semibold">ตารางจุดสอบเทียบ ({selected.calPoints.length})</h4>{!selected.calPoints.length && <p className="text-sm text-gray-500">ปีนี้ไม่มีตารางจุดสอบเทียบ</p>}{[...selected.calPoints].sort((a, b) => a.order - b.order).map((table, index) => <div key={table._id} className="overflow-x-auto rounded border bg-white"><table className="w-full text-left text-sm"><caption className="bg-military-50 p-2 text-left font-medium">{table.tableName || `ตาราง ${index + 1}`}</caption><thead><tr><th className="p-2">จุดสอบเทียบ</th><th className="p-2">หน่วย</th><th className="p-2">ค่า STD</th></tr></thead><tbody>{table.points.map((point, index) => <tr key={index} className="border-t"><td className="p-2">{point.pointValue}</td><td className="p-2">{point.unit}</td><td className="p-2">{table.stdValues[index] ?? '—'}</td></tr>)}</tbody></table></div>)}</div>
         <div className="space-y-3 rounded border bg-white p-3"><h4 className="text-sm font-semibold">PDF ของปี พ.ศ. {beYear(selected.year)} (ไม่บังคับ)</h4>{selected.pdf ? <a className="text-sm text-blue-700 underline" href={`${endpoint}/${selected.year}/pdf`} target="_blank" rel="noreferrer">{selected.pdf.fileName}</a> : <p className="text-sm text-gray-500">ยังไม่มี PDF สำหรับปีนี้</p>}
           <div className="flex flex-wrap items-end gap-3"><label className="text-xs">เลขที่ใบรับรอง PDF<input className="input-field mt-1" value={pdfCertNo} onChange={event => setPdfCertNo(event.target.value)} /></label><label className="text-xs">วันหมดอายุ<input type="date" className="input-field mt-1" value={pdfExpiry} onChange={event => setPdfExpiry(event.target.value)} /></label><label className="text-xs">{selected.pdf ? 'แทนที่ PDF' : 'อัปโหลด PDF'}<input aria-label="อัปโหลด PDF ของปีที่เลือก" type="file" accept="application/pdf,.pdf" className="mt-1 block text-sm" onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void upload(file) }} /></label></div>

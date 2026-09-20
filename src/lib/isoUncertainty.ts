@@ -3,6 +3,7 @@
 // Implements GUM (JCGM 100:2008) for all ISO calibration methods
 // Supports: comparison, spatial_uniformity, comparison_with_ref_bath patterns
 
+import { correctStandardReading, getStandardCoefficients, hasPolynomialCorrection } from './standardCorrection'
 import type { IIsoMethodTemplate } from '@/models/IsoMethodTemplate'
 
 // ── Types ──
@@ -41,6 +42,11 @@ export interface IsoCalcInput {
     uTUuc?: number
     uTInt?: number
     correction?: number
+    correctionModel?: string
+    correctionA?: number
+    correctionB?: number
+    correctionC?: number
+    correctionD?: number
   }
   uucResolution: number
   probeCorrections?: ProbeCorrection[]
@@ -206,14 +212,19 @@ function flattenStdRaw(stdReadings?: (number | null)[][] | number[]): number[] {
   if (!stdReadings?.length) return []
   const out: number[] = []
   for (const row of stdReadings as any[]) {
-    const v = Array.isArray(row) ? Number(row[0]) : Number(row)
+    const raw = Array.isArray(row) ? row[0] : row
+    if (raw == null || raw === '' || (typeof raw === 'string' && !raw.trim())) continue
+    const v = Number(raw)
     if (Number.isFinite(v)) out.push(v)
   }
   return out
 }
 
 /** Excel E = AU (tachometer) + BU12 (interpolation correction) */
-function correctedStdValues(cp: IsoCalPointData, fallbackCount: number): number[] {
+function correctedStdValues(cp: IsoCalPointData, fallbackCount: number, polynomialStd?: IsoCalcInput['std1']): number[] {
+  if (polynomialStd) {
+    return flattenStdRaw(cp.stdReadings).map(v => correctStandardReading(v, polynomialStd).trueValue)
+  }
   const corr = Number(cp.standardCorrection ?? 0)
   const raw = flattenStdRaw(cp.stdReadings as any)
   if (raw.length) return raw.map(v => v + corr)
@@ -232,14 +243,18 @@ function tem003Inhomogeneity(wireCondition: unknown): number {
   return 0.44
 }
 
-function computeIrjError(methodFields?: Record<string, any>): number {
+function computeIrjError(methodFields?: Record<string, any>, polynomialStd?: IsoCalcInput['std1']): number {
   const s1 = Number(methodFields?.irjStd1)
   const u1 = Number(methodFields?.irjUuc1)
   const s2 = Number(methodFields?.irjStd2)
   const u2 = Number(methodFields?.irjUuc2)
   const hasPair = [methodFields?.irjStd1, methodFields?.irjUuc1, methodFields?.irjStd2, methodFields?.irjUuc2]
     .every(v => v !== '' && v != null && Number.isFinite(Number(v)))
-  if (hasPair) return Math.abs((u1 - s1) - (u2 - s2))
+  if (hasPair) {
+    const std1 = polynomialStd ? correctStandardReading(s1, polynomialStd).trueValue : s1
+    const std2 = polynomialStd ? correctStandardReading(s2, polynomialStd).trueValue : s2
+    return Math.abs((u1 - std1) - (u2 - std2))
+  }
   const direct = Number(methodFields?.irjError)
   return Number.isFinite(direct) ? direct : 0
 }
@@ -559,6 +574,9 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
 
   if (!calPoints?.length) return null
 
+  const usesStandardPolynomial = hasPolynomialCorrection(std1)
+  if (usesStandardPolynomial) getStandardCoefficients(std1)
+  const standardSensors = methodTemplate.measurementPattern === 'spatial_uniformity'
   const calPointResults: CalPointResult[] = []
 
   for (const cp of calPoints) {
@@ -567,6 +585,7 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
 
     const rawReadings = cp.sensorReadings || []
     if (!rawReadings.length) continue
+    if (usesStandardPolynomial && !rawReadings.some(row => row.some(v => v != null && Number.isFinite(v)))) continue
 
     // Determine sensor count
     const sensorCount = rawReadings[0]?.length || 1
@@ -575,6 +594,11 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
     const correctedReadings = rawReadings.map(row =>
       row.map((val, sIdx) => {
         if (val == null || isNaN(val)) return null
+        if (usesStandardPolynomial) {
+          // Spatial probes are STD instruments; comparison sensors are the UUC.
+          // The selected certificate replaces the legacy probe correction, never stacks with it.
+          return standardSensors ? correctStandardReading(val, std1).trueValue : val
+        }
         if (probeCorrections?.[sIdx]) {
           return val + polynomialCorrection(val, probeCorrections[sIdx].coefficients)
         }
@@ -636,7 +660,11 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
       && (cp.verticalReadings.center.length || cp.verticalReadings.top.length || cp.verticalReadings.bottom.length)
     )
     if (hasVerticalReadings && cp.verticalReadings) {
-      const { center, top, bottom } = cp.verticalReadings
+      const correctVertical = (values: number[]) => usesStandardPolynomial && standardSensors
+        ? values.map(v => correctStandardReading(v, std1).trueValue) : values
+      const center = correctVertical(cp.verticalReadings.center)
+      const top = correctVertical(cp.verticalReadings.top)
+      const bottom = correctVertical(cp.verticalReadings.bottom)
       const centerMean = avg(center)
       const topMean = avg(top)
       const bottomMean = avg(bottom)
@@ -674,11 +702,12 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
 
     // Corrected STD readings: Excel E = AU + interpolation correction (BU12)
     const uucN = rawReadings.filter(row => row.some(v => v != null && !isNaN(Number(v)))).length
-    const stdCorrected = correctedStdValues(cp, uucN)
+    const stdCorrected = correctedStdValues(cp, uucN, usesStandardPolynomial ? std1 : undefined)
     let stdMean: number | undefined
     let correction: number | undefined
     const isComparisonPoint = methodTemplate.measurementPattern === 'comparison' || isTem003Dtm
     if (isComparisonPoint && sensorCount === 1) {
+      if (usesStandardPolynomial && !stdCorrected.length) throw new Error('Raw STD Read is required for polynomial correction')
       stdMean = stdCorrected.length ? avg(stdCorrected) : (point + (cp.standardCorrection ?? 0))
       correction = stdMean - (indicatingReading ?? sensorMeans[0])
     }
@@ -686,7 +715,8 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
     let shortTermStability = Number(methodFields?.shortTermStability ?? 0)
     if (isTem003Dtm && input.calRefPoints?.[0]) {
       const ref = input.calRefPoints[0]
-      const refStd = flattenStdRaw(ref.stdReadings as any)
+      const refStd = usesStandardPolynomial
+        ? correctedStdValues(ref, 0, std1) : flattenStdRaw(ref.stdReadings as any)
       const refUuc = (ref.uucReadings && ref.uucReadings.length)
         ? ref.uucReadings
         : (ref.sensorReadings || []).map(row => row[0]).filter((v): v is number => v != null && !isNaN(Number(v)))
@@ -732,7 +762,7 @@ export function calculateIsoUncertainty(input: IsoCalcInput): IsoCalcResult | nu
         envTempScope: input.envTempScope,
         tNoLoad: cp.tNoLoad,
         shortTermStability,
-        irjError: methodTemplate.code === 'TEM-003-3' ? computeIrjError(methodFields) : undefined,
+        irjError: methodTemplate.code === 'TEM-003-3' ? computeIrjError(methodFields, usesStandardPolynomial ? std1 : undefined) : undefined,
       })
 
       const ci = source.sensitivityCoefficient ?? 1

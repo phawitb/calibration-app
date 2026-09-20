@@ -1,4 +1,5 @@
 import React from 'react'
+import { formatPdfUncertainty } from '@/lib/pdfUncertainty'
 import { certificateText, type CertificateTexts } from '@/lib/certificateTexts'
 import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/renderer'
 import { buildPdfCertificateInfo, PDF_LABELS } from '@/lib/pdfCertificate'
@@ -418,7 +419,7 @@ export default function CalibrationPDF({
                   <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgUUC, true) : fmtVal(cp.avgUUC)}</Text>
                   <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgSTD, true) : fmtVal(cp.avgSTD)}</Text>
                   <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.correction, true) : fmtVal(cp.correction)}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.uncertainty, true, 1) : fmtVal(cp.uncertainty)}</Text>
+                  <Text style={[s.td, { width: '20%' }]}>{formatPdfUncertainty(cp.uncertainty, cp.isTime)}</Text>
                 </View>
               ))}
             </View>

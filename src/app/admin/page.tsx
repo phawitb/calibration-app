@@ -2,7 +2,6 @@ import AdminCertificateTexts from '@/components/AdminCertificateTexts'
 import AdminUsers from '@/components/AdminUsers'
 import ReferenceDataManager from '@/components/ReferenceDataManager'
 import AdminCertNumberConfig from '@/components/AdminCertNumberConfig'
-import AdminFormulaManager from '@/components/AdminFormulaManager'
 import AdminIsoMethods from '@/components/AdminIsoMethods'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -16,6 +15,7 @@ export default async function AdminPage({
   const session = await getServerSession(authOptions)
   const role = (session?.user as any)?.role
   if (searchParams?.tab === 'orders') redirect('/admin?tab=data&category=orders')
+  if (searchParams?.tab === 'formulas') redirect('/admin?tab=data&category=stdinstruments')
   const tab = searchParams?.tab || (role === 'technician' ? 'data' : 'users')
   if (role === 'technician' && tab === 'users') redirect('/admin?tab=data')
 
@@ -26,7 +26,6 @@ export default async function AdminPage({
       {tab === 'data' && <ReferenceDataManager initialCategory={searchParams?.category} />}
       {tab === 'certificate-texts' && <AdminCertificateTexts />}
       {tab === 'cert' && <AdminCertNumberConfig />}
-      {tab === 'formulas' && <AdminFormulaManager />}
       {tab === 'iso-methods' && <AdminIsoMethods />}
     </div>
   )

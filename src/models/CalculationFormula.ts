@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose'
 
 export interface ICalculationFormula extends Document {
+  componentDivisors?: Record<string,number>
   code: string
   name: string
   description: string
@@ -17,6 +18,7 @@ export interface ICalculationFormula extends Document {
 
 const CalculationFormulaSchema = new Schema<ICalculationFormula>(
   {
+    componentDivisors: { type: Schema.Types.Mixed, default: undefined },
     code: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     description: { type: String, default: '' },
@@ -31,5 +33,6 @@ const CalculationFormulaSchema = new Schema<ICalculationFormula>(
   { timestamps: true }
 )
 
+if (mongoose.models.CalculationFormula && !mongoose.models.CalculationFormula.schema.path('componentDivisors')) mongoose.deleteModel('CalculationFormula')
 export default mongoose.models.CalculationFormula ||
   mongoose.model<ICalculationFormula>('CalculationFormula', CalculationFormulaSchema)

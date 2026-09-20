@@ -1,8 +1,11 @@
+import { DIVISOR_COMPONENTS, resolveComponentDivisors, standardComponentDivisors, type ComponentDivisors } from './formulaDivisors'
+import { evaluateStandardCorrection, getStandardCoefficients, hasPolynomialCorrection, type StandardCoefficients } from './standardCorrection'
 // src/lib/uncertainty.ts
 // Uncertainty Calculation Engine v2
 // อ้างอิง: GUM (JCGM 100:2008), Google Sheets P12N/P123N/P12T/P123T/P12Time
 
 export interface FormulaConfig {
+  componentDivisors?: ComponentDivisors
   code: string
   name: string
   confidenceLevel: number
@@ -29,6 +32,7 @@ export interface CalPointInput {
 }
 
 export interface StdUncertaintyParams {
+  coefficients?: StandardCoefficients
   stdCorrection: number
   uTStd: number
   uTDrif: number
@@ -224,27 +228,31 @@ export function calculateCalPointBudget(
   formula: FormulaConfig = STANDARD_FORMULA,
 ): CalPointResult {
   const { point, uucReadings, stdReadings } = pointInput
-  const { stdCorrection, uTStd, uTDrif, uTResStd, uTUuc, uTInt } = stdParams
+  const { stdCorrection: fixedCorrection, coefficients, uTStd, uTDrif, uTResStd, uTUuc, uTInt } = stdParams
   const { confidenceLevel, divisorNormal, divisorRect, numReadings, forceK } = formula
 
-  const sqrtN = Math.sqrt(numReadings)
+  const nUuc = uucReadings.filter(Number.isFinite).length
+  const nStd = stdReadings.filter(Number.isFinite).length
+  if (nUuc < 2 || nStd < 2) throw new Error('กรุณากรอกค่า UUC และ STD Read อย่างน้อยด้านละ 2 ค่าในแต่ละจุดเพื่อคำนวณ Repeatability')
   const avgUUC = avg(uucReadings)
-  const uTRepUUC = stdev(uucReadings) / sqrtN
+  const uTRepUUC = stdev(uucReadings) / Math.sqrt(nUuc)
   const avgSTD = avg(stdReadings)
-  const uTRepSTD = stdev(stdReadings) / sqrtN
-  const avgSTDRead = avgSTD + stdCorrection
+  const correctedReadings = stdReadings.filter(Number.isFinite).map(read => evaluateStandardCorrection(read, coefficients || {a:0,b:0,c:0,d:fixedCorrection}).trueValue)
+  const uTRepSTD = stdev(correctedReadings) / Math.sqrt(nStd)
+  const avgSTDRead = avg(correctedReadings)
+  const stdCorrection = avgSTDRead - avgSTD
   const correction = avgSTDRead - avgUUC
 
   const components: UncertaintyComponent[] = [
     {
       symbol: 'uT Rep.(UUC)', type: 'B', source: 'Repeatability of UUC',
       value: uTRepUUC, probability: 'normal', divisor: 1, ci: 1,
-      ui: uTRepUUC, vi: 3, ui2: uTRepUUC ** 2,
+      ui: uTRepUUC, vi: nUuc - 1, ui2: uTRepUUC ** 2,
     },
     {
       symbol: 'uT Rep.(STD)', type: 'B', source: 'Repeatability of STD',
       value: uTRepSTD, probability: 'normal', divisor: 1, ci: 1,
-      ui: uTRepSTD, vi: 3, ui2: uTRepSTD ** 2,
+      ui: uTRepSTD, vi: nStd - 1, ui2: uTRepSTD ** 2,
     },
     {
       symbol: 'uT STD', type: 'A', source: 'Calibration of STD',
@@ -273,10 +281,15 @@ export function calculateCalPointBudget(
     },
   ]
 
+  const divisors = resolveComponentDivisors(formula)
+  components.forEach((component,index) => {
+    component.divisor = divisors[DIVISOR_COMPONENTS[index].key]
+    if (!Number.isFinite(component.divisor) || component.divisor <= 0) throw new Error('Divisor ต้องมากกว่า 0')
+    component.ui = component.value / component.divisor
+    component.ui2 = component.ui ** 2
+  })
   const uc = Math.sqrt(components.reduce((acc, c) => acc + c.ui2, 0))
-  const uiRepUUC = components[0].ui
-  const uiRepSTD = components[1].ui
-  const denominator = (uiRepUUC ** 4) / 3 + (uiRepSTD ** 4) / 3
+  const denominator = components.reduce((sum,c) => sum + (Number.isFinite(c.vi) ? c.ui ** 4 / c.vi : 0), 0)
   const veff = denominator === 0 ? Infinity : (uc ** 4) / denominator
   const k = forceK != null ? forceK : tInv(confidenceLevel, veff)
   const U = uc * k
@@ -306,6 +319,7 @@ function toCalPointInputs(calPoints: any[]): CalPointInput[] {
 function toStdParams(std: any): StdUncertaintyParams {
   return {
     stdCorrection: Number(std?.correction ?? 0),
+    coefficients: getStandardCoefficients(std),
     uTStd: Number(std?.uTStd ?? 0),
     uTDrif: Number(std?.uTDrif ?? 0),
     uTResStd: Number(std?.uTResStd ?? 0),
@@ -322,7 +336,7 @@ export function calculateUcComponent(
   formula: FormulaConfig = STANDARD_FORMULA,
 ): UcComponentResult {
   const validPoints = calPoints.filter(
-    p => p.uucReadings?.some(v => v != null && !isNaN(v) && v !== 0)
+    p => p.uucReadings?.some(Number.isFinite) && p.stdReadings?.some(Number.isFinite)
   )
   const points = validPoints.map(p => calculateCalPointBudget(p, stdParams, formula))
 
@@ -356,7 +370,8 @@ export function calculateAllUcComponents(
     }
     const stdParams = toStdParams(uc.std)
     const calPoints = toCalPointInputs(uc.calPoints ?? [])
-    const formula = formulaMap[key] ?? STANDARD_FORMULA
+    if (hasPolynomialCorrection(uc.std) && calPoints.some(p => p.uucReadings.some(Number.isFinite) && !p.stdReadings.some(Number.isFinite))) throw new Error(`${key.toUpperCase()}: กรุณากรอก STD Read ที่อ่านจริงในทุกจุดที่มีค่า UUC`)
+    const formula = {...STANDARD_FORMULA, componentDivisors: standardComponentDivisors(uc.std)}
     result[key] = calculateUcComponent(key, stdInfo, stdParams, calPoints, formula)
   }
 
@@ -442,6 +457,7 @@ export function calculateIsoRecord(
   const std1 = record.std1 || {}
   const stdParams: StdUncertaintyParams = {
     stdCorrection: Number(std1.correction ?? 0),
+    coefficients: getStandardCoefficients(std1),
     uTStd: Number(std1.uTStd ?? 0),
     uTDrif: Number(std1.uTDrif ?? 0),
     uTResStd: Number(std1.uTResStd ?? 0),
@@ -476,11 +492,15 @@ export function calculateIsoRecord(
 
       // STD readings: constant value = point + standardCorrection
       const stdValue = point + Number(cp.standardCorrection ?? 0)
-      const stdReadings = uucReadings.map(() => stdValue)
+      const stdReadings = hasPolynomialCorrection(std1)
+        ? (cp.stdReadings || []).flat().map(parseCalibrationValue).filter(Number.isFinite)
+        : uucReadings.map(() => stdValue)
+      if (!stdReadings.length) continue
 
       const pointInput: CalPointInput = { point, uucReadings, stdReadings }
       const result = calculateCalPointBudget(pointInput, stdParams, {
         ...formula,
+        componentDivisors: standardComponentDivisors(std1),
         numReadings: uucReadings.length,
       })
       calPointResults.push(result)

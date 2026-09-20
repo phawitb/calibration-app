@@ -1,3 +1,4 @@
+import { validateComponentDivisors } from '@/lib/formulaDivisors'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -36,6 +37,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   await connectDB()
   const body = await req.json()
+  try {
+    if ('componentDivisors' in body) body.componentDivisors = validateComponentDivisors(body.componentDivisors)
+    for (const key of ['divisorNormal','divisorRect']) if (key in body && (typeof body[key] !== 'number' || !Number.isFinite(body[key]) || body[key] <= 0)) throw new Error(`${key} ต้องมากกว่า 0`)
+  } catch (error) { return NextResponse.json({error:(error as Error).message},{status:400}) }
   if (body.code === 'standard')
     return NextResponse.json({ error: 'ไม่สามารถสร้างสูตรที่ใช้รหัส standard ได้' }, { status: 400 })
   const formula = new CalculationFormula(body)
@@ -49,11 +54,18 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   await connectDB()
   const body = await req.json()
+  try {
+    if ('componentDivisors' in body) body.componentDivisors = validateComponentDivisors(body.componentDivisors)
+    for (const key of ['divisorNormal','divisorRect']) if (key in body && (typeof body[key] !== 'number' || !Number.isFinite(body[key]) || body[key] <= 0)) throw new Error(`${key} ต้องมากกว่า 0`)
+  } catch (error) { return NextResponse.json({error:(error as Error).message},{status:400}) }
   const { _id, ...update } = body
   const existing = await CalculationFormula.findById(_id)
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (existing.isDefault)
-    return NextResponse.json({ error: 'ไม่สามารถแก้ไขสูตรมาตรฐานได้' }, { status: 400 })
+  if (existing.isDefault) {
+    update.code = existing.code
+    update.isDefault = true
+    update.isActive = true
+  }
   Object.assign(existing, update)
   await existing.save()
   return NextResponse.json({ formula: existing })
