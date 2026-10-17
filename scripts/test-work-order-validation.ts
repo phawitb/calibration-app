@@ -6,6 +6,8 @@ import {
   validateOrderPdf,
   assertRecordOrderIdentity,
   projectOrderForHospital,
+  recordStandardNos,
+  assertRecordStandardsAllowed,
 } from '../src/lib/workOrderValidation'
 const id = 'a'.repeat(24),
   dev = 'b'.repeat(24)
@@ -130,4 +132,25 @@ test('specific order limits historical hospital choices; all scope retains legac
  assert.deepEqual(resolveWorkspaceHospitals({...scope,hasSelectedOrder:true}), ['A'])
  assert.deepEqual(resolveWorkspaceHospitals({...scope,hasSelectedOrder:false}), ['A','B','Legacy'])
  assert.deepEqual(resolveWorkspaceHospitals({...scope,historical:false,orderHospitals:['A','B']}), ['A','B'])
+})
+test('standard instruments on an order are optional but must be valid ids', () => {
+  const std = 'c'.repeat(24)
+  assert.deepEqual(validateWorkOrderInput(good).standardIds, [])
+  assert.deepEqual(
+    validateWorkOrderInput({ ...good, standardIds: [std] }).standardIds,
+    [std]
+  )
+  for (const standardIds of [['bad'], [std, std], 'x'])
+    assert.throws(() => validateWorkOrderInput({ ...good, standardIds }))
+})
+test('records may only use the standards carried on the order', () => {
+  const order = { orderNo: '1/69', standards: [{ no: '1021' }, { no: '2002' }] }
+  const record = { std1: { no: '1021' }, uc1: { std: { no: '2002' } }, ucT: { std: { no: '' } } }
+  assert.deepEqual(recordStandardNos(record).sort(), ['1021', '2002'])
+  assert.doesNotThrow(() => assertRecordStandardsAllowed(order, record))
+  assert.doesNotThrow(() => assertRecordStandardsAllowed({ standards: [] }, { std1: { no: '9' } }))
+  assert.throws(
+    () => assertRecordStandardsAllowed(order, { ...record, uc2: { std: { no: '9999' } } }),
+    { status: 409 }
+  )
 })

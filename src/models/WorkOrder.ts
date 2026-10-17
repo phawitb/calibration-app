@@ -24,6 +24,19 @@ const schema = new Schema(
       },
     ],
     usedDeviceIds: { type: [String], default: [] },
+    // เครื่องมือมาตรฐานที่นำไปตามคำสั่ง (ว่าง = ไม่จำกัด)
+    standardIds: { type: [String], default: [] },
+    standards: [
+      {
+        _id: String,
+        no: String,
+        name: String,
+        manufacture: String,
+        model: String,
+        serialNo: String,
+        measurement: String,
+      },
+    ],
     revision: { type: Number, default: 0 },
     createdBy: String,
     updatedBy: String,

@@ -7,6 +7,8 @@ export type WorkOrderInput = {
   notes: string
   hospitals: OrderHospital[]
   memberIds: string[]
+  /** _id ของเครื่องมือมาตรฐาน (stdinstrumentrefs) ที่นำไปตามคำสั่ง ว่างได้ = ไม่จำกัด */
+  standardIds: string[]
 }
 export type OrderMember = {
   _id: string
@@ -23,10 +25,20 @@ export type OrderDevice = {
   serialNo: string
   brand?: string
 }
+export type OrderStandard = {
+  _id: string
+  no: string
+  name: string
+  manufacture?: string
+  model?: string
+  serialNo?: string
+  measurement?: string
+}
 export type WorkOrderSummary = WorkOrderInput & {
   _id: string
   revision: number
   updatedAt: string
   members: OrderMember[]
   devices: OrderDevice[]
+  standards: OrderStandard[]
 }

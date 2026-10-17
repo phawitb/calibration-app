@@ -109,7 +109,10 @@ export default function AdminWorkOrders() {
               </div>
               <p className="text-sm">
                 {o.hospitals.length} รพ. · {o.devices.length} เครื่องมือ ·{' '}
-                {o.members.length} คน
+                {o.members.length} คน ·{' '}
+                {o.standards?.length
+                  ? `${o.standards.length} เครื่องมือมาตรฐาน`
+                  : 'ไม่จำกัดเครื่องมือมาตรฐาน'}
               </p>
               <p className="text-sm text-gray-600 break-words">
                 {o.hospitals.map((h) => h.unitName).join(' · ')}

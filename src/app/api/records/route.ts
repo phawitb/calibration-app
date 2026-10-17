@@ -2,6 +2,7 @@ import { calibrationDateRange, calibrationDateSearch } from '@/lib/calibrationDa
 import {getIsoMethod} from '@/lib/isoMethods'
 import {reserveOrderDevice,releaseOrderDeviceIfUnused,getOrder,requireOrderManager} from '@/lib/workOrderService'
 import {orderFailure} from '@/lib/workOrderHttp'
+import {assertRecordStandardsAllowed} from '@/lib/workOrderValidation'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -225,6 +226,8 @@ export async function POST(req: NextRequest) {
   // Keep its ID aligned so personnel certificates can be opened for admin-created records too.
   const technicianId = sessionId || undefined
   const safeBody = stripClientNumberFields(rawBody)
+  // เครื่องมือมาตรฐานต้องอยู่ในรายการที่นำไปตามคำสั่ง (ถ้าคำสั่งระบุไว้)
+  assertRecordStandardsAllowed(order, safeBody)
   // จองเครื่องมือในคำสั่งหลังตรวจสอบข้อมูลครบแล้ว ถ้าบันทึกไม่สำเร็จจะคืนสถานะให้
   const orderDevice = await reserveOrderDevice(actor, rawBody.workOrderId, rawBody.workOrderDeviceId, rawBody.unitName)
   const record = new CalibrationRecord({

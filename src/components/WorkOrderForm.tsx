@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 import type {
   OrderDevice,
   OrderMember,
+  OrderStandard,
   WorkOrderInput,
   WorkOrderSummary,
 } from '@/lib/workOrderTypes'
@@ -17,6 +18,7 @@ const empty: WorkOrderInput = {
   notes: '',
   hospitals: [],
   memberIds: [],
+  standardIds: [],
 }
 export default function WorkOrderForm({
   order,
@@ -27,7 +29,9 @@ export default function WorkOrderForm({
   onSaved: (o: WorkOrderSummary) => void
   onCancel: () => void
 }) {
-  const [form, setForm] = useState<WorkOrderInput>(order || empty),
+  const [form, setForm] = useState<WorkOrderInput>(
+      order ? { ...empty, ...order, standardIds: order.standardIds || [] } : empty
+    ),
     [saved, setSaved] = useState(order),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('')
@@ -42,6 +46,8 @@ export default function WorkOrderForm({
     [query, setQuery] = useState(''),
     [userQuery, setUserQuery] = useState(''),
     [hospitalQuery, setHospitalQuery] = useState(''),
+    [standards, setStandards] = useState<OrderStandard[]>([]),
+    [standardQuery, setStandardQuery] = useState(''),
     [optionsLoading, setOptionsLoading] = useState(true)
   useEffect(() => {
     let live = true
@@ -52,6 +58,7 @@ export default function WorkOrderForm({
         if (live) {
           setUsers(j.data.users)
           setHospitals(j.data.hospitals)
+          setStandards(j.data.standards || [])
         }
       })
       .catch((e) => {
@@ -163,7 +170,7 @@ export default function WorkOrderForm({
         j = await r.json()
       if (!r.ok) throw Error(j.error)
       setSaved(j.data)
-      setForm(j.data)
+      setForm({ ...empty, ...j.data, standardIds: j.data.standardIds || [] })
       const failed: File[] = []
       const failures: string[] = []
       for (const file of pendingFiles) {
@@ -201,6 +208,12 @@ export default function WorkOrderForm({
     ...users,
     ...(saved?.members || []).filter(
       (u) => !users.some((x) => x._id === u._id)
+    ),
+  ]
+  const availableStandards = [
+    ...standards,
+    ...(saved?.standards || []).filter(
+      (s) => !standards.some((x) => x._id === s._id)
     ),
   ]
   const availableHospitals = Array.from(
@@ -438,6 +451,67 @@ export default function WorkOrderForm({
                 ))}
             </div>
           </section>
+          <section className="space-y-3">
+            <h3 className="font-semibold">
+              เครื่องมือมาตรฐานที่นำไป{' '}
+              <span className="text-sm font-normal text-gray-500">
+                เลือกแล้ว {form.standardIds.length} ชิ้น
+                {form.standardIds.length === 0 && ' · ไม่เลือก = ใช้ได้ทั้งทะเบียน'}
+              </span>
+            </h3>
+            <p className="text-xs text-gray-500">
+              เมื่อระบุแล้ว งานสอบเทียบในคำสั่งนี้จะเลือกเครื่องมือมาตรฐานได้เฉพาะรายการนี้
+              เครื่องที่มีงานใช้แล้วจะนำออกไม่ได้
+            </p>
+            <input
+              className="input-field"
+              placeholder="ค้นหารหัส / ชื่อ / รุ่น / Serial No."
+              aria-label="ค้นหาเครื่องมือมาตรฐาน"
+              value={standardQuery}
+              onChange={(e) => setStandardQuery(e.target.value)}
+            />
+            <div className="grid gap-2 sm:grid-cols-2 max-h-72 overflow-auto">
+              {availableStandards
+                .filter((s) =>
+                  `${s.no} ${s.name} ${s.model || ''} ${s.serialNo || ''} ${s.measurement || ''}`
+                    .toLowerCase()
+                    .includes(standardQuery.toLowerCase())
+                )
+                .map((s) => (
+                  <label
+                    key={s._id}
+                    className="flex items-start gap-3 rounded-lg border p-3 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={form.standardIds.includes(s._id)}
+                      onChange={() =>
+                        patch(
+                          'standardIds',
+                          form.standardIds.includes(s._id)
+                            ? form.standardIds.filter((id) => id !== s._id)
+                            : [...form.standardIds, s._id]
+                        )
+                      }
+                    />
+                    <span>
+                      <span className="font-medium">{s.no}</span> {s.name}
+                      <span className="block text-xs text-gray-500">
+                        {[s.manufacture, s.model, s.serialNo && `S/N ${s.serialNo}`, s.measurement]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              {!availableStandards.length && !optionsLoading && (
+                <p className="text-sm text-gray-500 sm:col-span-2">
+                  ยังไม่มีเครื่องมือมาตรฐานในทะเบียน
+                </p>
+              )}
+            </div>
+          </section>
           <label className="block text-sm font-medium">
             หมายเหตุ
             <textarea
@@ -524,7 +598,10 @@ export default function WorkOrderForm({
           <p className="text-sm text-gray-500">
             {form.hospitals.length} รพ. ·{' '}
             {form.hospitals.reduce((n, h) => n + h.deviceIds.length, 0)}{' '}
-            เครื่องมือ · {form.memberIds.length} คน
+            เครื่องมือ · {form.memberIds.length} คน ·{' '}
+            {form.standardIds.length
+              ? `${form.standardIds.length} เครื่องมือมาตรฐาน`
+              : 'ไม่จำกัดเครื่องมือมาตรฐาน'}
           </p>
         </div>
       </form>

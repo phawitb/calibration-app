@@ -13,7 +13,7 @@ import { shouldSessionOwnCalibration } from '@/lib/recordPersonnel'
 import { generateNextCertNo } from '@/lib/certNo'
 import { shouldAssignCertificateNumber, stripClientNumberFields } from '@/lib/recordLifecycle'
 import { resolveHospitalScope, scopeAllows } from '@/lib/hospitalScope'
-import { releaseOrderDeviceIfUnused } from '@/lib/workOrderService'
+import { assertRecordStandardsInOrder, releaseOrderDeviceIfUnused } from '@/lib/workOrderService'
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -86,6 +86,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   assertRecordOrderIdentity(existing, rawBody)
   delete rawBody.workOrderNo
+  // เครื่องมือมาตรฐานที่ใช้ต้องอยู่ในรายการของคำสั่ง (ตรวจจากค่าที่จะบันทึกจริง = ค่าเดิมทับด้วยค่าใหม่)
+  if (existing.workOrderId) {
+    const merged: Record<string, any> = { std1: existing.std1 }
+    for (const slot of ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT']) merged[slot] = (existing as any)[slot]
+    for (const key of Object.keys(merged)) if (key in rawBody) merged[key] = rawBody[key]
+    await assertRecordStandardsInOrder(existing.workOrderId, merged)
+  }
   const action = (saveAction === 'request_approval' ? 'request_approval' : 'draft') as
     | 'draft'
     | 'request_approval'

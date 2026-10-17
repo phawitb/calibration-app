@@ -67,7 +67,44 @@ export function validateWorkOrderInput(value: unknown): WorkOrderInput {
     notes: typeof v.notes === 'string' ? v.notes.slice(0, 5000).trim() : '',
     hospitals,
     memberIds: ids(v.memberIds, 'ทีมผู้ปฏิบัติงาน'),
+    standardIds: optionalIds(v.standardIds, 'เครื่องมือมาตรฐาน'),
   }
+}
+/** รายการ id ที่ไม่บังคับ (ว่าง/ไม่ส่งมาได้) แต่ถ้าส่งมาต้องเป็น ObjectId และไม่ซ้ำ */
+function optionalIds(value: unknown, label: string): string[] {
+  if (value == null) return []
+  if (!Array.isArray(value) || value.length > 500)
+    throw new OrderError(`รายการ${label}ไม่ถูกต้อง`)
+  const result = value.map(orderId)
+  if (new Set(result).size !== result.length)
+    throw new OrderError(`${label}ซ้ำกัน`)
+  return result
+}
+/** คีย์ของเครื่องมือมาตรฐานใน record (std1 และ uc1–ucT) ที่ใช้ตรวจกับรายการของคำสั่ง */
+export const RECORD_STANDARD_SLOTS = ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT'] as const
+export function recordStandardNos(record: any): string[] {
+  const nos = new Set<string>()
+  const add = (v: unknown) => {
+    const s = String(v ?? '').trim()
+    if (s) nos.add(s)
+  }
+  add(record?.std1?.no)
+  for (const slot of RECORD_STANDARD_SLOTS) add(record?.[slot]?.std?.no)
+  return Array.from(nos)
+}
+/**
+ * ถ้าคำสั่งระบุเครื่องมือมาตรฐานที่นำไป record ต้องใช้เฉพาะเครื่องมือเหล่านั้น
+ * (คำสั่งที่ไม่ระบุ = ใช้ได้ทั้งทะเบียน)
+ */
+export function assertRecordStandardsAllowed(order: any, record: any) {
+  const allowed = (order?.standards || []).map((s: any) => String(s?.no ?? '').trim()).filter(Boolean)
+  if (!allowed.length) return
+  const outside = recordStandardNos(record).filter((no) => !allowed.includes(no))
+  if (outside.length)
+    throw new OrderError(
+      `เครื่องมือมาตรฐาน ${outside.join(', ')} ไม่อยู่ในรายการที่นำไปตามคำสั่ง ${order?.orderNo || ''}`.trim(),
+      409
+    )
 }
 export function validateOrderPdf(
   file: { type: string; size: number },

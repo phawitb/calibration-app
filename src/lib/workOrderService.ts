@@ -5,10 +5,12 @@ import User from '../models/User'
 import AmedDevice from '../models/AmedDevice'
 import { getUnitVariants } from './unitVariants'
 import {
+  assertRecordStandardsAllowed,
   canManageOrders,
   orderId,
   OrderError,
   projectOrderForHospital,
+  recordStandardNos,
   validateWorkOrderInput,
 } from './workOrderValidation'
 export type OrderActor = { id: string; role?: string; hospitalUnit?: string }
@@ -127,12 +129,60 @@ async function checkedInput(body: unknown, previous?: any) {
     input.hospitals.length
   )
     throw new OrderError('โรงพยาบาลซ้ำกัน')
+  const standards = await resolveOrderStandards(input.standardIds, previous)
   return {
     ...input,
     orderKey: input.orderNo.toLocaleLowerCase(),
     members,
     devices,
+    standards,
   }
+}
+/** ดึง snapshot เครื่องมือมาตรฐานจากทะเบียน (stdinstrumentrefs) ตาม id ที่เลือก */
+async function resolveOrderStandards(standardIds: string[], previous?: any) {
+  if (!standardIds.length) return []
+  const rows = await mongoose.connection
+    .db!.collection('stdinstrumentrefs')
+    .find(
+      { _id: { $in: standardIds.map((id) => new mongoose.Types.ObjectId(id)) } },
+      { projection: { no: 1, name: 1, manufacture: 1, model: 1, serialNo: 1, measurement: 1 } }
+    )
+    .toArray()
+  const byId = new Map(rows.map((r: any) => [String(r._id), r]))
+  return standardIds.map((id) => {
+    const row: any = byId.get(id)
+    const old = previous?.standards?.find((s: any) => String(s._id) === id)
+    if (!row && old) return old
+    if (!row) throw new OrderError('ไม่พบเครื่องมือมาตรฐานที่เลือกในทะเบียน')
+    return {
+      _id: id,
+      no: String(row.no ?? '').trim(),
+      name: String(row.name ?? '').trim(),
+      manufacture: String(row.manufacture ?? '').trim(),
+      model: String(row.model ?? '').trim(),
+      serialNo: String(row.serialNo ?? '').trim(),
+      measurement: String(row.measurement ?? '').trim(),
+    }
+  })
+}
+/** รหัส (no) ของเครื่องมือมาตรฐานที่ record ในคำสั่งนี้ใช้ไปแล้ว */
+async function usedStandardNos(orderIdValue: string): Promise<Set<string>> {
+  const rows = await mongoose
+    .model('CalibrationRecord')
+    .find({ workOrderId: orderIdValue })
+    .select('std1.no uc1.std.no uc2.std.no uc3.std.no uc4.std.no uc5.std.no uc6.std.no ucT.std.no')
+    .lean()
+  const used = new Set<string>()
+  for (const r of rows) for (const no of recordStandardNos(r)) used.add(no)
+  return used
+}
+/** ตรวจว่าเครื่องมือมาตรฐานใน record อยู่ในรายการที่นำไปตามคำสั่ง (ถ้าคำสั่งระบุไว้) */
+export async function assertRecordStandardsInOrder(workOrderId: unknown, record: any) {
+  const id = String(workOrderId || '')
+  if (!/^[a-f\d]{24}$/i.test(id)) return
+  const order: any = await WorkOrder.findById(id).select('orderNo standards').lean()
+  if (!order) return
+  assertRecordStandardsAllowed(order, record)
 }
 function rethrow(error: any): never {
   if (error?.code === 11000)
@@ -163,6 +213,19 @@ export async function updateOrder(actor: OrderActor, id: string, body: any) {
   if (!previous) throw new OrderError('ไม่พบคำสั่ง', 404)
   const input = await checkedInput(body, previous),
     ids = input.hospitals.flatMap((h) => h.deviceIds)
+  // เครื่องมือมาตรฐานที่ record ในคำสั่งนี้ใช้แล้ว ห้ามถอดออก (เว้นแต่จะเลิกจำกัดทั้งหมด)
+  if (previous.standards?.length && input.standardIds.length) {
+    const used = await usedStandardNos(id)
+    const keptNos = new Set(input.standards.map((s: any) => String(s.no)))
+    const removed = (previous.standards as any[])
+      .map((s) => String(s.no))
+      .filter((no) => used.has(no) && !keptNos.has(no))
+    if (removed.length)
+      throw new OrderError(
+        `ไม่สามารถนำเครื่องมือมาตรฐาน ${removed.join(', ')} ออกได้ เพราะมีงานสอบเทียบในคำสั่งนี้ใช้อยู่`,
+        409
+      )
+  }
   for (const usedId of previous.usedDeviceIds || []) {
     const before = previous.devices.find((d: any) => String(d._id) === usedId),
       after = input.devices.find((d: any) => String(d._id) === usedId)

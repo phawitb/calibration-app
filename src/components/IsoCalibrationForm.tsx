@@ -255,7 +255,39 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
   const [calPriceRefs, setCalPriceRefs] = useState<Array<{ device?: string; calPrice?: number; mainPrice?: number }>>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
-  const [stdInstruments, setStdInstruments] = useState<Record<string, any>[]>([])
+  const [allStdInstruments, setAllStdInstruments] = useState<Record<string, any>[]>([])
+  /** เครื่องมือมาตรฐานที่นำไปตามคำสั่ง (null = ไม่จำกัด) */
+  const [orderStandards, setOrderStandards] = useState<{ _id: string; no: string }[] | null>(null)
+  const [orderNo, setOrderNo] = useState('')
+  const orderIdForStandards = String(initialData?.workOrderId || '')
+  useEffect(() => {
+    if (!orderIdForStandards) { setOrderStandards(null); return }
+    let mounted = true
+    fetch(`/api/orders/${orderIdForStandards}`)
+      .then(async (r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!mounted) return
+        const list = Array.isArray(j?.data?.standards) ? j.data.standards : []
+        setOrderStandards(list.length ? list.map((x: any) => ({ _id: String(x._id), no: String(x.no ?? '').trim() })) : null)
+        setOrderNo(String(j?.data?.orderNo || ''))
+      })
+      .catch(() => { if (mounted) setOrderStandards(null) })
+    return () => { mounted = false }
+  }, [orderIdForStandards])
+  // แสดงเฉพาะเครื่องมือมาตรฐานของคำสั่ง (คงรายการที่ record นี้ใช้อยู่แล้วไว้ด้วย)
+  const stdInstruments = useMemo(() => {
+    if (!orderStandards) return allStdInstruments
+    const allowedNos = new Set(orderStandards.map((s) => s.no))
+    const allowedIds = new Set(orderStandards.map((s) => s._id))
+    const usedNos = new Set<string>()
+    const addUsed = (v: unknown) => { const n = String(v ?? '').trim(); if (n) usedNos.add(n) }
+    addUsed(initialData?.std1?.no)
+    for (const slot of ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT']) addUsed((initialData as any)?.[slot]?.std?.no)
+    return allStdInstruments.filter((r: any) => {
+      const no = String(r?.no ?? '').trim()
+      return allowedNos.has(no) || allowedIds.has(String(r?._id || '')) || allowedIds.has(String(r?.instrumentRefId || '')) || usedNos.has(no)
+    })
+  }, [allStdInstruments, orderStandards, initialData])
   const [std1FromRef, setStd1FromRef] = useState(false)
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
 
@@ -348,7 +380,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         }
         if (sRes.ok) {
           const json = await sRes.json()
-          if (mounted) setStdInstruments(Array.isArray(json.data) ? json.data : [])
+          if (mounted) setAllStdInstruments(Array.isArray(json.data) ? json.data : [])
         }
         if (pRes.ok) {
           const json = await pRes.json()
@@ -1729,6 +1761,11 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         {/* Standard instrument (Std1) - for uncertainty calculation */}
         <div className="card space-y-4">
           <h3 className="section-title">เครื่องมือมาตรฐาน (Standard Instrument)</h3>
+          {orderStandards && (
+            <p className="text-xs rounded-md bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">
+              แสดงเฉพาะเครื่องมือมาตรฐานที่นำไปตามคำสั่ง{orderNo ? ` ${orderNo}` : ''} ({orderStandards.length} ชิ้น)
+            </p>
+          )}
           <p className="text-xs text-gray-500 -mt-1">
             พิมพ์กรองแล้วคลิกเลือกจากรายการ — รหัส/ชื่อที่ตรงฐานอ้างอิงจะเติมฟิลด์ทันที (สามารถเลือกใหม่ได้)
           </p>

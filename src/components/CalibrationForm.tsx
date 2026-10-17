@@ -765,7 +765,39 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
   const [deviceRefs, setDeviceRefs] = useState<Array<{ name?: string; thaiName?: string; calPrice?: number; mainPrice?: number }>>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
   const [std1FromRef, setStd1FromRef] = useState(false)
-  const [stdInstruments, setStdInstruments] = useState<StdRef[]>([])
+  const [allStdInstruments, setAllStdInstruments] = useState<StdRef[]>([])
+  /** เครื่องมือมาตรฐานที่นำไปตามคำสั่ง (null = ไม่จำกัด) */
+  const [orderStandards, setOrderStandards] = useState<{ _id: string; no: string }[] | null>(null)
+  const [orderNo, setOrderNo] = useState('')
+  const orderIdForStandards = String(initialData?.workOrderId || '')
+  useEffect(() => {
+    if (!orderIdForStandards) { setOrderStandards(null); return }
+    let mounted = true
+    fetch(`/api/orders/${orderIdForStandards}`)
+      .then(async (r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (!mounted) return
+        const list = Array.isArray(j?.data?.standards) ? j.data.standards : []
+        setOrderStandards(list.length ? list.map((x: any) => ({ _id: String(x._id), no: String(x.no ?? '').trim() })) : null)
+        setOrderNo(String(j?.data?.orderNo || ''))
+      })
+      .catch(() => { if (mounted) setOrderStandards(null) })
+    return () => { mounted = false }
+  }, [orderIdForStandards])
+  // แสดงเฉพาะเครื่องมือมาตรฐานของคำสั่ง (คงรายการที่ record นี้ใช้อยู่แล้วไว้ด้วย)
+  const stdInstruments = useMemo(() => {
+    if (!orderStandards) return allStdInstruments
+    const allowedNos = new Set(orderStandards.map((s) => s.no))
+    const allowedIds = new Set(orderStandards.map((s) => s._id))
+    const usedNos = new Set<string>()
+    const addUsed = (v: unknown) => { const n = String(v ?? '').trim(); if (n) usedNos.add(n) }
+    addUsed(initialData?.std1?.no)
+    for (const slot of ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT']) addUsed((initialData as any)?.[slot]?.std?.no)
+    return allStdInstruments.filter((r: any) => {
+      const no = String(r?.no ?? '').trim()
+      return allowedNos.has(no) || allowedIds.has(String(r?._id || '')) || allowedIds.has(String(r?.instrumentRefId || '')) || usedNos.has(no)
+    })
+  }, [allStdInstruments, orderStandards, initialData])
   const [approvers, setApprovers] = useState<Array<{ _id: string; fullName?: string; name?: string; rank?: string; fullNameEn?: string; rankEn?: string; role?: string }>>([])
   const [formulaOptions, setFormulaOptions] = useState<FormulaOption[]>([])
   const [ucExpanded, setUcExpanded] = useState<Record<string, boolean>>({
@@ -831,7 +863,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         }
         if (sRes.ok) {
           const sJson = await sRes.json()
-          if (mounted) setStdInstruments(Array.isArray(sJson.data) ? sJson.data : [])
+          if (mounted) setAllStdInstruments(Array.isArray(sJson.data) ? sJson.data : [])
         }
         if (pRes.ok) {
           const pJson = await pRes.json()
@@ -1475,6 +1507,11 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
       <div className="card space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="section-title">เครื่องมือมาตรฐานสภาพแวดล้อม (Std1)</h3>
+          {orderStandards && (
+            <p className="text-xs rounded-md bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2">
+              แสดงเฉพาะเครื่องมือมาตรฐานที่นำไปตามคำสั่ง{orderNo ? ` ${orderNo}` : ''} ({orderStandards.length} ชิ้น) ทั้ง Std1 และ Uc1–UcT
+            </p>
+          )}
           {(data.std1?.no || data.std1?.name) && (
             <button type="button" onClick={() => {
               setStd1FromRef(false)
