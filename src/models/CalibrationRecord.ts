@@ -343,6 +343,12 @@ const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   timestamps: true,
 })
 
+// เลขที่ใบรับรองต้องไม่ซ้ำ (เฉพาะ record ที่มีเลขแล้ว) ป้องกันการออกเลขชนกันเมื่อขออนุมัติพร้อมกัน
+CalibrationRecordSchema.index(
+  { certNo: 1 },
+  { unique: true, partialFilterExpression: { certNo: { $type: 'string', $gt: '' } } }
+)
+
 // Text index for search
 CalibrationRecordSchema.index({
   deviceName: 'text',

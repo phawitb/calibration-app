@@ -1,6 +1,6 @@
 import { calibrationDateRange, calibrationDateSearch } from '@/lib/calibrationDateSearch'
 import {getIsoMethod} from '@/lib/isoMethods'
-import {reserveOrderDevice,getOrder,requireOrderManager} from '@/lib/workOrderService'
+import {reserveOrderDevice,releaseOrderDeviceIfUnused,getOrder,requireOrderManager} from '@/lib/workOrderService'
 import {orderFailure} from '@/lib/workOrderHttp'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
@@ -12,6 +12,7 @@ import User from '@/models/User'
 import { calcRecalibrationDates, getRecalibrationSettings } from '@/lib/recalibration'
 import { formatPersonName } from '@/lib/personName'
 import { buildUnsavedDraftQuery, stripClientNumberFields } from '@/lib/recordLifecycle'
+import { resolveHospitalScope } from '@/lib/hospitalScope'
 
 async function normalizeHospitalUnit(inputRaw: unknown) {
   const variants = await getUnitVariants(inputRaw)
@@ -26,8 +27,10 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const search  = (searchParams.get('search') || '').trim()
-  const page    = parseInt(searchParams.get('page') || '1')
-  const limit   = parseInt(searchParams.get('limit') || '20')
+  const pageRaw = parseInt(searchParams.get('page') || '1', 10)
+  const limitRaw = parseInt(searchParams.get('limit') || '20', 10)
+  const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 20
   const section = searchParams.get('section') || ''
   const cardFilter = String(searchParams.get('cardFilter') || '').trim()
   const calType = searchParams.get('calType') || ''
@@ -39,7 +42,6 @@ export async function GET(req: NextRequest) {
   const calDateFrom = searchParams.get('calDateFrom') || ''
   const calDateTo = searchParams.get('calDateTo') || ''
   const role = (session.user as any)?.role
-  const hospitalUnit = (session.user as any)?.hospitalUnit
   const myOnly = searchParams.get('myOnly') === '1'
   const currentUsername = (session.user as any)?.username || ''
 
@@ -51,9 +53,10 @@ export async function GET(req: NextRequest) {
   if (role !== 'hospital_user' && myOnly && currentUsername) {
     query.createdBy = currentUsername
   }
-  if (role === 'hospital_user' && hospitalUnit) {
-    const unitVariants = await getUnitVariants(hospitalUnit)
-    query.unitName = { $in: unitVariants }
+  const scope = await resolveHospitalScope(session.user)
+  if (scope.kind === 'forbidden') return NextResponse.json({ error: scope.reason }, { status: 403 })
+  if (scope.kind === 'units') {
+    query.unitName = { $in: scope.units }
   } else if (unitName) {
     const unitVariants = await getUnitVariants(unitName)
     query.unitName = { $in: unitVariants.length ? unitVariants : [unitName] }
@@ -171,7 +174,6 @@ export async function POST(req: NextRequest) {
   const actor = session.user as any
   requireOrderManager(actor)
   const order = await getOrder(actor, rawBody.workOrderId)
-  const orderDevice = await reserveOrderDevice(actor, rawBody.workOrderId, rawBody.workOrderDeviceId, rawBody.unitName)
   const normalizedUnitName = await normalizeHospitalUnit(rawBody?.unitName)
   const normalizedLocation = rawBody?.location ? await normalizeHospitalUnit(rawBody.location) : ''
   const createdBy = String((session.user as any).username || '').trim()
@@ -223,6 +225,8 @@ export async function POST(req: NextRequest) {
   // Keep its ID aligned so personnel certificates can be opened for admin-created records too.
   const technicianId = sessionId || undefined
   const safeBody = stripClientNumberFields(rawBody)
+  // จองเครื่องมือในคำสั่งหลังตรวจสอบข้อมูลครบแล้ว ถ้าบันทึกไม่สำเร็จจะคืนสถานะให้
+  const orderDevice = await reserveOrderDevice(actor, rawBody.workOrderId, rawBody.workOrderDeviceId, rawBody.unitName)
   const record = new CalibrationRecord({
     ...safeBody,
     workOrderId: order._id,
@@ -249,7 +253,12 @@ export async function POST(req: NextRequest) {
     record.requestedApproverName = undefined
   }
 
-  await record.save()
+  try {
+    await record.save()
+  } catch (saveError) {
+    await releaseOrderDeviceIfUnused(order._id, orderDevice._id).catch(() => false)
+    throw saveError
+  }
   return NextResponse.json({ record, reused: false }, { status: 201 })
   } catch (e) { return orderFailure(e) }
 }

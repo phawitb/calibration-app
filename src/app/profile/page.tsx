@@ -105,7 +105,7 @@ export default function ProfilePage() {
           </div>
           <div>
             <label className="block text-sm mb-1 text-gray-600">รหัสผ่านใหม่</label>
-            <input type="password" minLength={4} className="input-field" required value={pwd.newPassword} onChange={(e) => setPwd((p) => ({ ...p, newPassword: e.target.value }))} />
+            <input type="password" minLength={8} className="input-field" required value={pwd.newPassword} onChange={(e) => setPwd((p) => ({ ...p, newPassword: e.target.value }))} />
           </div>
           <div className="flex justify-end">
             <button className="btn-primary" disabled={changing} type="submit">{changing ? 'กำลังเปลี่ยน...' : 'เปลี่ยนรหัสผ่าน'}</button>

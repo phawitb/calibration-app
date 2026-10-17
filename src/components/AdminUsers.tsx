@@ -632,7 +632,7 @@ export default function AdminUsers() {
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">รีเซ็ตรหัสผ่าน (ไม่บังคับ)</label>
-              <input type="password" minLength={4} className="input-field"
+              <input type="password" minLength={8} className="input-field"
                 placeholder="เว้นว่างหากไม่ต้องการเปลี่ยน"
                 value={resetPassword} onChange={e => setResetPassword(e.target.value)} />
             </div>

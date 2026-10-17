@@ -34,7 +34,13 @@ export async function GET(req: NextRequest) {
   await connectDB()
 
   const { searchParams } = new URL(req.url)
-  const unitName = searchParams.get('unitName') || ''
+  let unitName = searchParams.get('unitName') || ''
+  const user = session.user as { role?: string; hospitalUnit?: string }
+  if (user.role === 'hospital_user') {
+    // ผู้ใช้โรงพยาบาลเห็นได้เฉพาะหน่วยของตนเอง
+    if (!user.hospitalUnit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    unitName = user.hospitalUnit
+  }
   if (!unitName) return NextResponse.json({ data: [] })
 
   const unitVariants = await getUnitVariants(unitName)

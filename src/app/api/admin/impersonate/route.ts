@@ -25,12 +25,16 @@ export async function POST(req: NextRequest) {
   }
 
   const cookieStore = await cookies()
-  cookieStore.set('impersonate_user_id', userId, {
+  cookieStore.set('impersonate_user_id', String(userId), {
     path: '/',
-    httpOnly: false, // client needs to read this
+    httpOnly: true, // client อ่านสถานะจาก session.user._isImpersonating แทน
+    secure: process.env.NODE_ENV === 'production',
     maxAge: 60 * 60 * 4, // 4 hours
     sameSite: 'lax',
   })
+  console.info(
+    `[impersonate] admin ${(session!.user as any).username} (${(session!.user as any).id}) -> ${(target as any).username} (${userId})`
+  )
 
   const role = (target as any).role === 'user' ? 'hospital_user' : (target as any).role
   return NextResponse.json({

@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
 import { calculateRecord } from '@/lib/calculateRecord'
+import { getUnitVariants } from '@/lib/unitVariants'
 
 export async function GET(
   _req: NextRequest,
@@ -18,8 +19,12 @@ export async function GET(
   await connectDB()
   const record = await CalibrationRecord.findById(params.id).lean()
   if (!record) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (role === 'hospital_user' && hospitalUnit && String((record as any).unitName || '') !== String(hospitalUnit)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (role === 'hospital_user') {
+    if (!hospitalUnit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const allowed = await getUnitVariants(hospitalUnit)
+    if (!allowed.includes(String((record as any).unitName || ''))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
   }
 
   try {

@@ -34,7 +34,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   await connectDB()
   const record = await CalibrationRecord.findById(params.id).lean()
   if (!record) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (role === 'hospital_user' && hospitalUnit) {
+  if (role === 'hospital_user') {
+    if (!hospitalUnit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const unitVariants = await getUnitVariants(hospitalUnit)
     if (!unitVariants.includes(String((record as any).unitName || ''))) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

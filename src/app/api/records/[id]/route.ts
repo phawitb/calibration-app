@@ -12,6 +12,8 @@ import { generateNextAmedCertKey } from '@/lib/amedKey'
 import { shouldSessionOwnCalibration } from '@/lib/recordPersonnel'
 import { generateNextCertNo } from '@/lib/certNo'
 import { shouldAssignCertificateNumber, stripClientNumberFields } from '@/lib/recordLifecycle'
+import { resolveHospitalScope, scopeAllows } from '@/lib/hospitalScope'
+import { releaseOrderDeviceIfUnused } from '@/lib/workOrderService'
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -41,17 +43,12 @@ async function normalizeHospitalUnit(inputRaw: unknown) {
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const role = (session.user as any)?.role
-  const hospitalUnit = (session.user as any)?.hospitalUnit
-
   await connectDB()
   const record = await CalibrationRecord.findById(params.id).lean()
   if (!record) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (role === 'hospital_user' && hospitalUnit) {
-    const unitVariants = await getUnitVariants(hospitalUnit)
-    if (!unitVariants.includes(String((record as any).unitName || ''))) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  const scope = await resolveHospitalScope(session.user)
+  if (!scopeAllows(scope, (record as any).unitName)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   return NextResponse.json({ record })
@@ -62,7 +59,6 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const role = (session.user as any)?.role
-  const hospitalUnit = (session.user as any)?.hospitalUnit
 
   await connectDB()
   const body = await req.json()
@@ -73,16 +69,18 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
   void _a0
 
+  // แก้ไข record ได้เฉพาะผู้ดูแลระบบและเจ้าหน้าที่สอบเทียบ (ผู้อนุมัติใช้ช่องทางอนุมัติ/ตีกลับ)
+  if (role !== 'admin' && role !== 'technician') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const existing = await CalibrationRecord.findById(params.id)
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  if (role === 'hospital_user' && hospitalUnit) {
-    const unitVariants = await getUnitVariants(hospitalUnit)
-    if (!unitVariants.includes(String(existing.unitName || ''))) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  // ใบรับรองที่อนุมัติแล้ว ล็อกไว้ ให้ผู้ดูแลระบบเท่านั้นที่แก้ (จะกลับเป็นร่างและต้องขออนุมัติใหม่)
+  if (existing.approvalStatus === 'approved' && role !== 'admin') {
     return NextResponse.json(
-      { error: 'Hospital user can view only' },
-      { status: 403 }
+      { error: 'ใบรับรองนี้อนุมัติแล้ว แก้ไขได้เฉพาะผู้ดูแลระบบ' },
+      { status: 409 }
     )
   }
 
@@ -166,23 +164,33 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   if (normalizedUnitName !== undefined) patch.unitName = normalizedUnitName || ''
   if (normalizedLocation !== undefined) patch.location = normalizedLocation || ''
-  if (shouldAssignCertificateNumber(action, existing.certNo)) {
-    patch.certNo = await generateNextCertNo(
-      rawBody?.issuedDate || rawBody?.calDate || existing.issuedDate || existing.calDate
-    )
-    if (!String(existing.amedCertKey || '').trim()) {
-      const nextKey = await generateNextAmedCertKey(rawBody?.amedNo ?? existing.amedNo)
-      if (nextKey) patch.amedCertKey = nextKey
-    }
+  const needsCertNo = shouldAssignCertificateNumber(action, existing.certNo)
+  const certNoDate = rawBody?.issuedDate || rawBody?.calDate || existing.issuedDate || existing.calDate
+  if (needsCertNo && !String(existing.amedCertKey || '').trim()) {
+    const nextKey = await generateNextAmedCertKey(rawBody?.amedNo ?? existing.amedNo)
+    if (nextKey) patch.amedCertKey = nextKey
   }
 
   delete (patch as any).saveAction
   patch.savedOnce = true
-  const record = await CalibrationRecord.findOneAndUpdate(
-    { _id: params.id, updatedAt: existing.updatedAt },
-    { $set: patch, $inc: { certificateRevision: 1 } },
-    { new: true }
-  )
+
+  // ออกเลขใบรับรองแล้วบันทึก ถ้าเลขชนกับคนอื่น (unique index) ให้ออกเลขใหม่แล้วลองอีกครั้ง
+  let record: any = null
+  const maxAttempts = needsCertNo ? 5 : 1
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (needsCertNo) patch.certNo = await generateNextCertNo(certNoDate)
+    try {
+      record = await CalibrationRecord.findOneAndUpdate(
+        { _id: params.id, updatedAt: existing.updatedAt },
+        { $set: patch, $inc: { certificateRevision: 1 } },
+        { new: true }
+      )
+      break
+    } catch (e: any) {
+      const duplicateCertNo = e?.code === 11000 && e?.keyPattern?.certNo
+      if (!duplicateCertNo || attempt === maxAttempts - 1) throw e
+    }
+  }
   if (!record) return NextResponse.json({ error: 'ข้อมูลเปลี่ยนแล้ว กรุณาโหลดใหม่' }, { status: 409 })
 
   if (String(record.amedNo || '').trim() && String(record.certNo || '').trim()) {
@@ -206,7 +214,15 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const role = (session.user as any).role
   if (role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+  if (!mongoose.isValidObjectId(params.id)) {
+    return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
+  }
   await connectDB()
-  await CalibrationRecord.findByIdAndDelete(params.id)
+  const removed: any = await CalibrationRecord.findByIdAndDelete(params.id).lean()
+  if (!removed) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // คืนสถานะเครื่องมือในคำสั่ง ถ้าไม่มี record อื่นใช้เครื่องมือนี้แล้ว
+  if (removed.workOrderId && removed.workOrderDeviceId) {
+    await releaseOrderDeviceIfUnused(removed.workOrderId, removed.workOrderDeviceId).catch(() => false)
+  }
   return NextResponse.json({ success: true })
 }

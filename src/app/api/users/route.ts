@@ -5,6 +5,7 @@ import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
 import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
+import { passwordPolicyError } from '@/lib/passwordPolicy'
 
 const ALLOWED_ROLES = ['admin', 'hospital_user', 'technician', 'approver'] as const
 
@@ -67,7 +68,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
   }
 
-  const existing = await User.findOne({ username })
+  const cleanUsername = String(username || '').trim()
+  if (!/^[A-Za-z0-9_.-]{3,32}$/.test(cleanUsername)) {
+    return NextResponse.json({ error: 'ชื่อผู้ใช้ต้องเป็น a-z 0-9 _ . - ยาว 3-32 ตัวอักษร' }, { status: 400 })
+  }
+  const pwdError = passwordPolicyError(password)
+  if (pwdError) return NextResponse.json({ error: pwdError }, { status: 400 })
+
+  const existing = await User.findOne({ username: cleanUsername })
   if (existing) return NextResponse.json({ error: 'Username already exists' }, { status: 400 })
 
   const normalizedHospitalUnit = await normalizeHospitalUnit(hospitalUnit)
@@ -76,7 +84,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'รูปลายเซ็นใหญ่เกินไป' }, { status: 400 })
   }
   const user = new User({
-    username,
+    username: cleanUsername,
     password: hashed,
     name,
     fullName: fullName || name,
@@ -135,7 +143,8 @@ export async function PATCH(req: NextRequest) {
   if (body.isActive != null) update.isActive = !!body.isActive
   if (body.resetPassword != null) {
     const nextPwd = String(body.resetPassword || '')
-    if (nextPwd.length < 4) return NextResponse.json({ error: 'Password too short' }, { status: 400 })
+    const resetError = passwordPolicyError(nextPwd)
+    if (resetError) return NextResponse.json({ error: resetError }, { status: 400 })
     update.password = await bcrypt.hash(nextPwd, 10)
   }
   if (body.signaturePng !== undefined) {
@@ -173,22 +182,4 @@ export async function DELETE(req: NextRequest) {
   }
   await User.findByIdAndDelete(id)
   return NextResponse.json({ success: true })
-}
-
-// Seed initial admin - call once via PUT (no auth; only when user count is 0)
-export async function PUT(req: NextRequest) {
-  await connectDB()
-  const count = await User.countDocuments()
-  if (count > 0) return NextResponse.json({ message: 'Already seeded' })
-
-  const hashed = await bcrypt.hash('admin1234', 10)
-  await User.create({
-    username: 'admin',
-    password: hashed,
-    name: 'ผู้ดูแลระบบ',
-    fullName: 'ผู้ดูแลระบบ',
-    role: 'admin',
-    isActive: true,
-  })
-  return NextResponse.json({ message: 'Admin created: admin / admin1234' })
 }

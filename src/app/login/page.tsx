@@ -24,7 +24,8 @@ export default function LoginPage() {
       router.push('/dashboard')
     } else {
       setLoading(false)
-      toast.error('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง')
+      const msg = res?.error && res.error !== 'CredentialsSignin' ? res.error : 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'
+      toast.error(msg)
     }
   }
 

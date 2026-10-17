@@ -21,7 +21,8 @@ export async function GET(req: NextRequest) {
   let unitName = searchParams.get('unitName') || ''
 
   if (user.role === 'hospital_user') {
-    unitName = user.hospitalUnit || ''
+    if (!user.hospitalUnit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    unitName = user.hospitalUnit
   }
 
   const filter: Record<string, unknown> = { isActive: { $ne: false } }

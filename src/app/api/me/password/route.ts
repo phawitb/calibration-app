@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
 import bcrypt from 'bcryptjs'
+import { passwordPolicyError } from '@/lib/passwordPolicy'
 
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -12,9 +13,11 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json()
   const currentPassword = String(body?.currentPassword || '')
   const newPassword = String(body?.newPassword || '')
-  if (!currentPassword || !newPassword || newPassword.length < 4) {
+  if (!currentPassword || !newPassword) {
     return NextResponse.json({ error: 'Invalid password payload' }, { status: 400 })
   }
+  const policyError = passwordPolicyError(newPassword)
+  if (policyError) return NextResponse.json({ error: policyError }, { status: 400 })
 
   await connectDB()
   const user = await User.findOne({ username: (session.user as any).username })

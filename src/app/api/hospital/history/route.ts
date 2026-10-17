@@ -47,7 +47,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Scope to user's hospital for hospital_user
-  if (user.role === 'hospital_user' && user.hospitalUnit) {
+  if (user.role === 'hospital_user') {
+    if (!user.hospitalUnit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     const unitVariants = await getUnitVariants(user.hospitalUnit)
     query.unitName = { $in: unitVariants }
   }

@@ -50,6 +50,7 @@ MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/calibration_db
 # หรือใช้ local: mongodb://localhost:27017/calibration_db
 
 # สร้างด้วย: openssl rand -base64 32
+# หรือ: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 NEXTAUTH_SECRET=your-random-secret-at-least-32-chars
 
 # URL ของแอป
@@ -63,7 +64,10 @@ npm run seed
 ```
 
 สร้างข้อมูลเริ่มต้น:
-- **Users:** `admin` / `admin1234` (admin), `calibrate` / `cal1234` (user)
+- **Users:** `admin` / `admin1234` (admin), `calibrate` / `cal1234` (technician)
+  - รหัสผ่านตัวอย่างนี้ใช้สำหรับพัฒนาเท่านั้น **ให้เปลี่ยนทันทีก่อนใช้งานจริง** (รหัสผ่านใหม่ต้องยาวอย่างน้อย 8 ตัว มีทั้งตัวอักษรและตัวเลข)
+  - ล็อกอินผิด 5 ครั้งใน 15 นาที บัญชีจะถูกล็อกชั่วคราว 15 นาที
+  - ไม่มี endpoint สร้าง admin อัตโนมัติ ต้องสร้างผู้ใช้แรกผ่าน `npm run seed` เท่านั้น
 - **Reference data:** เครื่องมือมาตรฐาน, หน่วยงาน, แผนก, ราคา ฯลฯ
 - **Calibration records:** ข้อมูลตัวอย่าง 103 รายการ
 

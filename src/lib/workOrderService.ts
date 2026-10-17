@@ -1,3 +1,4 @@
+import mongoose from 'mongoose'
 import WorkOrder from '../models/WorkOrder'
 import WorkOrderDocument from '../models/WorkOrderDocument'
 import User from '../models/User'
@@ -227,4 +228,22 @@ export async function reserveOrderDevice(
   if (!reserved)
     throw new OrderError('คำสั่งมีการเปลี่ยนแปลง กรุณาลองอีกครั้ง', 409)
   return device
+}
+
+/**
+ * ปลดสถานะ "ใช้แล้ว" ของเครื่องมือในคำสั่ง เมื่อไม่มี record ใดอ้างถึงเครื่องมือนั้นแล้ว
+ * ใช้ชดเชยกรณีสร้าง record ไม่สำเร็จหลังจองเครื่องมือ หรือเมื่อลบ record
+ */
+export async function releaseOrderDeviceIfUnused(orderIdRaw: unknown, deviceIdRaw: unknown) {
+  const id = String(orderIdRaw || ''), deviceId = String(deviceIdRaw || '')
+  if (!/^[a-f\d]{24}$/i.test(id) || !/^[a-f\d]{24}$/i.test(deviceId)) return false
+  const stillUsed = await mongoose
+    .model('CalibrationRecord')
+    .exists({ workOrderId: id, workOrderDeviceId: deviceId })
+  if (stillUsed) return false
+  const updated = await WorkOrder.findOneAndUpdate(
+    { _id: id, usedDeviceIds: deviceId },
+    { $pull: { usedDeviceIds: deviceId }, $inc: { revision: 1 } }
+  )
+  return !!updated
 }

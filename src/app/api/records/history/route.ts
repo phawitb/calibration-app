@@ -45,7 +45,8 @@ export async function GET(req: NextRequest) {
       ],
     },
   }
-  if (role === 'hospital_user' && hospitalUnit) {
+  if (role === 'hospital_user') {
+    if (!hospitalUnit) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     query.unitName = { $in: await getUnitVariants(hospitalUnit) }
   }
 

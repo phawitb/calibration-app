@@ -39,12 +39,30 @@ export function shouldAssignCertificateNumber(saveAction: string, certNo: unknow
   return saveAction === 'request_approval' && !clean(certNo)
 }
 
+/** ฟิลด์ที่เซิร์ฟเวอร์เป็นผู้กำหนดเท่านั้น client ส่งมาจะถูกตัดทิ้ง */
+const SERVER_OWNED_FIELDS = [
+  'certificateRevision',
+  'certificateArchiveTick',
+  'certNo',
+  'amedCertKey',
+  'createdBy',
+  'approvalStatus',
+  'approvedById',
+  'approvedByName',
+  'approvedAt',
+  'rejectedById',
+  'rejectedByName',
+  'rejectedAt',
+  'rejectionComment',
+  '_id',
+  'createdAt',
+  'updatedAt',
+  '__v',
+] as const
+
 export function stripClientNumberFields<T extends Record<string, unknown>>(patch: T) {
-  const safePatch = { ...patch }
-  delete safePatch.certificateRevision
-  delete safePatch.certificateArchiveTick
-  delete safePatch.certNo
-  delete safePatch.amedCertKey
+  const safePatch: Record<string, unknown> = { ...patch }
+  for (const key of SERVER_OWNED_FIELDS) delete safePatch[key]
   return safePatch as Omit<T, 'certNo' | 'amedCertKey'>
 }
 

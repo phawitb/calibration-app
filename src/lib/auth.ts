@@ -4,6 +4,28 @@ import bcrypt from 'bcryptjs'
 import { connectDB } from './mongodb'
 import User from '@/models/User'
 import { cookies } from 'next/headers'
+import { clearLoginFailures, loginLockedSeconds, recordLoginFailure } from './loginRateLimit'
+
+/** รีเฟรช role/หน่วยงาน/สถานะบัญชี จาก DB ลง JWT ทุก ๆ ช่วงเวลานี้ */
+const TOKEN_REFRESH_MS = 60 * 1000
+
+function normalizeRole(role: unknown) {
+  return role === 'user' ? 'hospital_user' : String(role || '')
+}
+
+function userToTokenFields(user: any) {
+  return {
+    role: normalizeRole(user.role),
+    id: String(user._id),
+    username: user.username,
+    fullName: user.fullName || user.name,
+    rank: user.rank || '',
+    fullNameEn: user.fullNameEn || '',
+    rankEn: user.rankEn || '',
+    hospitalUnit: user.hospitalUnit || '',
+    amedNo: user.amedNo || '',
+  }
+}
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
@@ -17,26 +39,34 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.username || !credentials?.password) return null
         const username = credentials.username.trim()
+        if (!username) return null
+
+        const lockedFor = loginLockedSeconds(username)
+        if (lockedFor > 0) {
+          throw new Error(`ล็อกอินผิดหลายครั้ง กรุณารอ ${Math.ceil(lockedFor / 60)} นาที`)
+        }
 
         await connectDB()
         const user = await User.findOne({ username })
-        if (!user) return null
+        if (!user) {
+          recordLoginFailure(username)
+          return null
+        }
 
         const isValid = await bcrypt.compare(credentials.password, user.password)
-        if (!isValid) return null
-        const normalizedRole = user.role === 'user' ? 'hospital_user' : user.role
+        if (!isValid) {
+          recordLoginFailure(username)
+          return null
+        }
+        if (user.isActive === false) {
+          throw new Error('บัญชีนี้ถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ')
+        }
+        clearLoginFailures(username)
 
+        const fields = userToTokenFields(user)
         return {
-          id: user._id.toString(),
-          username: user.username,
-          name: user.fullName || user.name,
-          fullName: user.fullName || user.name,
-          rank: user.rank || '',
-          fullNameEn: user.fullNameEn || '',
-          rankEn: user.rankEn || '',
-          hospitalUnit: user.hospitalUnit || '',
-          amedNo: user.amedNo || '',
-          role: normalizedRole,
+          ...fields,
+          name: fields.fullName,
         }
       },
     }),
@@ -44,20 +74,37 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.role = (user as any).role
-        token.id = (user as any).id
-        token.username = (user as any).username
-        token.fullName = (user as any).fullName
-        token.rank = (user as any).rank
-        token.fullNameEn = (user as any).fullNameEn
-        token.rankEn = (user as any).rankEn
-        token.hospitalUnit = (user as any).hospitalUnit
-        token.amedNo = (user as any).amedNo
+        Object.assign(token, userToTokenFields({ ...(user as any), _id: (user as any).id }))
+        token.refreshedAt = Date.now()
+        token.disabled = false
+        return token
+      }
+
+      // ดึง role / หน่วยงาน / สถานะบัญชี ล่าสุดจาก DB เป็นระยะ
+      const last = Number(token.refreshedAt || 0)
+      if (token.id && Date.now() - last > TOKEN_REFRESH_MS) {
+        try {
+          await connectDB()
+          const fresh = await User.findById(token.id as string)
+            .select('username name fullName rank fullNameEn rankEn role hospitalUnit amedNo isActive')
+            .lean()
+          if (!fresh || (fresh as any).isActive === false) {
+            token.disabled = true
+          } else {
+            Object.assign(token, userToTokenFields(fresh))
+            token.disabled = false
+          }
+          token.refreshedAt = Date.now()
+        } catch {
+          // DB ล่มชั่วคราว ใช้ค่าเดิมใน token ต่อไป
+        }
       }
       return token
     },
     async session({ session, token }) {
       if (!session.user) return session
+      // บัญชีถูกปิดหรือถูกลบ → ไม่มี session
+      if (token.disabled) return null as any
 
       // Check for impersonation cookie (admin only)
       let impersonatedUser: any = null
@@ -77,19 +124,12 @@ export const authOptions: NextAuthOptions = {
 
       if (impersonatedUser) {
         // Override session with impersonated user data
-        const role = impersonatedUser.role === 'user' ? 'hospital_user' : impersonatedUser.role
-        ;(session.user as any).id = impersonatedUser._id.toString()
-        ;(session.user as any).username = impersonatedUser.username
-        ;(session.user as any).fullName = impersonatedUser.fullName || impersonatedUser.name
-        ;(session.user as any).rank = impersonatedUser.rank || ''
-        ;(session.user as any).fullNameEn = impersonatedUser.fullNameEn || ''
-        ;(session.user as any).rankEn = impersonatedUser.rankEn || ''
-        ;(session.user as any).hospitalUnit = impersonatedUser.hospitalUnit || ''
-        ;(session.user as any).amedNo = impersonatedUser.amedNo || ''
-        ;(session.user as any).role = role
+        const fields = userToTokenFields(impersonatedUser)
+        Object.assign(session.user as any, fields)
         ;(session.user as any)._isImpersonating = true
         ;(session.user as any)._realAdminId = token.id
-        session.user.name = impersonatedUser.fullName || impersonatedUser.name || ''
+        ;(session.user as any)._realAdminUsername = token.username
+        session.user.name = fields.fullName || ''
       } else {
         ;(session.user as any).role = token.role
         ;(session.user as any).id = token.id

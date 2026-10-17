@@ -16,10 +16,11 @@ const path     = require('path')
 
 // ─── Schemas ───────────────────────────────────────────────────────────────
 
+// readings/standards เป็น Mixed เหมือน src/models/CalibrationRecord.ts (ตัวจับเวลาเก็บเป็นสตริงเวลา เช่น "01:00:00")
 const CalPointSchema = new mongoose.Schema({
   point:     mongoose.Schema.Types.Mixed,
-  readings:  [Number],
-  standards: [Number],
+  readings:  [mongoose.Schema.Types.Mixed],
+  standards: [mongoose.Schema.Types.Mixed],
 }, { _id: false })
 
 const StdInstrumentSchema = new mongoose.Schema({
@@ -49,12 +50,17 @@ const CalibrationRecordSchema = new mongoose.Schema({
   uc1: UcSchema, uc2: UcSchema, uc3: UcSchema,
   uc4: UcSchema, uc5: UcSchema, uc6: UcSchema, ucT: UcSchema,
   images: [String], remarks: [String], createdBy: String,
+  // ค่าเริ่มต้นให้ตรงกับ src/models/CalibrationRecord.ts เพื่อให้แอปนับ/แสดงรายการได้
+  approvalStatus: { type: String, default: 'draft' },
+  savedOnce: { type: Boolean, default: true },
+  calibrationType: { type: String, default: 'sbcal' },
 }, { timestamps: true })
 
 const UserSchema = new mongoose.Schema({
   username: { type: String, unique: true },
   password: String, name: String,
-  role: { type: String, enum: ['admin', 'user'], default: 'user' },
+  role: { type: String, enum: ['admin', 'hospital_user', 'technician', 'approver', 'user'], default: 'hospital_user' },
+  isActive: { type: Boolean, default: true },
 }, { timestamps: true })
 
 // Reference data schemas
@@ -104,6 +110,21 @@ const CalName           = mongoose.model('CalName', CalNameSchema)
 const CalPrice          = mongoose.model('CalPrice', CalPriceSchema)
 const FormulaModel      = mongoose.models.CalculationFormula || mongoose.model('CalculationFormula', CalculationFormulaSchema)
 
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+/** ข้อมูลส่งออกจากสเปรดชีตมีค่า "#N/A" / "-" ในช่องตัวเลข ให้แปลงเป็น null ก่อนบันทึก */
+const SPREADSHEET_PLACEHOLDERS = new Set(['#N/A', '#VALUE!', '#DIV/0!', '#REF!', 'N/A', 'NA'])
+function cleanSpreadsheetValues(value) {
+  if (Array.isArray(value)) return value.map(cleanSpreadsheetValues)
+  if (value && typeof value === 'object') {
+    const out = {}
+    for (const [k, v] of Object.entries(value)) out[k] = cleanSpreadsheetValues(v)
+    return out
+  }
+  if (typeof value === 'string' && SPREADSHEET_PLACEHOLDERS.has(value.trim())) return null
+  return value
+}
+
 // ─── Main seed function ────────────────────────────────────────────────────
 
 async function seed() {
@@ -118,7 +139,7 @@ async function seed() {
     const hashed = await bcrypt.hash('admin1234', 10)
     await User.insertMany([
       { username: 'admin', password: hashed, name: 'ผู้ดูแลระบบ', role: 'admin' },
-      { username: 'calibrate', password: await bcrypt.hash('cal1234', 10), name: 'สิบเอก เฉลิม ทองอิ่ม', role: 'user' },
+      { username: 'calibrate', password: await bcrypt.hash('cal1234', 10), name: 'สิบเอก เฉลิม ทองอิ่ม', role: 'technician' },
     ])
     console.log('  ✅ Created 2 users: admin/admin1234, calibrate/cal1234')
   } else {
@@ -133,16 +154,21 @@ async function seed() {
     if (!fs.existsSync(dataPath)) {
       console.log('  ⚠️  calibration_data.json not found — run python extraction first')
     } else {
-      const records = JSON.parse(fs.readFileSync(dataPath, 'utf-8'))
-      // Insert in batches of 50
+      const records = JSON.parse(fs.readFileSync(dataPath, 'utf-8')).map(cleanSpreadsheetValues)
+      // Insert in batches of 50 (นับเฉพาะที่บันทึกได้จริง เอกสารที่ validate ไม่ผ่านจะถูกรายงาน)
       let inserted = 0
+      let invalid = 0
       for (let i = 0; i < records.length; i += 50) {
         const batch = records.slice(i, i + 50)
-        await CalibrationRecord.insertMany(batch, { ordered: false })
-        inserted += batch.length
+        const result = await CalibrationRecord.insertMany(batch, { ordered: false, rawResult: true })
+        const ok = result.insertedCount ?? Object.keys(result.insertedIds || {}).length
+        inserted += ok
+        const errors = result.mongoose?.validationErrors || []
+        invalid += errors.length
+        if (errors.length) console.log(`\n  ⚠️  ${errors.length} records failed validation, e.g. ${String(errors[0].message).slice(0, 160)}`)
         process.stdout.write(`\r  Inserted ${inserted}/${records.length}...`)
       }
-      console.log(`\n  ✅ Inserted ${inserted} calibration records`)
+      console.log(`\n  ✅ Inserted ${inserted} calibration records${invalid ? ` (${invalid} skipped)` : ''}`)
     }
   } else {
     console.log(`  ⏭  Skipped (${recCount} records exist)`)

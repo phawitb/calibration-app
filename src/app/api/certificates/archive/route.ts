@@ -4,18 +4,16 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import ArchivedCertificatePdf from '@/models/ArchivedCertificatePdf'
 import CalibrationRecord from '@/models/CalibrationRecord'
+import { renderCertificatePdf } from '@/lib/renderCertificatePdf'
 import mongoose from 'mongoose'
 
-function decodePdfDataUrl(dataUrl: string): Buffer | null {
-  const m = dataUrl.match(/^data:application\/pdf;base64,(.+)$/)
-  if (!m) return null
-  try {
-    return Buffer.from(m[1], 'base64')
-  } catch {
-    return null
-  }
-}
+export const maxDuration = 60
 
+/**
+ * จัดเก็บใบรับรองฉบับทางการของ record
+ * เซิร์ฟเวอร์เป็นผู้สร้าง PDF เองจากข้อมูลใน DB เสมอ ไม่รับไฟล์จาก client
+ * (ฟิลด์ fileDataUrl ที่ client รุ่นเก่าส่งมาจะถูกละไว้)
+ */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -28,16 +26,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const recordId = String(body?.recordId || '').trim()
   const certNo = String(body?.certNo || '').trim()
-  const fileDataUrl = String(body?.fileDataUrl || '')
-  if (!recordId || !certNo || !fileDataUrl) {
-    return NextResponse.json({ error: 'Missing recordId/certNo/fileDataUrl' }, { status: 400 })
-  }
-  const pdfBuffer = decodePdfDataUrl(fileDataUrl)
-  if (!pdfBuffer) {
-    return NextResponse.json({ error: 'Invalid PDF data url' }, { status: 400 })
-  }
-  if (pdfBuffer.length > 8 * 1024 * 1024) {
-    return NextResponse.json({ error: 'PDF too large (max 8MB)' }, { status: 400 })
+  if (!recordId || !certNo || !mongoose.isValidObjectId(recordId)) {
+    return NextResponse.json({ error: 'Missing recordId/certNo' }, { status: 400 })
   }
 
   await connectDB()
@@ -46,13 +36,34 @@ export async function POST(req: NextRequest) {
     if (!Number.isInteger(expectedRevision) || expectedRevision < 0 || !body?.recordUpdatedAt || Number.isNaN(new Date(body.recordUpdatedAt).getTime())) {
       return NextResponse.json({ error: 'กรุณาโหลดข้อมูลใบเซอร์ใหม่' }, { status: 409 })
     }
+    const recordUpdatedAt = new Date(body.recordUpdatedAt)
+    const matchRecord = {
+      _id: recordId, certNo, updatedAt: recordUpdatedAt,
+      $expr: { $eq: [{ $ifNull: ['$certificateRevision', 0] }, expectedRevision] },
+    }
+
+    // ตรวจก่อนว่า record ตรงกับ revision ที่ client เห็น แล้วค่อยสร้าง PDF จากข้อมูลจริง
+    const source = await CalibrationRecord.findOne(matchRecord).lean()
+    if (!source) return NextResponse.json({ error: 'ข้อมูลใบเซอร์เปลี่ยนแล้ว กรุณาโหลดใหม่' }, { status: 409 })
+    if ((source as any).approvalStatus !== 'approved') {
+      return NextResponse.json({ error: 'จัดเก็บได้เฉพาะใบเซอร์ที่อนุมัติแล้ว' }, { status: 409 })
+    }
+    let pdfBuffer: Buffer
+    try {
+      pdfBuffer = await renderCertificatePdf(source)
+    } catch (renderError) {
+      console.error('Certificate render failed', renderError)
+      return NextResponse.json({ error: 'สร้างใบรับรอง PDF ไม่สำเร็จ' }, { status: 422 })
+    }
+
     let stale = false
     await mongoose.connection.transaction(async transaction => {
       // Lock the source revision so a simultaneous reference update cannot be overwritten.
-      const record = await CalibrationRecord.findOneAndUpdate({
-        _id: recordId, certNo, updatedAt: new Date(body.recordUpdatedAt),
-        $expr: { $eq: [{ $ifNull: ['$certificateRevision', 0] }, expectedRevision] },
-      }, { $inc: { certificateArchiveTick: 1 } }, { new: true, session: transaction, timestamps: false }).lean()
+      const record = await CalibrationRecord.findOneAndUpdate(
+        matchRecord,
+        { $inc: { certificateArchiveTick: 1 } },
+        { new: true, session: transaction, timestamps: false }
+      ).lean()
       if (!record) { stale = true; return }
       await ArchivedCertificatePdf.findOneAndUpdate({ recordId }, { $set: {
         certNo, fileName: `calibration-${certNo || recordId}.pdf`, contentType: 'application/pdf',

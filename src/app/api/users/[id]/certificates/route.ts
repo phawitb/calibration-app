@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import UserCertificate from '@/models/UserCertificate'
+import { canViewUserCertificates } from '@/lib/userCertificateAccess'
 
 async function requireAdmin() {
   const s = await getServerSession(authOptions)
@@ -19,6 +20,9 @@ export async function GET(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   await connectDB()
+  if (!(await canViewUserCertificates(session.user, params.id))) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
   const certs = await UserCertificate.find({ userId: params.id })
     .select('-pdfData')
     .sort({ uploadedAt: -1 })
