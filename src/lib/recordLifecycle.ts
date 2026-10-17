@@ -54,6 +54,9 @@ const SERVER_OWNED_FIELDS = [
   'rejectedByName',
   'rejectedAt',
   'rejectionComment',
+  // ผลการตัดสินคำนวณฝั่งเซิร์ฟเวอร์ — กำหนดเองได้ผ่าน /api/records/[id]/verdict เท่านั้น
+  'overallVerdict',
+  'overallVerdictOverride',
   '_id',
   'createdAt',
   'updatedAt',

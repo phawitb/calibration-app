@@ -4,6 +4,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
 import { promptApprovalPin } from '@/components/ApprovalPinDialog'
+import ServiceAcceptanceCard, { acceptanceDefaultsFromRef, matchCalPriceRef, type CalPriceRefLike } from '@/components/ServiceAcceptanceCard'
+import AutosaveStatusText from '@/components/AutosaveStatusText'
+import { useDraftAutosave } from '@/hooks/useDraftAutosave'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
 import { getIsoMethod, type IsoMethodConfig } from '@/lib/isoMethods'
 import { useStepNav } from '@/lib/stepNavContext'
@@ -194,6 +197,9 @@ function buildInitialState(method: IsoMethodConfig, methodCode: string) {
     approvalStatus: 'draft',
     requestedApproverId: '',
     requestedApproverName: '',
+    serviceType: 'calibrate',
+    electricalSafetyTest: false,
+    acceptance: {},
     remarks: ['', '', '', ''],
   }
 }
@@ -258,7 +264,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
   const [canRequestApprovalNow, setCanRequestApprovalNow] = useState(false)
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
-  const [calPriceRefs, setCalPriceRefs] = useState<Array<{ device?: string; calPrice?: number; mainPrice?: number }>>([])
+  const [calPriceRefs, setCalPriceRefs] = useState<CalPriceRefLike[]>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
   const [allStdInstruments, setAllStdInstruments] = useState<Record<string, any>[]>([])
   /** เครื่องมือมาตรฐานที่นำไปตามคำสั่ง (null = ไม่จำกัด) */
@@ -470,6 +476,18 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     })
   }, [unitRefs, calPriceRefs])
 
+  // เติมเกณฑ์การยอมรับ (MPE) ตั้งต้นจากตาราง calprices เมื่อยังไม่ได้กรอก
+  const matchedCalPriceRef = useMemo(() => matchCalPriceRef(calPriceRefs, data.deviceName), [calPriceRefs, data.deviceName])
+  useEffect(() => {
+    const defaults = acceptanceDefaultsFromRef(matchedCalPriceRef)
+    if (!defaults) return
+    setData((d: any) => {
+      const current = d.acceptance || {}
+      if (current.mpe !== '' && current.mpe != null) return d
+      return { ...d, acceptance: { ...current, mpe: defaults.mpe, mpeUnit: defaults.mpeUnit } }
+    })
+  }, [matchedCalPriceRef])
+
   // Auto-fill amedNo from session in edit mode too (if blank)
   useEffect(() => {
     const user = session?.user as any
@@ -606,13 +624,14 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     { key: 'calDate', label: 'วันที่สอบเทียบ' },
   ]
 
-  const validateRequired = () => {
+  const validateRequired = (silent = false) => {
     const errors: Record<string, string> = {}
     for (const f of REQUIRED_FIELDS) {
       if (!String(data[f.key] || '').trim()) {
         errors[f.key] = `กรุณากรอก${f.label}`
       }
     }
+    if (silent) return Object.keys(errors).length === 0
     setFieldErrors(errors)
     if (Object.keys(errors).length > 0) {
       toast.error(`กรุณากรอก: ${REQUIRED_FIELDS.filter(f => errors[f.key]).map(f => f.label).join(', ')}`)
@@ -705,9 +724,16 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     })
   }, [data, fieldErrors])
 
-  const submit = async (saveAction: 'draft' | 'request_approval') => {
-    if (isReadOnly) { toast.error('สิทธิ์ผู้ใช้ รพ. ดูข้อมูลได้อย่างเดียว'); return }
-    if (!validateRequired()) { pendingContinueRef.current = false; return }
+  /**
+   * บันทึก record — auto=true คือบันทึกฉบับร่างอัตโนมัติ (ไม่มี toast/ไม่เปลี่ยนหน้า/ไม่ทับค่าที่กำลังพิมพ์)
+   * คืน true เมื่อบันทึกสำเร็จ
+   */
+  const submit = async (saveAction: 'draft' | 'request_approval', options: { auto?: boolean } = {}): Promise<boolean> => {
+    const auto = !!options.auto && saveAction === 'draft'
+    if (isReadOnly) { if (!auto) toast.error('สิทธิ์ผู้ใช้ รพ. ดูข้อมูลได้อย่างเดียว'); return false }
+    if (auto) {
+      if (!validateRequired(true)) throw new Error('ยังไม่บันทึกอัตโนมัติ: ข้อมูลจำเป็นไม่ครบ')
+    } else if (!validateRequired()) { pendingContinueRef.current = false; return false }
     // When navigating to calc step, validate calculation data
     if (pendingContinueRef.current) {
       const calcErrors = validateForCalculation()
@@ -716,20 +742,20 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         const msgs = Object.values(calcErrors)
         toast.error(msgs[0])
         pendingContinueRef.current = false
-        return
+        return false
       }
     }
     if (saveAction === 'request_approval' && canSubmitForApproval && !data.requestedApproverId) {
-      toast.error('กรุณาเลือกผู้อนุมัติ'); return
+      toast.error('กรุณาเลือกผู้อนุมัติ'); return false
     }
     if (saveAction === 'request_approval' && mode === 'edit' && !canRequestApprovalNow) {
-      toast.error('กรุณากดอัพเดทค่า ก่อน'); return
+      toast.error('กรุณากดอัพเดทค่า ก่อน'); return false
     }
     // TOR 1.2.1.14: ต้องกรอก PIN ส่วนตัวก่อนส่งขออนุมัติ
     let approvalPin: string | null = null
     if (saveAction === 'request_approval') {
       approvalPin = await promptApprovalPin()
-      if (approvalPin == null) return
+      if (approvalPin == null) return false
     }
     setSaving(true)
 
@@ -746,13 +772,22 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
     const url = mode === 'create' ? '/api/records' : `/api/records/${recordId}`
     const httpMethod = mode === 'create' ? 'POST' : 'PUT'
-    const res = await fetch(url, {
-      method: httpMethod,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    setSaving(false)
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: httpMethod,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    } finally {
+      setSaving(false)
+    }
     if (res.ok) {
+      if (auto) {
+        // บันทึกอัตโนมัติ: ไม่ทับค่าที่ผู้ใช้กำลังพิมพ์ด้วยผลตอบกลับ
+        setCanRequestApprovalNow(true)
+        return true
+      }
       if (saveAction === 'request_approval') {
         toast.success('ส่งขออนุมัติใบเซอร์แล้ว')
       } else {
@@ -763,8 +798,9 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         router.push(`/records/${json.record._id}?justSaved=1`)
       } else if (saveAction === 'request_approval') {
         router.push(`/records/${recordId}?tab=preview`)
-        return
+        return true
       } else if (json.record) {
+        autosave.markSaved()
         setData((d: any) => ({ ...d, ...json.record }))
         if (saveAction === 'draft') setCanRequestApprovalNow(true)
       }
@@ -772,12 +808,24 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         pendingContinueRef.current = false
         goToNext()
       }
+      return true
     } else {
       pendingContinueRef.current = false
       const err = await res.json().catch(() => ({}))
+      if (auto) throw new Error(err.error || 'บันทึกอัตโนมัติไม่สำเร็จ')
       toast.error(err.error || 'เกิดข้อผิดพลาด กรุณาลองใหม่')
+      return false
     }
   }
+
+  // บันทึกฉบับร่างอัตโนมัติ 20 วินาทีหลังแก้ไขล่าสุด (เฉพาะโหมดแก้ไข สถานะฉบับร่าง/ไม่อนุมัติ)
+  const autosaveStatus = String(data.approvalStatus || 'draft')
+  const autosave = useDraftAutosave({
+    enabled: mode === 'edit' && recordLoaded && !isReadOnly && (autosaveStatus === 'draft' || autosaveStatus === 'rejected'),
+    data,
+    saving,
+    save: () => submit('draft', { auto: true }),
+  })
 
   /* ---------- cal point helpers ---------- */
   const isoData = data.isoData || {}
@@ -1375,7 +1423,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
 
   /* ---------- render ---------- */
   return (
-    <form onSubmit={(e) => e.preventDefault()} onKeyDown={onFormKeyDown} className="space-y-6">
+    <form onSubmit={(e) => e.preventDefault()} onKeyDown={onFormKeyDown} onChangeCapture={autosave.markDirty} className="space-y-6">
       {isReadOnly && (
         <div className="card border border-amber-300 bg-amber-50 text-amber-900">
           สิทธิ์ผู้ใช้ รพ. เป็นโหมดดูอย่างเดียว สามารถ Export PDF ได้ แต่ไม่สามารถแก้ไขข้อมูลสอบเทียบ
@@ -1468,6 +1516,13 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
             </div>
           </div>
         </div>
+
+        {/* ประเภทงาน (สอบเทียบ/ทดสอบ) + เกณฑ์การยอมรับ MPE — TOR 1.2.1.13 */}
+        <ServiceAcceptanceCard
+          data={data}
+          onChange={(patch) => setData((d: any) => ({ ...d, ...patch }))}
+          prefilledFrom={acceptanceDefaultsFromRef(matchedCalPriceRef) ? String(matchedCalPriceRef?.device || '') : undefined}
+        />
 
         {/* Calibration info */}
         <div className="card space-y-4">
@@ -1949,7 +2004,8 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
         <div className="flex flex-wrap items-center justify-between gap-3">
           <button type="button" onClick={() => router.back()} className="btn-secondary text-sm">ยกเลิก</button>
           {!isReadOnly && (
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <AutosaveStatusText status={autosave.status} />
               <button type="button" disabled={saving} onClick={() => submit('draft')}
                 className="btn-secondary px-5">
                 {saving && !pendingContinueRef.current ? 'กำลังบันทึก...' : 'บันทึก'}

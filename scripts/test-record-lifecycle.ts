@@ -60,6 +60,14 @@ test('removes client-supplied server-owned numbering fields', () => {
   }), { deviceName: 'Thermometer' })
 })
 
+test('verdicts are server-owned; overrides go through the /verdict route only', () => {
+  assert.deepEqual(stripClientNumberFields({
+    acceptance: { mpe: 0.5, mpeUnit: 'abs' },
+    overallVerdict: 'pass',
+    overallVerdictOverride: 'fail',
+  }), { acceptance: { mpe: 0.5, mpeUnit: 'abs' } })
+})
+
 test('adds the saved-record visibility rule without losing existing scope', () => {
   assert.deepEqual(withSavedRecords({ createdBy: 'tech1', approvalStatus: 'draft' }), {
     createdBy: 'tech1',

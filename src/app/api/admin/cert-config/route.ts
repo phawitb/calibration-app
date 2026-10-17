@@ -12,7 +12,8 @@ function isValidPattern(pattern: string) {
 export async function GET() {
   const session = await getServerSession(authOptions)
   const role = (session?.user as any)?.role
-  if (!session || (role !== 'admin' && role !== 'technician')) {
+  // ผู้อนุมัติอ่านได้เพื่อแสดงเกณฑ์สภาวะแวดล้อมก่อนอนุมัติ (แก้ไขได้เฉพาะ admin ใน PATCH)
+  if (!session || (role !== 'admin' && role !== 'technician' && role !== 'approver')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   await connectDB()

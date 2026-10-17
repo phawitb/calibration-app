@@ -1,13 +1,150 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import toast from 'react-hot-toast'
 import { fmt, formatCalibrationValue } from '@/lib/uncertainty'
 import type { UcComponentResult, CalPointResult, UncertaintyComponent, IsoCalculationResult } from '@/lib/uncertainty'
+import { VERDICT_LABELS, VERDICTS, type Verdict } from '@/lib/acceptance'
+import type { AcceptanceResult } from '@/lib/recordAcceptance'
 
 type CalculateResponse = {
   calibrationType?: 'sbcal' | 'iso'
   ucResults?: Record<string, UcComponentResult | undefined>
   isoResult?: IsoCalculationResult | null
+  acceptanceResult?: AcceptanceResult | null
+}
+
+const VERDICT_BADGE: Record<Verdict, string> = {
+  pass: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+  fail: 'bg-red-100 text-red-800 border-red-300',
+  na: 'bg-gray-100 text-gray-700 border-gray-300',
+}
+
+function VerdictBadge({ verdict, manual }: { verdict: Verdict; manual?: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-semibold ${VERDICT_BADGE[verdict]}`}>
+      {VERDICT_LABELS[verdict]}
+      {manual && <span className="font-normal text-[10px]">(กำหนดเอง)</span>}
+    </span>
+  )
+}
+
+/** ผลการตัดสิน ผ่าน/ไม่ผ่าน/N/A ต่อจุด + ผลรวม พร้อมช่องกำหนดเอง (PUT /api/records/[id]/verdict) */
+function AcceptancePanel({
+  recordId,
+  result,
+  canOverride,
+  lockedReason,
+  onUpdated,
+}: {
+  recordId: string
+  result: AcceptanceResult
+  canOverride: boolean
+  lockedReason?: string
+  onUpdated: (next: AcceptanceResult) => void
+}) {
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const groupLabel = (g: string) => (g === 'iso' ? 'ISO' : g.toUpperCase().replace('UCT', 'UcT'))
+
+  const sendOverride = async (key: string, body: Record<string, unknown>) => {
+    setBusyKey(key)
+    try {
+      const res = await fetch(`/api/records/${recordId}/verdict`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json.error || 'บันทึกผลการตัดสินไม่สำเร็จ')
+      if (json.acceptanceResult) onUpdated(json.acceptanceResult)
+      toast.success('บันทึกผลการตัดสินแล้ว')
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  const selectClass = 'input-field text-xs py-1 w-32 disabled:bg-gray-100 disabled:text-gray-500'
+  return (
+    <div className="card p-0 overflow-hidden" data-testid="acceptance-panel">
+      <div className="px-4 py-2 bg-military-800 text-white flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold">
+          ผลการตัดสิน (เกณฑ์การยอมรับ){' '}
+          <span className="font-normal text-military-200">
+            {result.description || 'ยังไม่ได้กำหนด MPE — ผลเป็น N/A จนกว่าจะกรอกเกณฑ์ในแบบฟอร์ม'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-military-200">ผลรวม</span>
+          <VerdictBadge verdict={result.overall} manual={result.overallManual} />
+          <select
+            aria-label="กำหนดผลรวมเอง"
+            className={selectClass}
+            disabled={!canOverride || busyKey === 'overall'}
+            title={!canOverride ? lockedReason : undefined}
+            value={result.overallManual ? result.overall : ''}
+            onChange={(e) => sendOverride('overall', { overall: e.target.value })}
+          >
+            <option value="">อัตโนมัติ ({VERDICT_LABELS[result.autoOverall]})</option>
+            {VERDICTS.map((v) => (
+              <option key={v} value={v}>{VERDICT_LABELS[v]}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {!canOverride && lockedReason && (
+        <p className="px-4 py-1.5 text-xs text-gray-500 bg-gray-50 border-b border-gray-200">{lockedReason}</p>
+      )}
+      {result.points.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-gray-500">ยังไม่มีจุดสอบเทียบสำหรับตัดสินผล</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-100 text-left text-gray-700">
+                <th className="py-1.5 px-2">กลุ่ม</th>
+                <th className="py-1.5 px-2">จุดสอบเทียบ</th>
+                <th className="py-1.5 px-2 text-right">ค่าคลาดเคลื่อน</th>
+                <th className="py-1.5 px-2 text-right">U</th>
+                <th className="py-1.5 px-2 text-center">ผล</th>
+                <th className="py-1.5 px-2">กำหนดเอง</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.points.map((p) => {
+                const key = `${p.group}:${p.index}`
+                return (
+                  <tr key={key} className="border-b border-gray-100 even:bg-gray-50/50">
+                    <td className="py-1 px-2 font-medium">{groupLabel(p.group)}</td>
+                    <td className="py-1 px-2">{String(p.point ?? '')} {p.unit}</td>
+                    <td className="py-1 px-2 text-right">{Number.isFinite(p.error) ? fmt(p.error, 4) : '—'}</td>
+                    <td className="py-1 px-2 text-right">{Number.isFinite(p.expandedU) ? fmt(p.expandedU, 4) : '—'}</td>
+                    <td className="py-1 px-2 text-center"><VerdictBadge verdict={p.verdict} manual={p.manual} /></td>
+                    <td className="py-1 px-2">
+                      <select
+                        aria-label={`กำหนดผลจุด ${groupLabel(p.group)} ${p.index + 1}`}
+                        className={selectClass}
+                        disabled={!canOverride || busyKey === key}
+                        title={!canOverride ? lockedReason : undefined}
+                        value={p.manual ? p.verdict : ''}
+                        onChange={(e) => sendOverride(key, { group: p.group, index: p.index, verdict: e.target.value })}
+                      >
+                        <option value="">อัตโนมัติ ({VERDICT_LABELS[p.autoVerdict]})</option>
+                        {VERDICTS.map((v) => (
+                          <option key={v} value={v}>{VERDICT_LABELS[v]}</option>
+                        ))}
+                      </select>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function CalPointBlock({ pt, ucLabel, index, isTime = false }: { pt: CalPointResult; ucLabel: string; index: number; isTime?: boolean }) {
@@ -145,7 +282,17 @@ function CalPointBlock({ pt, ucLabel, index, isTime = false }: { pt: CalPointRes
   )
 }
 
-export default function RecordCalculationPanel({ recordId }: { recordId: string }) {
+export default function RecordCalculationPanel({
+  recordId,
+  approvalStatus,
+  canEdit = true,
+}: {
+  recordId: string
+  /** สถานะอนุมัติของ record — approved/pending_approval ปิดการกำหนดผลเอง */
+  approvalStatus?: string
+  /** ผู้ดูมีสิทธิ์แก้ไข record นี้หรือไม่ */
+  canEdit?: boolean
+}) {
   const [data, setData] = useState<CalculateResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -164,6 +311,7 @@ export default function RecordCalculationPanel({ recordId }: { recordId: string 
             calibrationType: j.calibrationType,
             ucResults: j.ucResults,
             isoResult: j.isoResult,
+            acceptanceResult: j.acceptanceResult || null,
           })
           setErr(null)
         }
@@ -187,9 +335,32 @@ export default function RecordCalculationPanel({ recordId }: { recordId: string 
   }
   if (!data) return null
 
+  const statusLocked = approvalStatus === 'approved' || approvalStatus === 'pending_approval'
+  const lockedReason = statusLocked
+    ? approvalStatus === 'approved'
+      ? 'ใบรับรองนี้อนุมัติแล้ว แก้ไขผลการตัดสินไม่ได้'
+      : 'รายการอยู่ระหว่างรออนุมัติ กรุณาบันทึกเป็นฉบับร่างก่อนแก้ไขผลการตัดสิน'
+    : !canEdit
+      ? 'คุณไม่มีสิทธิ์แก้ไขผลการตัดสินของรายการนี้'
+      : undefined
+  const acceptancePanel = data.acceptanceResult ? (
+    <AcceptancePanel
+      recordId={recordId}
+      result={data.acceptanceResult}
+      canOverride={!statusLocked && canEdit}
+      lockedReason={lockedReason}
+      onUpdated={(next) => setData((d) => (d ? { ...d, acceptanceResult: next } : d))}
+    />
+  ) : null
+
   // ISO calculation result
   if (data.calibrationType === 'iso') {
-    return <IsoResultPanel isoResult={data.isoResult} />
+    return (
+      <div className="min-w-0 space-y-6">
+        {acceptancePanel}
+        <IsoResultPanel isoResult={data.isoResult} />
+      </div>
+    )
   }
 
   // SbCal calculation result
@@ -205,6 +376,7 @@ export default function RecordCalculationPanel({ recordId }: { recordId: string 
 
   return (
     <div className="min-w-0 space-y-8">
+      {acceptancePanel}
       {blocks.map(({ key, uc }) => {
         const ucIdx = blocks.indexOf(blocks.find(b => b.key === key)!)
         return (

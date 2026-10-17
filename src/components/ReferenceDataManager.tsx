@@ -15,7 +15,7 @@ const SUBTABS: {
   label: string
   type: RefType
   desc: string
-  fields: { key: string; label?: string; input?: 'number' | 'date' }[]
+  fields: { key: string; label?: string; input?: 'number' | 'date'; options?: { value: string; label: string }[] }[]
 }[] = [
   {
     key: 'units',
@@ -52,6 +52,27 @@ const SUBTABS: {
       { key: 'thaiName', label: 'ชื่อ (TH)' },
       { key: 'calPrice', label: 'ราคาสอบเทียบ (บาท)', input: 'number' as const },
       { key: 'mainPrice', label: 'ราคาปบ. (บาท)', input: 'number' as const },
+    ],
+  },
+  {
+    key: 'calprices',
+    label: 'ราคา / เกณฑ์ MPE ต่อชนิดเครื่อง',
+    type: 'calprices',
+    desc: 'ราคาสอบเทียบและเกณฑ์การยอมรับ (MPE) ตั้งต้นต่อชนิดเครื่องมือ — ใช้เติมในแบบฟอร์มเมื่อชื่อเครื่องตรงกัน (คั่นหลายชื่อด้วยจุลภาค)',
+    fields: [
+      { key: 'no', label: 'ลำดับ', input: 'number' as const },
+      { key: 'device', label: 'ชื่อเครื่องมือ (คั่นด้วย ,)' },
+      { key: 'calPrice', label: 'ราคาสอบเทียบ (บาท)', input: 'number' as const },
+      { key: 'mainPrice', label: 'ราคาปบ. (บาท)', input: 'number' as const },
+      { key: 'mpe', label: 'MPE ตั้งต้น (±)', input: 'number' as const },
+      {
+        key: 'mpeUnit',
+        label: 'หน่วย MPE',
+        options: [
+          { value: 'abs', label: 'ค่าสัมบูรณ์' },
+          { value: 'percent', label: '% ของค่าอ้างอิง' },
+        ],
+      },
     ],
   },
   {
@@ -746,7 +767,9 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                         <td key={f.key} className="px-2 py-1.5 text-gray-800 max-w-[200px] truncate" title={String(r[f.key] ?? '')}>
                           {f.key === 'toSelect'
                             ? (r[f.key] ? '✓' : '—')
-                            : (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—')}
+                            : f.options
+                              ? (f.options.find((o) => o.value === String(r[f.key] ?? ''))?.label || (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—'))
+                              : (r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—')}
                         </td>
                       ))}
                       <td className="px-2 py-1.5 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
@@ -962,6 +985,24 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                       </div>
                     )
                   }
+                }
+
+                if (f.options) {
+                  return (
+                    <div key={f.key}>
+                      <label className="block text-xs text-gray-500 mb-0.5">{fieldLabel(f)}</label>
+                      <select
+                        className="input-field text-sm"
+                        value={editing[f.key] ?? ''}
+                        onChange={(e) => setEditing((o) => ({ ...o, [f.key]: e.target.value }))}
+                      >
+                        <option value="">— ไม่ระบุ —</option>
+                        {f.options.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )
                 }
 
                 // Default: text/number input

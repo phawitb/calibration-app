@@ -4,6 +4,9 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
 import { promptApprovalPin } from '@/components/ApprovalPinDialog'
+import ServiceAcceptanceCard, { acceptanceDefaultsFromRef, matchCalPriceRef, type CalPriceRefLike } from '@/components/ServiceAcceptanceCard'
+import AutosaveStatusText from '@/components/AutosaveStatusText'
+import { useDraftAutosave } from '@/hooks/useDraftAutosave'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
 import { useStepNav } from '@/lib/stepNavContext'
 import { formatPersonName } from '@/lib/personName'
@@ -779,6 +782,8 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
   const pendingContinueRef = useRef(false)
   const [unitRefs, setUnitRefs] = useState<UnitRef[]>([])
   const [deviceRefs, setDeviceRefs] = useState<Array<{ name?: string; thaiName?: string; calPrice?: number; mainPrice?: number }>>([])
+  /** ตารางราคา/เกณฑ์ตั้งต้นต่อชนิดเครื่องมือ (calprices) ใช้เติม MPE เมื่อยังว่าง */
+  const [calPriceRefs, setCalPriceRefs] = useState<CalPriceRefLike[]>([])
   const [addressFromRef, setAddressFromRef] = useState(false)
   const [std1FromRef, setStd1FromRef] = useState(false)
   const [allStdInstruments, setAllStdInstruments] = useState<StdRef[]>([])
@@ -833,6 +838,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
     issuedDate: '', receivedN: '', receivedDate: new Date().toISOString().slice(0, 10), calDate: new Date().toISOString().slice(0, 10), location: 'outside',
     lapTemp: '', lapHumid: '', calibrate: '', approve: '', calPrice: '', mainPrice: '',
     approvalStatus: 'draft', requestedApproverId: '', requestedApproverName: '',
+    serviceType: 'calibrate', electricalSafetyTest: false, acceptance: {},
     std1: {}, uc1: {}, uc2: {}, uc3: {}, uc4: {}, uc5: {}, uc6: {}, ucT: {},
     remarks: ['', '', '', ''],
   }
@@ -869,10 +875,11 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
     let mounted = true
     const loadRef = async () => {
       try {
-        const [uRes, sRes, pRes] = await Promise.all([
+        const [uRes, sRes, pRes, cRes] = await Promise.all([
           fetch('/api/reference?type=units'),
           fetch('/api/reference?type=stdinstruments'),
           fetch('/api/reference?type=devices'),
+          fetch('/api/reference?type=calprices'),
         ])
         if (uRes.ok) {
           const uJson = await uRes.json()
@@ -885,6 +892,10 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         if (pRes.ok) {
           const pJson = await pRes.json()
           if (mounted) setDeviceRefs(Array.isArray(pJson.data) ? pJson.data : [])
+        }
+        if (cRes.ok) {
+          const cJson = await cRes.json()
+          if (mounted) setCalPriceRefs(Array.isArray(cJson.data) ? cJson.data : [])
         }
       } catch {
         // Keep form usable when reference API fails
@@ -960,6 +971,18 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
       return Object.keys(updates).length ? { ...d, ...updates } : d
     })
   }, [unitRefs, deviceRefs])
+
+  // เติมเกณฑ์การยอมรับ (MPE) ตั้งต้นจากตาราง calprices เมื่อยังไม่ได้กรอก
+  const matchedCalPriceRef = useMemo(() => matchCalPriceRef(calPriceRefs, data.deviceName), [calPriceRefs, data.deviceName])
+  useEffect(() => {
+    const defaults = acceptanceDefaultsFromRef(matchedCalPriceRef)
+    if (!defaults) return
+    setData((d: any) => {
+      const current = d.acceptance || {}
+      if (current.mpe !== '' && current.mpe != null) return d
+      return { ...d, acceptance: { ...current, mpe: defaults.mpe, mpeUnit: defaults.mpeUnit } }
+    })
+  }, [matchedCalPriceRef])
 
   useEffect(() => {
     if (mode !== 'edit') return
@@ -1114,13 +1137,14 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
     { key: 'calDate', label: 'วันที่สอบเทียบ' },
   ]
 
-  const validateRequired = () => {
+  const validateRequired = (silent = false) => {
     const errors: Record<string, string> = {}
     for (const f of REQUIRED_FIELDS) {
       if (!String(data[f.key] || '').trim()) {
         errors[f.key] = `กรุณากรอก${f.label}`
       }
     }
+    if (silent) return Object.keys(errors).length === 0
     setFieldErrors(errors)
     if (Object.keys(errors).length > 0) {
       toast.error(`กรุณากรอก: ${REQUIRED_FIELDS.filter(f => errors[f.key]).map(f => f.label).join(', ')}`)
@@ -1214,14 +1238,21 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
     }
   }
 
-  const submit = async (saveAction: 'draft' | 'request_approval') => {
+  /**
+   * บันทึก record — auto=true คือบันทึกฉบับร่างอัตโนมัติ (ไม่มี toast/ไม่เปลี่ยนหน้า/ไม่ทับค่าที่กำลังพิมพ์)
+   * คืน true เมื่อบันทึกสำเร็จ
+   */
+  const submit = async (saveAction: 'draft' | 'request_approval', options: { auto?: boolean } = {}): Promise<boolean> => {
+    const auto = !!options.auto && saveAction === 'draft'
     if (isReadOnly) {
-      toast.error('สิทธิ์ผู้ใช้ รพ. ดูข้อมูลได้อย่างเดียว')
-      return
+      if (!auto) toast.error('สิทธิ์ผู้ใช้ รพ. ดูข้อมูลได้อย่างเดียว')
+      return false
     }
-    if (!validateRequired()) {
+    if (auto) {
+      if (!validateRequired(true)) throw new Error('ยังไม่บันทึกอัตโนมัติ: ข้อมูลจำเป็นไม่ครบ')
+    } else if (!validateRequired()) {
       pendingContinueRef.current = false
-      return
+      return false
     }
     // When navigating to calc step, validate calculation data
     if (pendingContinueRef.current) {
@@ -1231,7 +1262,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         const msgs = Object.values(calcErrors)
         toast.error(msgs[0])
         pendingContinueRef.current = false
-        return
+        return false
       }
     }
     // request_approval: validate calculation data before submitting
@@ -1240,31 +1271,40 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
       if (Object.keys(calcErrors).length > 0) {
         setFieldErrors((prev) => ({ ...prev, ...calcErrors }))
         toast.error(Object.values(calcErrors)[0])
-        return
+        return false
       }
       if (canSubmitForApproval && !data.requestedApproverId) {
         toast.error('กรุณาเลือกผู้อนุมัติ')
-        return
+        return false
       }
     }
     // TOR 1.2.1.14: ต้องกรอก PIN ส่วนตัวก่อนส่งขออนุมัติ
     let approvalPin: string | null = null
     if (saveAction === 'request_approval') {
       approvalPin = await promptApprovalPin()
-      if (approvalPin == null) return
+      if (approvalPin == null) return false
     }
     setSaving(true)
     const payload: any = buildPayload(saveAction)
     if (approvalPin) payload.approvalPin = approvalPin
     const url = mode === 'create' ? '/api/records' : `/api/records/${id}`
     const method = mode === 'create' ? 'POST' : 'PUT'
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    setSaving(false)
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    } finally {
+      setSaving(false)
+    }
     if (res.ok) {
+      if (auto) {
+        // บันทึกอัตโนมัติ: ไม่ทับค่าที่ผู้ใช้กำลังพิมพ์ด้วยผลตอบกลับ
+        setCanRequestApprovalNow(true)
+        return true
+      }
       if (saveAction === 'request_approval') {
         toast.success('ส่งขออนุมัติใบเซอร์แล้ว — รอผู้อนุมัติในแอป')
       } else {
@@ -1279,8 +1319,9 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         if (data.unitName) params.set('unit', data.unitName)
         if (data.calibrationType) params.set('calType', data.calibrationType)
         router.push(`/records/new?${params.toString()}`)
-        return
+        return true
       } else if (json.record) {
+        autosave.markSaved()
         setData((d: any) => ({ ...d, ...normalizeInitialData(json.record) }))
         if (saveAction === 'draft') setCanRequestApprovalNow(true)
       }
@@ -1288,15 +1329,27 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         pendingContinueRef.current = false
         goToNext()
       }
+      return true
     } else {
       pendingContinueRef.current = false
       const err = await res.json().catch(() => ({}))
+      if (auto) throw new Error(err.error || 'บันทึกอัตโนมัติไม่สำเร็จ')
       toast.error(err.error || 'เกิดข้อผิดพลาด กรุณาลองใหม่')
+      return false
     }
   }
 
+  // บันทึกฉบับร่างอัตโนมัติ 20 วินาทีหลังแก้ไขล่าสุด (เฉพาะโหมดแก้ไข สถานะฉบับร่าง/ไม่อนุมัติ)
+  const autosaveStatus = String(data.approvalStatus || 'draft')
+  const autosave = useDraftAutosave({
+    enabled: mode === 'edit' && !isReadOnly && (autosaveStatus === 'draft' || autosaveStatus === 'rejected'),
+    data,
+    saving,
+    save: () => submit('draft', { auto: true }),
+  })
+
   return (
-    <form onSubmit={(e) => e.preventDefault()} onKeyDown={onFormKeyDown} className="space-y-6">
+    <form onSubmit={(e) => e.preventDefault()} onKeyDown={onFormKeyDown} onChangeCapture={autosave.markDirty} className="space-y-6">
       {isReadOnly && (
         <div className="card border border-amber-300 bg-amber-50 text-amber-900">
           สิทธิ์ผู้ใช้ รพ. เป็นโหมดดูอย่างเดียว สามารถ Export PDF ได้ แต่ไม่สามารถแก้ไขข้อมูลสอบเทียบ
@@ -1465,6 +1518,13 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
           </div>
         </div>
       </div>
+
+      {/* ประเภทงาน (สอบเทียบ/ทดสอบ) + เกณฑ์การยอมรับ MPE — TOR 1.2.1.13 */}
+      <ServiceAcceptanceCard
+        data={data}
+        onChange={(patch) => setData((d: any) => ({ ...d, ...patch }))}
+        prefilledFrom={acceptanceDefaultsFromRef(matchedCalPriceRef) ? String(matchedCalPriceRef?.device || '') : undefined}
+      />
 
       {/* Dates & calibration info */}
       <div className="card space-y-4">
@@ -1709,6 +1769,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         <div className="flex flex-wrap items-center justify-end gap-3">
           {!isReadOnly && (
             <>
+              <AutosaveStatusText status={autosave.status} />
               <button
                 type="button"
                 disabled={saving}

@@ -24,7 +24,7 @@ export async function GET() {
     approvalStatus: 'pending_approval',
     ...buildScope(),
   })
-    .select('amedNo certNo deviceName brand model serialNo unitName calDate requestedApproverName')
+    .select('amedNo certNo deviceName brand model serialNo unitName calDate requestedApproverName lapTemp lapHumid std1.tMin std1.tMax std1.hMin std1.hMax')
     .sort({ updatedAt: -1 })
     .lean()
 

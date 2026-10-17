@@ -6,6 +6,24 @@ import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import { formatApproverOption } from '@/lib/recordPersonnel'
 import { promptApprovalPin } from '@/components/ApprovalPinDialog'
+import { evaluateEnvironment, type EnvironmentRecordLike } from '@/lib/environmentCheck'
+import { useEnvironmentConfig } from '@/hooks/useEnvironmentConfig'
+
+/** บรรทัดสถานะสภาวะแวดล้อม (อุณหภูมิ/ความชื้น เทียบช่วงที่ใช้ตัดสิน) */
+export function EnvironmentStatusLine({ record }: { record: EnvironmentRecordLike }) {
+  const config = useEnvironmentConfig()
+  const ev = evaluateEnvironment(record, config)
+  const bound = (b: typeof ev.temp) =>
+    `${b.label} ${b.value == null ? '—' : b.value} ${b.unit} (เกณฑ์ ${b.min}–${b.max} ${b.unit}${b.source === 'std1' ? ' จาก Std1' : ''})`
+  return (
+    <p className={`text-sm ${ev.ok ? 'text-emerald-700' : 'text-red-700'}`} data-testid="environment-status">
+      <span className="font-semibold">{ev.ok ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'} สภาวะแวดล้อม</span>
+      {' — '}
+      {bound(ev.temp)}, {bound(ev.humid)}
+      {!ev.required && !ev.ok && <span className="text-gray-500"> (ระบบไม่บังคับตรวจ)</span>}
+    </p>
+  )
+}
 
 interface Approver {
   _id: string
@@ -21,15 +39,21 @@ export default function RecordApprovalPanel({
   recordId,
   approvalStatus,
   requestedApproverId,
+  record,
 }: {
   recordId: string
   approvalStatus?: string
   requestedApproverId?: string
+  /** ค่าสภาวะแวดล้อมของ record (lapTemp/lapHumid/std1) สำหรับตรวจเกณฑ์ก่อนส่งขออนุมัติ */
+  record?: EnvironmentRecordLike | null
 }) {
   const { data: session } = useSession()
   const router = useRouter()
   const role = (session?.user as any)?.role as string | undefined
   const canSubmit = role === 'admin' || role === 'technician'
+  const envConfig = useEnvironmentConfig()
+  const envEvaluation = record ? evaluateEnvironment(record, envConfig) : null
+  const envBlocked = !!envEvaluation && envEvaluation.required && !envEvaluation.ok
 
   const [approvers, setApprovers] = useState<Approver[]>([])
   const [selectedApproverId, setSelectedApproverId] = useState(
@@ -172,6 +196,7 @@ export default function RecordApprovalPanel({
           </p>
         </div>
       </div>
+      {record && <EnvironmentStatusLine record={record} />}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
         <div className="flex-1 w-full">
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -196,12 +221,14 @@ export default function RecordApprovalPanel({
           type="button"
           disabled={
             submitting ||
+            (envBlocked && !isPending) ||
             !approvers.some((a) => a._id === selectedApproverId) ||
             (isPending && selectedApproverId === requestedApproverId)
           }
+          title={envBlocked && !isPending ? envEvaluation?.message : undefined}
           onClick={handleRequestApproval}
           className={`px-6 py-2 rounded-lg font-semibold text-gray-900 whitespace-nowrap ${
-            submitting || !selectedApproverId
+            submitting || !selectedApproverId || (envBlocked && !isPending)
               ? 'bg-amber-300 cursor-not-allowed'
               : 'bg-amber-500 hover:bg-amber-600'
           }`}

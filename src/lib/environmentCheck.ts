@@ -11,7 +11,16 @@ export interface EnvironmentConfig {
   envHumidMax?: number | null
 }
 
-export const ENVIRONMENT_DEFAULTS: Required<EnvironmentConfig> = {
+/** ค่าตั้งค่าที่ normalize แล้ว (ไม่มี null/undefined) */
+export interface ResolvedEnvironmentConfig {
+  requireEnvironment: boolean
+  envTempMin: number
+  envTempMax: number
+  envHumidMin: number
+  envHumidMax: number
+}
+
+export const ENVIRONMENT_DEFAULTS: ResolvedEnvironmentConfig = {
   requireEnvironment: true,
   envTempMin: 15,
   envTempMax: 35,
@@ -70,7 +79,7 @@ function evaluateBound(
   return { label, unit, value: v, min, max, source: useStd ? 'std1' : 'config', ok }
 }
 
-export function resolveEnvironmentConfig(config?: EnvironmentConfig | null): Required<EnvironmentConfig> {
+export function resolveEnvironmentConfig(config?: EnvironmentConfig | null): ResolvedEnvironmentConfig {
   const num = (v: unknown, fallback: number) => {
     const n = toFinite(v)
     return n == null ? fallback : n

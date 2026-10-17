@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import toast from 'react-hot-toast'
 import { useTableSort, sortIcon } from '@/hooks/useTableSort'
+import { evaluateEnvironment } from '@/lib/environmentCheck'
+import { useEnvironmentConfig } from '@/hooks/useEnvironmentConfig'
 
 type PendingRow = {
   _id: string
@@ -12,6 +14,9 @@ type PendingRow = {
   unitName?: string
   calDate?: string
   requestedApproverName?: string
+  lapTemp?: unknown
+  lapHumid?: unknown
+  std1?: { tMin?: unknown; tMax?: unknown; hMin?: unknown; hMax?: unknown } | null
 }
 
 export default function ApprovalsPage() {
@@ -22,6 +27,7 @@ export default function ApprovalsPage() {
   const [rejectComment, setRejectComment] = useState('')
   const [rejecting, setRejecting] = useState(false)
   const { sorted: sortedRows, sortKey, sortDir, toggle: toggleSort } = useTableSort(rows)
+  const envConfig = useEnvironmentConfig()
 
   const load = async () => {
     setLoading(true)
@@ -99,12 +105,19 @@ export default function ApprovalsPage() {
                 <tr><td colSpan={6} className="py-8 text-center text-gray-400">กำลังโหลด...</td></tr>
               ) : sortedRows.length === 0 ? (
                 <tr><td colSpan={6} className="py-8 text-center text-gray-400">ไม่มีงานรออนุมัติ</td></tr>
-              ) : sortedRows.map((r) => (
+              ) : sortedRows.map((r) => {
+                const env = evaluateEnvironment(r, envConfig)
+                const envBlocked = env.required && !env.ok
+                return (
                 <tr key={r._id} className="border-b border-gray-50 hover:bg-military-50">
                   <td className="py-3 px-4">{r.certNo || '-'}</td>
                   <td className="py-3 px-4">
                     <div className="font-medium text-military-800">{r.deviceName || '-'}</div>
                     <div className="text-xs text-gray-400">Amed: {r.amedNo || '-'}</div>
+                    <div className={`text-xs ${env.ok ? 'text-emerald-700' : 'text-red-600'}`} title={env.message || undefined}>
+                      {env.ok ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์'} สภาวะแวดล้อม
+                      {' '}({env.temp.value ?? '—'} °C / {env.humid.value ?? '—'} %RH)
+                    </div>
                   </td>
                   <td className="py-3 px-4">{r.unitName || '-'}</td>
                   <td className="py-3 px-4">{r.calDate ? new Date(r.calDate).toLocaleDateString('th-TH') : '-'}</td>
@@ -113,8 +126,9 @@ export default function ApprovalsPage() {
                     <div className="flex items-center justify-center gap-2">
                       <Link href={`/records/${r._id}`} className="btn-secondary text-xs px-2 py-1">ดู</Link>
                       <button
-                        className="btn-primary text-xs px-2 py-1"
-                        disabled={busyId === r._id}
+                        className="btn-primary text-xs px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={busyId === r._id || envBlocked}
+                        title={envBlocked ? env.message : undefined}
                         onClick={() => approve(r._id)}
                       >
                         {busyId === r._id ? 'กำลังอนุมัติ...' : 'อนุมัติ'}
@@ -129,7 +143,8 @@ export default function ApprovalsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>

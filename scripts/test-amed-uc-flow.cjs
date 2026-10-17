@@ -37,6 +37,9 @@ function routes(writeError) {
     'next-auth': { getServerSession: async () => ({ user: { role: 'admin' } }) },
     '@/lib/auth': { authOptions: {} },
     '@/lib/mongodb': { connectDB: async () => {} },
+    // v2: ฟิลด์ทะเบียนเครื่องมือมาตรฐาน (ไม่เกี่ยวกับเทสต์ AmedNo จึง mock แบบผ่านค่าเดิม)
+    '@/lib/standardYearService': { isStandardRegistryKey: () => false, resolveStandardRegistryUpdate: async (_root, body) => body },
+    '@/lib/standardYears': { StandardYearError: class StandardYearError extends Error { constructor(message, status = 400) { super(message); this.status = status } } },
     mongoose: require('mongoose'),
   }
   return {
@@ -92,6 +95,12 @@ test('UC instrument dropdown uses registry choices and selecting a code fills it
     'next/navigation': {}, 'next-auth/react': {}, 'react-hot-toast': {},
     '@/lib/hospitalUnit': {}, '@/lib/stepNavContext': {}, '@/lib/personName': {}, '@/lib/uncertainty': {},
     '@/lib/amedUcOptions': helpers,
+    // v2
+    '@/components/ApprovalPinDialog': { promptApprovalPin: async () => null },
+    '@/components/ServiceAcceptanceCard': { default: () => null, acceptanceDefaultsFromRef: () => null, matchCalPriceRef: () => undefined },
+    '@/components/AutosaveStatusText': { default: () => null },
+    '@/hooks/useDraftAutosave': { useDraftAutosave: () => ({ status: { kind: 'idle' }, markDirty: () => {}, markSaved: () => {} }), describeAutosave: () => '' },
+    '@/lib/standardCorrection': require('../src/lib/standardCorrection'), '../lib/formulaDivisors': require('../src/lib/formulaDivisors'),
   })
   assert.equal(typeof UcSection, 'function')
   let updated

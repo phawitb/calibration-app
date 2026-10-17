@@ -102,13 +102,20 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
         approvalStatus={approvalStatus}
         recordId={params.id}
         initialStep={lastStep}
-        calcPanel={<RecordCalculationPanel recordId={params.id} />}
+        calcPanel={
+          <RecordCalculationPanel
+            recordId={params.id}
+            approvalStatus={approvalStatus}
+            canEdit={(sessionRole === 'admin' || sessionRole === 'technician') && !notOwner}
+          />
+        }
         previewPanel={<RecordPreviewPanel recordId={params.id} record={data} />}
         approvalPanel={
           <RecordApprovalPanel
             recordId={params.id}
             approvalStatus={approvalStatus}
             requestedApproverId={String((record as any).requestedApproverId || '')}
+            record={{ lapTemp: data.lapTemp, lapHumid: data.lapHumid, std1: data.std1 || null }}
           />
         }
         attachmentsPanel={<RecordAttachments recordId={params.id} />}

@@ -14,7 +14,19 @@ const PRESETS = [
 export default function AdminCertNumberConfig() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    pattern: string
+    startNumber: number
+    padding: number
+    resetByYear: boolean
+    certValidityMonths: number
+    alertBeforeDays: number
+    requireEnvironment: boolean
+    envTempMin: number | ''
+    envTempMax: number | ''
+    envHumidMin: number | ''
+    envHumidMax: number | ''
+  }>({
     pattern: '{num}/{yy}',
     startNumber: 1,
     padding: 3,
