@@ -121,6 +121,23 @@ export default function RecordsPage() {
     draft: 'ฉบับร่าง',
   }
 
+  const buildFilterParams = useCallback(() => {
+    const params = new URLSearchParams()
+    if (search)       params.set('search', search)
+    if (fSection)     params.set('section', fSection)
+    if (fStatus)      params.set('status', fStatus)
+    if (fCalType)     params.set('calType', fCalType)
+    if (selectedHospital) params.set('unitName', selectedHospital)
+    if (isHospitalUser && /^\d{4}$/.test(fCalYear) && Number(fCalYear) >= 2443 && Number(fCalYear) <= 2843) params.set('calYear', fCalYear)
+    if (fCalDateFrom) params.set('calDateFrom', fCalDateFrom)
+    if (fCalDateTo)   params.set('calDateTo', fCalDateTo)
+    if (cardFilter)   params.set('cardFilter', cardFilter)
+    if (myOnly && !isHospitalUser) params.set('myOnly', '1')
+    return params
+  }, [isHospitalUser, fCalYear, search, fSection, fStatus, fCalType, fCalDateFrom, fCalDateTo, cardFilter, myOnly, selectedHospital])
+
+  const exportHref = `/api/export/records?${buildFilterParams().toString()}`
+
   const fetchRecords = useCallback(async () => {
     const version = ++requestVersion.current
     setLoading(true)
@@ -218,7 +235,10 @@ export default function RecordsPage() {
           <h1 className="text-2xl font-bold text-military-900">ประวัติสอบเทียบ</h1>
           <p className="text-gray-500 text-sm">{hospitalTitle ? `${hospitalTitle} — ` : ''}{total} รายการ</p>
         </div>
-        <RecordDownloadAll records={sortedRecords} disabled={loading} />
+        <div className="flex flex-wrap items-center gap-2">
+          <a href={exportHref} className="btn-secondary text-sm whitespace-nowrap" download title="ส่งออกรายการตามตัวกรองปัจจุบันเป็น Excel">ส่งออก Excel</a>
+          <RecordDownloadAll records={sortedRecords} disabled={loading} />
+        </div>
       </div>
 
       {/* Search & Filter */}

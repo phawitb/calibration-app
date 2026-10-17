@@ -9,7 +9,8 @@ import type {
   WorkOrderSummary,
 } from '@/lib/workOrderTypes'
 import WorkOrderDocuments from './WorkOrderDocuments'
-import { validateOrderPdf } from '@/lib/workOrderValidation'
+import { validateOrderFile } from '@/lib/workOrderValidation'
+import { ATTACHMENT_ACCEPT, ATTACHMENT_SNIFF_BYTES } from '@/lib/attachmentTypes'
 const empty: WorkOrderInput = {
   orderNo: '',
   title: '',
@@ -132,9 +133,9 @@ export default function WorkOrderForm({
     setError('')
     try {
       for (const file of files) {
-        validateOrderPdf(
+        validateOrderFile(
           file,
-          new Uint8Array(await file.slice(0, 5).arrayBuffer())
+          new Uint8Array(await file.slice(0, ATTACHMENT_SNIFF_BYTES).arrayBuffer())
         )
       }
       setPendingFiles((previous) => [
@@ -616,18 +617,18 @@ export default function WorkOrderForm({
         </fieldset>
         <section className="space-y-3">
           <h3 className="font-semibold text-military-900">
-            เอกสารคำสั่ง PDF{' '}
+            เอกสารคำสั่ง (PDF / รูปภาพ){' '}
             <span className="text-sm font-normal text-gray-500">
               (ไม่บังคับ)
             </span>
           </h3>
           <label className="block rounded-lg border border-dashed border-military-300 p-4 text-sm">
-            แนบ PDF ได้หลายไฟล์ · ไม่เกิน 8 MB ต่อไฟล์ ·
+            แนบ PDF, PNG หรือ JPEG ได้หลายไฟล์ · ไม่เกิน 8 MB ต่อไฟล์ ·
             ไฟล์จะถูกอัปโหลดเมื่อกดบันทึกคำสั่ง
             <input
-              aria-label="เลือก PDF คำสั่ง (ไม่บังคับ)"
+              aria-label="เลือกไฟล์คำสั่ง PDF หรือรูปภาพ (ไม่บังคับ)"
               type="file"
-              accept="application/pdf,.pdf"
+              accept={ATTACHMENT_ACCEPT}
               multiple
               className="mt-2 block w-full"
               disabled={busy || checkingFiles}

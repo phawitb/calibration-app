@@ -4,7 +4,7 @@ import { useFeedbackSection } from './PageFeedback'
 import { useState, useCallback, useRef, type ReactNode } from 'react'
 import { StepNavContext } from '@/lib/stepNavContext'
 
-type Tab = 'edit' | 'calc' | 'preview' | 'history'
+type Tab = 'edit' | 'calc' | 'preview' | 'history' | 'attachments'
 
 const STEPS = [
   { key: 'edit' as Tab, label: 'กรอกข้อมูล', num: 1 },
@@ -31,6 +31,7 @@ export default function RecordDetailTabs({
   calcPanel,
   previewPanel,
   historyPanel,
+  attachmentsPanel,
   approvalPanel,
   approvalStatus,
   recordId,
@@ -40,6 +41,7 @@ export default function RecordDetailTabs({
   calcPanel: ReactNode
   previewPanel?: ReactNode
   historyPanel?: ReactNode
+  attachmentsPanel?: ReactNode
   approvalPanel?: ReactNode
   approvalStatus?: string
   recordId?: string
@@ -53,6 +55,7 @@ export default function RecordDetailTabs({
   const [calcMounted, setCalcMounted] = useState(validInitial === 'calc' || validInitial === 'preview')
   const [previewMounted, setPreviewMounted] = useState(validInitial === 'preview')
   const [historyMounted, setHistoryMounted] = useState(false)
+  const [attachmentsMounted, setAttachmentsMounted] = useState(false)
 
   const isApproved = approvalStatus === 'approved'
   const isPending = approvalStatus === 'pending_approval'
@@ -71,9 +74,10 @@ export default function RecordDetailTabs({
     if (next === 'calc') setCalcMounted(true)
     if (next === 'preview') { setCalcMounted(true); setPreviewMounted(true) }
     if (next === 'history') setHistoryMounted(true)
+    if (next === 'attachments') setAttachmentsMounted(true)
     setTab(next)
-    // Persist step (only for main steps, not history)
-    if (next !== 'history') persistStep(recordId, next)
+    // Persist step (only for main steps, not history/attachments)
+    if (next !== 'history' && next !== 'attachments') persistStep(recordId, next)
   }, [recordId, tab])
 
   return (
@@ -157,8 +161,22 @@ export default function RecordDetailTabs({
             )
           })}
 
-          {/* History tab - separate, right-aligned */}
-          <div className="ml-auto pl-2">
+          {/* Attachments + History tabs - separate, right-aligned */}
+          <div className="ml-auto pl-2 flex items-center gap-1">
+            {attachmentsPanel && (
+              <button
+                type="button"
+                onClick={() => changeTab('attachments')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  tab === 'attachments'
+                    ? 'bg-military-700 text-white'
+                    : 'text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                <span className="hidden sm:inline">ผลสอบเทียบภายนอก / ไฟล์แนบ</span>
+                <span className="sm:hidden">📎</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => changeTab('history')}
@@ -233,6 +251,13 @@ export default function RecordDetailTabs({
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Tab: Attachments */}
+      {attachmentsMounted && attachmentsPanel && (
+        <div className={tab === 'attachments' ? 'block space-y-4 min-w-0' : 'hidden'} aria-hidden={tab !== 'attachments'}>
+          {attachmentsPanel}
         </div>
       )}
 

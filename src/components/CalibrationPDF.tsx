@@ -5,6 +5,8 @@ import { Document, Page, Text, View, Image, StyleSheet } from '@react-pdf/render
 import { buildPdfCertificateInfo, PDF_LABELS } from '@/lib/pdfCertificate'
 import { formatPdfDate, formatPdfStandardDate } from '@/lib/pdfDate'
 import { fmt, formatCalibrationValue, parseCalibrationValue } from '@/lib/uncertainty'
+import { VERDICT_LABELS, type Verdict } from '@/lib/acceptance'
+import { findPointVerdict, type AcceptanceResult } from '@/lib/recordAcceptance'
 
 export type SummaryRow = {
   ucName: string
@@ -66,15 +68,17 @@ const s = StyleSheet.create({
   footerText: { fontSize: 7, color: '#666' },
 })
 
+const verdictLabel = (v?: Verdict | null) => (v ? VERDICT_LABELS[v] : '-')
+
 /** Build per-UC sections for result pages */
-function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
+function buildUcSections(record: any, summaryRows: SummaryRow[] | null, acceptance?: AcceptanceResult | null) {
   const ucKeys = ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT'] as const
   const sections: {
     index: number
     std: any
     measurement: string
     unit: string
-    calPoints: { point: any; avgUUC: number; avgSTD: number; correction: number; uncertainty: number; isTime?: boolean }[]
+    calPoints: { point: any; avgUUC: number; avgSTD: number; correction: number; uncertainty: number; isTime?: boolean; verdict?: Verdict | null }[]
   }[] = []
 
   let idx = 0
@@ -95,7 +99,8 @@ function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
       const avgSTD = matchRow ? matchRow.avgSTDRead : standards.length ? standards.reduce((a: number, b: number) => a + b, 0) / standards.length : NaN
       const correction = matchRow ? matchRow.correction : NaN
       const uncertainty = matchRow ? matchRow.U : NaN
-      return { point: pt.point, avgUUC, avgSTD, correction, uncertainty, isTime }
+      const verdict = findPointVerdict(acceptance, key, ptIdx)?.verdict ?? pt.verdict ?? null
+      return { point: pt.point, avgUUC, avgSTD, correction, uncertainty, isTime, verdict }
     })
 
     sections.push({
@@ -109,19 +114,20 @@ function buildUcSections(record: any, summaryRows: SummaryRow[] | null) {
   return sections
 }
 
-function buildIsoSections(record: any, isoResult: any) {
+function buildIsoSections(record: any, isoResult: any, acceptance?: AcceptanceResult | null) {
   const std = record.std1 || record.standardInstrument || {}
+  const isoVerdict = (index: number) => findPointVerdict(acceptance, 'iso', index)?.verdict ?? record.isoData?.calPoints?.[index]?.verdict ?? null
   if (!Array.isArray(isoResult?.calPointResults)) {
     // Legacy calculations report one result per sensor at each calibration point.
     const sensors = new Map<number, any[]>()
-    for (const point of isoResult?.calPointSummaries || []) {
+    ;(isoResult?.calPointSummaries || []).forEach((point: any, pointIndex: number) => {
       for (const sensor of point.sensorResults || []) {
         const rows = sensors.get(sensor.sensorIndex) || []
         rows.push({ point: point.point, avgUUC: sensor.avgUUC, avgSTD: sensor.avgSTDRead,
-          correction: sensor.correction, uncertainty: sensor.U, isTime: false })
+          correction: sensor.correction, uncertainty: sensor.U, isTime: false, verdict: isoVerdict(pointIndex) })
         sensors.set(sensor.sensorIndex, rows)
       }
-    }
+    })
     return Array.from(sensors, ([sensorIndex, calPoints], index) => ({
       index: index + 1,
       std,
@@ -142,6 +148,7 @@ function buildIsoSections(record: any, isoResult: any) {
       correction: point.correction ?? point.overallVariation,
       uncertainty: point.reportedU,
       isTime: false,
+      verdict: isoVerdict(index),
     }],
   }))
 }
@@ -150,6 +157,7 @@ export default function CalibrationPDF({
   record,
   summaryRows,
   isoResult,
+  acceptance = null,
   calibratorSignature,
   approverSignature,
   decimals = 4,
@@ -159,6 +167,8 @@ export default function CalibrationPDF({
   record: any
   summaryRows: SummaryRow[] | null
   isoResult?: any
+  /** ผลการตัดสิน ผ่าน/ไม่ผ่าน/N/A ตามเกณฑ์ MPE (จาก calculateRecord) */
+  acceptance?: AcceptanceResult | null
   calibratorSignature?: string | null
   approverSignature?: string | null
   decimals?: number
@@ -174,9 +184,14 @@ export default function CalibrationPDF({
   const requestedApproverName = f(r.requestedApproverName)
   const approvedDisplayName = certApproved ? f(r.approve) : requestedApproverName
   const std1 = r.std1 || {}
-  const ucSections = buildUcSections(r, summaryRows)
-  const isoSections = buildIsoSections(r, isoResult)
+  const ucSections = buildUcSections(r, summaryRows, acceptance)
+  const isoSections = buildIsoSections(r, isoResult, acceptance)
   const resultSections: any[] = [...ucSections, ...isoSections]
+  const isTestReport = r.serviceType === 'test'
+  const titleTh = isTestReport ? 'ใบรายงานผลการทดสอบ' : 'ใบรับรองผลการสอบเทียบ'
+  const overallVerdict: Verdict | null = acceptance?.overall ?? r.overallVerdict ?? null
+  const overallText = overallVerdict === 'pass' ? 'ผ่านเกณฑ์' : overallVerdict === 'fail' ? 'ไม่ผ่านเกณฑ์' : 'ไม่ระบุเกณฑ์ (N/A)'
+  const acceptanceText = acceptance?.description || ''
   // Extract English-only from unitName: "Fort Surasi Hospital(รพ.ค่ายสุรสีห์)" → "Fort Surasi Hospital"
   const customerEn = String(r.unitName || '').replace(/\(.*\)$/, '').trim() || f(r.unitName)
   const locationDisplay = (r.location === 'lab' || r.location === 'Lab') ? t('Medical Depot Division of Royal Thai Army Medical Department') : (r.location === 'outside' ? customerEn : f(r.location))
@@ -230,7 +245,8 @@ export default function CalibrationPDF({
           </View>
         </View>
 
-        <Text style={s.certTitle}>{t("Calibration Certificate")}</Text>
+        <Text style={s.certTitle}>{isTestReport ? t("Test Report") : t("Calibration Certificate")}</Text>
+        <Text style={{ fontSize: 9, textAlign: 'center', marginTop: -4, marginBottom: 4, color: '#111' }}>{titleTh}</Text>
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 4 }}>
           <Text style={{ fontSize: 10, fontWeight: 700 }}>{t("Certificate")} </Text>
           <Text style={{ fontSize: 10 }}>{f(r.certNo)}</Text>
@@ -277,6 +293,13 @@ export default function CalibrationPDF({
         {/* Calibration method */}
         <Text style={s.methodText}>
           <Text style={{ fontWeight: 700 }}>{t("Calibration method")}</Text> : {t('By comparison with standard tools. This certificate is traceable to the SI units.')}
+        </Text>
+        <Text style={[s.bodyText, { marginBottom: 2 }]}>
+          <Text style={{ fontWeight: 700 }}>ประเภทงาน</Text> : {isTestReport ? 'ทดสอบ (Test)' : 'สอบเทียบ (Calibration)'}
+          {'    '}<Text style={{ fontWeight: 700 }}>ทดสอบความปลอดภัยทางไฟฟ้า</Text> : {r.electricalSafetyTest ? 'ทำ' : 'ไม่ทำ'}
+        </Text>
+        <Text style={[s.bodyText, { marginBottom: 2 }]}>
+          <Text style={{ fontWeight: 700 }}>{isTestReport ? 'ผลการทดสอบ' : 'ผลการสอบเทียบ'}</Text> : {overallText}{acceptanceText ? ` (${acceptanceText})` : ''}
         </Text>
 
         {/* Signatures */}
@@ -397,34 +420,47 @@ export default function CalibrationPDF({
             {/* Cal point table */}
             <View style={s.table}>
               <View style={s.tRow}>
-                <Text style={[s.th, { width: '20%' }]}>{t("Cal.point")}</Text>
-                <Text style={[s.th, { width: '20%' }]}>{t("UUC reading")}</Text>
-                <Text style={[s.th, { width: '20%' }]}>{t("STD reading")}</Text>
-                <Text style={[s.th, { width: '20%' }]}>{t("Correction")}</Text>
-                <Text style={[s.th, { width: '20%' }]}>{t("± Uncertainty")}</Text>
+                <Text style={[s.th, { width: '18%' }]}>{t("Cal.point")}</Text>
+                <Text style={[s.th, { width: '18%' }]}>{t("UUC reading")}</Text>
+                <Text style={[s.th, { width: '18%' }]}>{t("STD reading")}</Text>
+                <Text style={[s.th, { width: '18%' }]}>{t("Correction")}</Text>
+                <Text style={[s.th, { width: '18%' }]}>{t("± Uncertainty")}</Text>
+                <Text style={[s.th, { width: '10%' }]}>ผล</Text>
               </View>
               {/* Units row */}
               <View style={s.tRow}>
-                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
-                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
-                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
-                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
-                <Text style={[s.td, { width: '20%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '18%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '18%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '18%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '18%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '18%' }]}>{sec.unit}</Text>
+                <Text style={[s.td, { width: '10%' }]}>-</Text>
               </View>
               {/* Data rows */}
               {sec.calPoints.map((cp: any, i: number) => (
                 <View key={i} style={i === sec.calPoints.length - 1 ? s.tRowLast : s.tRow}>
-                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(parseCalibrationValue(cp.point), true) : (cp.point != null ? String(cp.point) : '-')}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgUUC, true) : fmtVal(cp.avgUUC)}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgSTD, true) : fmtVal(cp.avgSTD)}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{cp.isTime ? formatCalibrationValue(cp.correction, true) : fmtVal(cp.correction)}</Text>
-                  <Text style={[s.td, { width: '20%' }]}>{formatPdfUncertainty(cp.uncertainty, cp.isTime)}</Text>
+                  <Text style={[s.td, { width: '18%' }]}>{cp.isTime ? formatCalibrationValue(parseCalibrationValue(cp.point), true) : (cp.point != null ? String(cp.point) : '-')}</Text>
+                  <Text style={[s.td, { width: '18%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgUUC, true) : fmtVal(cp.avgUUC)}</Text>
+                  <Text style={[s.td, { width: '18%' }]}>{cp.isTime ? formatCalibrationValue(cp.avgSTD, true) : fmtVal(cp.avgSTD)}</Text>
+                  <Text style={[s.td, { width: '18%' }]}>{cp.isTime ? formatCalibrationValue(cp.correction, true) : fmtVal(cp.correction)}</Text>
+                  <Text style={[s.td, { width: '18%' }]}>{formatPdfUncertainty(cp.uncertainty, cp.isTime)}</Text>
+                  <Text style={[s.td, { width: '10%' }]}>{verdictLabel(cp.verdict)}</Text>
                 </View>
               ))}
             </View>
           </View>
           )
         })}
+
+        {/* Overall acceptance verdict */}
+        {resultSections.length > 0 && (
+          <View style={{ marginTop: 2, marginBottom: 4 }}>
+            <Text style={[s.bodyText, { fontWeight: 700 }]}>
+              {isTestReport ? 'ผลการทดสอบ' : 'ผลการสอบเทียบ'}: {overallText}
+            </Text>
+            {acceptanceText ? <Text style={s.bodyText}>เกณฑ์การยอมรับ: {acceptanceText}</Text> : null}
+          </View>
+        )}
 
         {/* Remarks */}
         {Array.isArray(r.remarks) && r.remarks.some((rm: string) => rm) && (

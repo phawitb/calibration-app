@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   canManageOrders,
   validateWorkOrderInput,
-  validateOrderPdf,
+  validateOrderFile,
   assertRecordOrderIdentity,
   projectOrderForHospital,
   recordStandardNos,
@@ -47,19 +47,29 @@ test('rejects incomplete, reversed, impossible dates and invalid associations', 
   ])
     assert.throws(() => validateWorkOrderInput(value))
 })
-test('PDF type, signature and size are checked', () => {
+test('PDF/PNG/JPEG type, signature and size are checked', () => {
   const bytes = Buffer.from('%PDF-1.7\n')
-  assert.doesNotThrow(() =>
-    validateOrderPdf({ type: 'application/pdf', size: bytes.length }, bytes)
+  assert.equal(
+    validateOrderFile({ type: 'application/pdf', size: bytes.length }, bytes),
+    'application/pdf'
   )
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0])
+  assert.equal(validateOrderFile({ type: 'image/png', size: png.length }, png), 'image/png')
+  const jpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46])
+  assert.equal(validateOrderFile({ type: 'image/jpeg', size: jpg.length }, jpg), 'image/jpeg')
+  assert.equal(validateOrderFile({ type: 'image/jpg', size: jpg.length }, jpg), 'image/jpeg')
   for (const file of [
     { type: 'text/plain', size: 9 },
     { type: 'application/pdf', size: 8388609 },
     { type: 'application/pdf', size: 0 },
+    { type: 'image/png', size: 9 },
   ])
-    assert.throws(() => validateOrderPdf(file, bytes))
+    assert.throws(() => validateOrderFile(file, bytes))
   assert.throws(() =>
-    validateOrderPdf({ type: 'application/pdf', size: 5 }, Buffer.from('hello'))
+    validateOrderFile({ type: 'application/pdf', size: 5 }, Buffer.from('hello'))
+  )
+  assert.throws(() =>
+    validateOrderFile({ type: 'image/gif', size: 6 }, Buffer.from('GIF89a'))
   )
 })
 test('record order and device cannot be reassigned or detached', () => {

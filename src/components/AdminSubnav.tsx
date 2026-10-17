@@ -9,6 +9,7 @@ const TABS = [
   { href: '/admin?tab=certificate-texts', label: 'จัดการข้อความในใบรับรอง', tab: 'certificate-texts' },
   { href: '/admin?tab=cert', label: 'จัดการรูปแบบเลขใบรับรอง', tab: 'cert' },
   { href: '/admin?tab=iso-methods', label: 'วิธีการ ISO', tab: 'iso-methods' },
+  { href: '/admin?tab=activity', label: 'ประวัติการใช้งาน', tab: 'activity', adminOnly: true },
 ] as const
 
 export default function AdminSubnav({ canManageUsers }: { canManageUsers: boolean }) {
@@ -16,7 +17,7 @@ export default function AdminSubnav({ canManageUsers }: { canManageUsers: boolea
   const currentTab = searchParams.get('tab') || (canManageUsers ? 'users' : 'data')
   return (
     <div className="flex flex-wrap gap-1 border-b border-military-200 mb-6" role="tablist" aria-label="เมนูผู้ดูแล">
-      {TABS.filter((t) => canManageUsers || t.tab !== 'users').map((t) => {
+      {TABS.filter((t) => canManageUsers || (t.tab !== 'users' && !('adminOnly' in t && t.adminOnly))).map((t) => {
         const active = currentTab === t.tab
         return (
           <Link

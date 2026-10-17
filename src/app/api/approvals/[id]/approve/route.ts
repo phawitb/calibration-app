@@ -4,9 +4,11 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
 import User from '@/models/User'
+import { environmentApprovalError } from '@/lib/environmentCheckServer'
+import { logActivity } from '@/lib/activityLog'
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   const session = await getServerSession(authOptions)
@@ -22,6 +24,9 @@ export async function POST(
   if (record.approvalStatus !== 'pending_approval') {
     return NextResponse.json({ error: 'Record is not pending approval' }, { status: 400 })
   }
+  // สภาวะแวดล้อมขณะสอบเทียบต้องอยู่ในเกณฑ์ก่อนอนุมัติ (TOR 1.2.2.3, 1.2.2.4)
+  const envError = await environmentApprovalError(record)
+  if (envError) return NextResponse.json({ error: envError }, { status: 409 })
   // Any admin or approver can approve (not restricted to requested approver)
   const approverId = String((session.user as any).id || '')
   const approver = await User.findById(approverId).select('name fullName fullNameEn').lean()
@@ -40,6 +45,11 @@ export async function POST(
   record.approve = approverName
   record.certificateRevision = Number(record.certificateRevision || 0) + 1
   await record.save()
+  await logActivity(req, session.user as any, 'record_approve', {
+    targetType: 'record',
+    targetId: record._id,
+    detail: [record.certNo, record.amedNo, record.deviceName].filter(Boolean).join(' · ') || undefined,
+  })
 
   return NextResponse.json({ record })
 }

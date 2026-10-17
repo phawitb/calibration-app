@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { orderActor, orderResponse } from '@/lib/workOrderHttp'
 import { getOrder, requireOrderManager } from '@/lib/workOrderService'
-import { OrderError, validateOrderPdf } from '@/lib/workOrderValidation'
+import { OrderError, validateOrderFile } from '@/lib/workOrderValidation'
 import WorkOrderDocument from '@/models/WorkOrderDocument'
 import WorkOrder from '@/models/WorkOrder'
 type Context = { params: { id: string } }
@@ -23,15 +23,15 @@ export const POST = (req: NextRequest, { params }: Context) =>
     const form = await req.formData(),
       file = form.get('file')
     if (!file || typeof file === 'string')
-      throw new OrderError('กรุณาเลือกไฟล์ PDF')
+      throw new OrderError('กรุณาเลือกไฟล์ PDF, PNG หรือ JPEG')
     if (file.size > 8 * 1024 * 1024)
       throw new OrderError('ไฟล์ต้องไม่เกิน 8 MB', 413)
     const bytes = Buffer.from(await file.arrayBuffer())
-    validateOrderPdf(file, bytes)
+    const contentType = validateOrderFile(file, bytes)
     const saved = await WorkOrderDocument.create({
       orderId: params.id,
       fileName: file.name.slice(0, 250),
-      contentType: 'application/pdf',
+      contentType,
       pdfData: bytes,
       size: file.size,
       uploadedBy: actor.id,

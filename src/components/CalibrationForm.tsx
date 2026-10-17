@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
+import { promptApprovalPin } from '@/components/ApprovalPinDialog'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
 import { useStepNav } from '@/lib/stepNavContext'
 import { formatPersonName } from '@/lib/personName'
@@ -1246,8 +1247,15 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
         return
       }
     }
+    // TOR 1.2.1.14: ต้องกรอก PIN ส่วนตัวก่อนส่งขออนุมัติ
+    let approvalPin: string | null = null
+    if (saveAction === 'request_approval') {
+      approvalPin = await promptApprovalPin()
+      if (approvalPin == null) return
+    }
     setSaving(true)
-    const payload = buildPayload(saveAction)
+    const payload: any = buildPayload(saveAction)
+    if (approvalPin) payload.approvalPin = approvalPin
     const url = mode === 'create' ? '/api/records' : `/api/records/${id}`
     const method = mode === 'create' ? 'POST' : 'PUT'
     const res = await fetch(url, {

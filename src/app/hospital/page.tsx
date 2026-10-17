@@ -207,10 +207,6 @@ export default function HospitalDevicesPage() {
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.amedNo.trim()) {
-      toast.error('กรุณากรอก AmedNo')
-      return
-    }
     setSaving(true)
     try {
       const res = await fetch('/api/ameddevices', {
@@ -240,18 +236,24 @@ export default function HospitalDevicesPage() {
             {hospitalTitle} — {filtered.length} เครื่อง
           </p>
         </div>
-        {canAddDevice && (
-          <button type="button" className="btn-primary self-start" onClick={() => setShowAdd((v) => !v)}>
-            {showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายการ'}
-          </button>
-        )}
+        <div className="flex flex-wrap gap-2 self-start">
+          {hospitalUnit && (
+            <a href={`/api/export/devices?unitName=${encodeURIComponent(hospitalUnit)}`} className="btn-secondary" download title="ส่งออกทะเบียนเครื่องมือของหน่วยนี้เป็น Excel">ส่งออก Excel</a>
+          )}
+          {canAddDevice && (
+            <button type="button" className="btn-primary" onClick={() => setShowAdd((v) => !v)}>
+              {showAdd ? 'ปิดฟอร์ม' : '+ เพิ่มรายการ'}
+            </button>
+          )}
+        </div>
       </div>
 
       {showAdd && canAddDevice && (
         <form onSubmit={handleAdd} className="card grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">AmedNo *</label>
-            <input className="input-field" value={form.amedNo} onChange={(e) => setForm({ ...form, amedNo: e.target.value })} required />
+            <label className="block text-xs text-gray-500 mb-1">AmedNo</label>
+            <input className="input-field" value={form.amedNo} onChange={(e) => setForm({ ...form, amedNo: e.target.value })} maxLength={100} placeholder="เว้นว่างเพื่อให้ระบบสร้างอัตโนมัติ" />
+            <p className="mt-1 text-[11px] text-gray-400">เว้นว่าง ระบบจะกำหนดรหัส AUTO-ปี พ.ศ.-ลำดับ ให้อัตโนมัติ (เช่น AUTO-2569-0001)</p>
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">ชื่อเครื่อง</label>

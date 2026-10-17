@@ -5,8 +5,9 @@ import { connectDB } from '@/lib/mongodb'
 import UserCertificate from '@/models/UserCertificate'
 import { inlineContentDisposition } from '@/lib/contentDisposition'
 import { canViewUserCertificates } from '@/lib/userCertificateAccess'
+import { ATTACHMENT_TYPES } from '@/lib/attachmentTypes'
 
-/** Download a specific certificate PDF */
+/** Download a specific certificate file (PDF / PNG / JPEG) */
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string; certId: string } }
@@ -23,7 +24,7 @@ export async function GET(
 
   return new NextResponse(cert.pdfData, {
     headers: {
-      'Content-Type': cert.contentType || 'application/pdf',
+      'Content-Type': (ATTACHMENT_TYPES as readonly string[]).includes(cert.contentType) ? cert.contentType : 'application/pdf',
       'Content-Disposition': inlineContentDisposition(cert.fileName),
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',

@@ -3,6 +3,7 @@ import AdminUsers from '@/components/AdminUsers'
 import ReferenceDataManager from '@/components/ReferenceDataManager'
 import AdminCertNumberConfig from '@/components/AdminCertNumberConfig'
 import AdminIsoMethods from '@/components/AdminIsoMethods'
+import AdminActivityLog from '@/components/AdminActivityLog'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
@@ -18,6 +19,8 @@ export default async function AdminPage({
   if (searchParams?.tab === 'formulas') redirect('/admin?tab=data&category=stdinstruments')
   const tab = searchParams?.tab || (role === 'technician' ? 'data' : 'users')
   if (role === 'technician' && tab === 'users') redirect('/admin?tab=data')
+  // ประวัติการใช้งาน: ผู้ดูแลระบบเท่านั้น
+  if (role !== 'admin' && tab === 'activity') redirect('/admin?tab=data')
 
   return (
     <div className="space-y-4">
@@ -27,6 +30,7 @@ export default async function AdminPage({
       {tab === 'certificate-texts' && <AdminCertificateTexts />}
       {tab === 'cert' && <AdminCertNumberConfig />}
       {tab === 'iso-methods' && <AdminIsoMethods />}
+      {tab === 'activity' && role === 'admin' && <AdminActivityLog />}
     </div>
   )
 }

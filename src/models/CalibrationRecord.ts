@@ -44,6 +44,18 @@ const CalPointSchema = new Schema({
   point:  mongoose.Schema.Types.Mixed, // calibration point value
   readings: [mongoose.Schema.Types.Mixed], // UUC readings (up to 4)
   standards: [mongoose.Schema.Types.Mixed], // STD readings (up to 4)
+  /** ผลการตัดสินต่อจุดที่ใช้จริง (ระบบคำนวณจาก MPE หรือค่าที่กำหนดเอง) */
+  verdict: { type: String, enum: ['pass', 'fail', 'na'] },
+  /** ค่าที่ผู้ใช้กำหนดเอง (ถ้ามี จะใช้แทนค่าที่คำนวณ) */
+  verdictOverride: { type: String, enum: ['pass', 'fail', 'na'] },
+}, { _id: false })
+
+// เกณฑ์การยอมรับ (Maximum Permissible Error) ของ record
+const AcceptanceSchema = new Schema({
+  mpe: Number,
+  mpeUnit: { type: String, enum: ['abs', 'percent'] },
+  includeUncertainty: Boolean,
+  note: String,
 }, { _id: false })
 
 // Sub-schema for one uncertainty component (Uc)
@@ -103,6 +115,16 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
   calibratedById?: string
   calPrice:     number
   mainPrice:    number
+  /** ประเภทงาน: สอบเทียบ / ทดสอบ (TOR 1.2.1.4) */
+  serviceType?: 'calibrate' | 'test'
+  /** ทำการทดสอบความปลอดภัยทางไฟฟ้าด้วยหรือไม่ (TOR 1.2.1.6) */
+  electricalSafetyTest?: boolean
+  /** เกณฑ์การยอมรับ (MPE) */
+  acceptance?: { mpe?: number; mpeUnit?: 'abs' | 'percent'; includeUncertainty?: boolean; note?: string }
+  /** ผลการสอบเทียบรวมทุกจุด (ที่ใช้จริง) */
+  overallVerdict?: 'pass' | 'fail' | 'na'
+  /** ผลรวมที่ผู้ใช้กำหนดเอง (ใช้แทนค่าที่คำนวณ) */
+  overallVerdictOverride?: 'pass' | 'fail' | 'na'
   approvalStatus?: 'draft' | 'pending_approval' | 'approved' | 'rejected'
   requestedApproverId?: string
   requestedApproverName?: string
@@ -195,6 +217,8 @@ export interface ICalibrationRecord extends Omit<Document, 'model'> {
       }
       standardCorrection?: number
       tNoLoad?: number
+      verdict?: 'pass' | 'fail' | 'na'
+      verdictOverride?: 'pass' | 'fail' | 'na'
     }[]
     calRefPoints?: {
       point: any
@@ -234,6 +258,8 @@ const IsoCalPointSchema = new Schema({
   },
   standardCorrection: Number,
   tNoLoad: Number,
+  verdict: { type: String, enum: ['pass', 'fail', 'na'] },
+  verdictOverride: { type: String, enum: ['pass', 'fail', 'na'] },
 }, { _id: false })
 
 const IsoDataSchema = new Schema({
@@ -307,6 +333,11 @@ const CalibrationRecordSchema = new Schema<ICalibrationRecord>({
   calibratedById: { type: String, index: true },
   calPrice:     { type: Number },
   mainPrice:    { type: Number },
+  serviceType:  { type: String, enum: ['calibrate', 'test'], default: 'calibrate' },
+  electricalSafetyTest: { type: Boolean, default: false },
+  acceptance:   AcceptanceSchema,
+  overallVerdict: { type: String, enum: ['pass', 'fail', 'na'] },
+  overallVerdictOverride: { type: String, enum: ['pass', 'fail', 'na'] },
   approvalStatus: { type: String, enum: ['draft', 'pending_approval', 'approved', 'rejected'], default: 'draft' },
   requestedApproverId: { type: String },
   requestedApproverName: { type: String },

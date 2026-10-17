@@ -1,6 +1,8 @@
 import StandardInstrumentYear from '@/models/StandardInstrumentYear'
 import AmedDevice from '@/models/AmedDevice'
 import { normalizeAmedUcFields } from '@/lib/amedUcOptions'
+import { isStandardRegistryKey, resolveStandardRegistryUpdate } from '@/lib/standardYearService'
+import { StandardYearError } from '@/lib/standardYears'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -15,6 +17,7 @@ const modelMap: Record<string, string> = {
   stdinstruments: 'StdInstrumentRef',
   brands: 'BrandName',
   ameddevices: 'AmedDevice',
+  calprices: 'CalPrice',
 }
 
 const baseSchema = new mongoose.Schema({}, { strict: false, collection: undefined })
@@ -37,6 +40,9 @@ function resolveType(type: string | null) {
 }
 
 function referenceFailure(error: unknown) {
+  if (error instanceof StandardYearError) {
+    return NextResponse.json({ error: error.message }, { status: error.status })
+  }
   if (error instanceof SyntaxError || error instanceof mongoose.Error.CastError || error instanceof mongoose.Error.ValidationError) {
     return NextResponse.json({ error: 'รูปแบบข้อมูลไม่ถูกต้อง กรุณาตรวจสอบค่าที่กรอก' }, { status: 400 })
   }
@@ -66,6 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'รูปแบบรายการ UC ไม่ถูกต้อง' }, { status: 400 })
     }
     await connectDB()
+    if (t === 'stdinstruments') Object.assign(doc, await resolveStandardRegistryUpdate(null, doc))
     const M = getModel(modelMap[t])
     const created = await M.create(doc)
     return NextResponse.json({ data: JSON.parse(JSON.stringify(created)) }, { status: 201 })
@@ -92,14 +99,24 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'รูปแบบรายการ UC ไม่ถูกต้อง' }, { status: 400 })
     }
     await connectDB()
-    if (t === 'stdinstruments' && await StandardInstrumentYear.exists({ instrumentRefId: String(_id) })) {
-      return NextResponse.json({ error: 'กรุณาแก้ไขในข้อมูลรายปีของเครื่องมือ' }, { status: 409 })
+    let update: Record<string, any> = data
+    if (t === 'stdinstruments') {
+      const registryOnly = Object.fromEntries(Object.entries(data).filter(([key]) => isStandardRegistryKey(key)))
+      if (await StandardInstrumentYear.exists({ instrumentRefId: String(_id) })) {
+        // เครื่องมือที่มีข้อมูลรายปีแก้ได้เฉพาะฟิลด์ทะเบียน (ความถี่/กำหนดสอบเทียบ/หน่วยงาน/เกณฑ์) ค่ามาตรฐานต้องแก้ในข้อมูลรายปี
+        if (!Object.keys(registryOnly).length) {
+          return NextResponse.json({ error: 'กรุณาแก้ไขในข้อมูลรายปีของเครื่องมือ' }, { status: 409 })
+        }
+        update = await resolveStandardRegistryUpdate(String(_id), registryOnly)
+      } else {
+        update = { ...data, ...(await resolveStandardRegistryUpdate(String(_id), data)) }
+      }
     }
     const M = getModel(modelMap[t])
     const id = new mongoose.Types.ObjectId(String(_id))
     const updated = await M.findByIdAndUpdate(
       id,
-      { $set: data },
+      { $set: update },
       { new: true, runValidators: false }
     )
       .lean()

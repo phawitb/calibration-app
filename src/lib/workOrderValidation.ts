@@ -1,4 +1,5 @@
 import type { WorkOrderInput } from './workOrderTypes'
+import { ATTACHMENT_LABEL, ATTACHMENT_MAX_BYTES, type AttachmentType, declaredTypeMatches, sniffAttachmentType } from './attachmentTypes'
 export class OrderError extends Error {
   constructor(
     message: string,
@@ -106,19 +107,23 @@ export function assertRecordStandardsAllowed(order: any, record: any) {
       409
     )
 }
-export function validateOrderPdf(
+/**
+ * ตรวจไฟล์แนบคำสั่ง: PDF / PNG / JPEG ขนาดไม่เกิน 8 MB
+ * ตรวจ magic bytes ของไฟล์และ MIME ที่ส่งมาต้องสอดคล้องกัน คืนชนิดไฟล์ที่ตรวจพบ
+ */
+export function validateOrderFile(
   file: { type: string; size: number },
   bytes: Uint8Array
-) {
-  if (file.size > 8 * 1024 * 1024)
+): AttachmentType {
+  if (file.size > ATTACHMENT_MAX_BYTES)
     throw new OrderError('ไฟล์ต้องไม่เกิน 8 MB', 413)
-  if (
-    file.type !== 'application/pdf' ||
-    file.size < 5 ||
-    String.fromCharCode(...Array.from(bytes.slice(0, 5))) !== '%PDF-'
-  )
-    throw new OrderError('กรุณาเลือกไฟล์ PDF ที่ถูกต้อง')
+  const detected = file.size >= 5 ? sniffAttachmentType(bytes) : null
+  if (!detected || !declaredTypeMatches(file.type, detected))
+    throw new OrderError(`กรุณาเลือกไฟล์ ${ATTACHMENT_LABEL} ที่ถูกต้อง`)
+  return detected
 }
+/** @deprecated ใช้ validateOrderFile (รับ PDF/PNG/JPEG) */
+export const validateOrderPdf = validateOrderFile
 export function assertRecordOrderIdentity(existing: any, patch: any) {
   const fields = existing.workOrderId
     ? [

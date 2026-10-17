@@ -22,6 +22,13 @@ export default function Navbar() {
   const [recalibrationAlertCount, setRecalibrationAlertCount] = useState<
     number | null
   >(null)
+  const canSeeStandardAlerts = role === 'admin' || role === 'technician'
+  const [standardAlert, setStandardAlert] = useState<{
+    count: number
+    overdue: number
+    expiringSoon: number
+    failingCriteria: number
+  } | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const roleText = useMemo(() => {
     if (role === 'admin') return 'ผู้ดูแลระบบ'
@@ -80,6 +87,33 @@ export default function Navbar() {
     }
   }, [canSeeRecalibrationAlerts, pathname])
 
+  useEffect(() => {
+    if (!canSeeStandardAlerts) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await fetch('/api/alerts/standards')
+        if (!res.ok) return
+        const json = await res.json()
+        if (!cancelled)
+          setStandardAlert({
+            count: Number(json.count) || 0,
+            overdue: Number(json.overdue) || 0,
+            expiringSoon: Number(json.expiringSoon) || 0,
+            failingCriteria: Number(json.failingCriteria) || 0,
+          })
+      } catch {
+        if (!cancelled) setStandardAlert(null)
+      }
+    }
+    load()
+    const t = setInterval(load, 60000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [canSeeStandardAlerts, pathname])
+
   const workspaceTabs = mainNavigation(role)
   const currentSection = navigationSection(pathname)
   const profileLinks = [{ href: '/profile', label: 'โปรไฟล์ของฉัน' }]
@@ -129,6 +163,19 @@ export default function Navbar() {
                   ใกล้ครบอายุ {recalibrationAlertCount}
                 </Link>
               )}
+            {canSeeStandardAlerts && standardAlert && standardAlert.count > 0 && (
+              <Link
+                href="/admin?tab=data&category=stdinstruments"
+                title={`เครื่องมือมาตรฐาน: เกินกำหนด ${standardAlert.overdue} · ใกล้ครบกำหนด ${standardAlert.expiringSoon} · ไม่ผ่านเกณฑ์ ${standardAlert.failingCriteria}`}
+                className={`hidden sm:inline-flex rounded-full text-xs px-2 py-1 font-semibold ${
+                  standardAlert.overdue + standardAlert.failingCriteria > 0
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-amber-400 text-gray-900'
+                }`}
+              >
+                เครื่องมือมาตรฐาน {standardAlert.count}
+              </Link>
+            )}
             <div className="hidden sm:block text-right">
               <p className="text-xs text-gray-600">
                 {(session?.user as any)?.fullName || session?.user?.name}
@@ -164,7 +211,10 @@ export default function Navbar() {
                   ))}
                   <button
                     type="button"
-                    onClick={() => signOut({ callbackUrl: '/login' })}
+                    onClick={async () => {
+                      await fetch('/api/me/logout-log', { method: 'POST' }).catch(() => {})
+                      await signOut({ callbackUrl: '/login' })
+                    }}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-red-600"
                   >
                     ออกจากระบบ

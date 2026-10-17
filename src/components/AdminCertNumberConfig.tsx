@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
+import { ENVIRONMENT_DEFAULTS } from '@/lib/environmentCheck'
 
 const PRESETS = [
   { label: '003/69', pattern: '{num}/{yy}' },
@@ -20,6 +21,11 @@ export default function AdminCertNumberConfig() {
     resetByYear: true,
     certValidityMonths: 12,
     alertBeforeDays: 30,
+    requireEnvironment: ENVIRONMENT_DEFAULTS.requireEnvironment,
+    envTempMin: ENVIRONMENT_DEFAULTS.envTempMin,
+    envTempMax: ENVIRONMENT_DEFAULTS.envTempMax,
+    envHumidMin: ENVIRONMENT_DEFAULTS.envHumidMin,
+    envHumidMax: ENVIRONMENT_DEFAULTS.envHumidMax,
   })
 
   useEffect(() => {
@@ -35,6 +41,11 @@ export default function AdminCertNumberConfig() {
           resetByYear: !!data.config.resetByYear,
           certValidityMonths: Number(data.config.certValidityMonths || 12),
           alertBeforeDays: Number(data.config.alertBeforeDays || 30),
+          requireEnvironment: data.config.requireEnvironment == null ? ENVIRONMENT_DEFAULTS.requireEnvironment : !!data.config.requireEnvironment,
+          envTempMin: Number(data.config.envTempMin ?? ENVIRONMENT_DEFAULTS.envTempMin),
+          envTempMax: Number(data.config.envTempMax ?? ENVIRONMENT_DEFAULTS.envTempMax),
+          envHumidMin: Number(data.config.envHumidMin ?? ENVIRONMENT_DEFAULTS.envHumidMin),
+          envHumidMax: Number(data.config.envHumidMax ?? ENVIRONMENT_DEFAULTS.envHumidMax),
         })
       })
       .catch(() => {
@@ -137,6 +148,40 @@ export default function AdminCertNumberConfig() {
         />
         รีเซ็ตเลขรันใหม่เมื่อเปลี่ยนปี (ใช้ร่วมกับ token ปี)
       </label>
+
+      <div className="border-t border-gray-200 pt-4 space-y-3">
+        <h4 className="font-semibold text-military-800">เกณฑ์สภาวะแวดล้อมก่อนอนุมัติ</h4>
+        <p className="text-xs text-gray-500">
+          ใช้เมื่อ record ไม่ได้ระบุช่วงอุณหภูมิ/ความชื้นของเครื่องมือมาตรฐานสภาพแวดล้อม (Std1) หากระบุไว้จะใช้ช่วงของ Std1 แทน
+        </p>
+        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={form.requireEnvironment}
+            onChange={(e) => setForm((f) => ({ ...f, requireEnvironment: e.target.checked }))}
+          />
+          ต้องบันทึกอุณหภูมิ/ความชื้นและอยู่ในเกณฑ์ จึงจะส่งขออนุมัติและอนุมัติใบรับรองได้
+        </label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {([
+            ['envTempMin', 'อุณหภูมิต่ำสุด (°C)'],
+            ['envTempMax', 'อุณหภูมิสูงสุด (°C)'],
+            ['envHumidMin', 'ความชื้นต่ำสุด (%RH)'],
+            ['envHumidMax', 'ความชื้นสูงสุด (%RH)'],
+          ] as const).map(([key, label]) => (
+            <div key={key}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+              <input
+                type="number"
+                step="any"
+                className="input-field"
+                value={form[key]}
+                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value === '' ? '' : Number(e.target.value) }))}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="flex justify-end">
         <button

@@ -13,6 +13,8 @@ import RecordCalculationPanel from '@/components/RecordCalculationPanel'
 import RecordAmedHistoryPanel from '@/components/RecordAmedHistoryPanel'
 import RecordPreviewPanel from '@/components/RecordPreviewPanel'
 import RecordApprovalPanel from '@/components/RecordApprovalPanel'
+import RecordAttachments from '@/components/RecordAttachments'
+import { canEditRecord } from '@/lib/recordOwnership'
 
 export default async function RecordDetailPage({ params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -39,6 +41,9 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
     if (device) registryUcOptions = Object.fromEntries(AMED_UC_KEYS.map(key => [key, normalizeUcOptions((device as any)[key])]))
   }
   const approvalStatus = String((record as any).approvalStatus || 'draft')
+  // TOR 1.2.1.15: เจ้าหน้าที่แก้ไขได้เฉพาะรายการของตนเอง
+  const sessionRole = String((session.user as any)?.role || '')
+  const notOwner = sessionRole === 'technician' && !canEditRecord(session.user as any, record as any)
   const lastStep = String((record as any).lastStep || 'edit')
 
   return (
@@ -56,6 +61,11 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
       </div>
 
       {data.workOrderId && <p className="text-sm text-military-700">คำสั่งที่ {data.workOrderNo}</p>}
+      {notOwner && (
+        <div className="card border border-amber-300 bg-amber-50 text-amber-900 text-sm">
+          รายการนี้ไม่ใช่รายการของคุณ (สร้างโดย {String((record as any).createdBy || '-')}) — ดูได้อย่างเดียว แก้ไขได้เฉพาะรายการของตนเอง
+        </div>
+      )}
       {/* Quick info banner */}
       <div className="bg-military-800 text-white rounded-xl px-6 py-4 grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
         <div>
@@ -101,6 +111,7 @@ export default async function RecordDetailPage({ params }: { params: { id: strin
             requestedApproverId={String((record as any).requestedApproverId || '')}
           />
         }
+        attachmentsPanel={<RecordAttachments recordId={params.id} />}
         historyPanel={
           <RecordAmedHistoryPanel
             amedNo={String((record as any).amedNo || '')}

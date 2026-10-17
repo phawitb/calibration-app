@@ -15,7 +15,7 @@ const SUBTABS: {
   label: string
   type: RefType
   desc: string
-  fields: { key: string; label?: string; input?: 'number' }[]
+  fields: { key: string; label?: string; input?: 'number' | 'date' }[]
 }[] = [
   {
     key: 'units',
@@ -79,6 +79,12 @@ const SUBTABS: {
       { key: 'measurement' },
       { key: 'unit' },
       { key: 'calDate' },
+      { key: 'calIntervalMonths', label: 'ความถี่ในการสอบเทียบ (เดือน)', input: 'number' as const },
+      { key: 'nextCalDate', label: 'วันที่ครบกำหนดสอบเทียบครั้งถัดไป (เว้นว่าง = คำนวณจากวันสอบเทียบ + ความถี่)', input: 'date' as const },
+      { key: 'calibratedBy', label: 'หน่วยงานที่สอบเทียบ' },
+      { key: 'acceptanceMaxCorrection', label: 'เกณฑ์การยอมรับ: ค่าแก้สูงสุด (±)', input: 'number' as const },
+      { key: 'acceptanceMaxUncertainty', label: 'เกณฑ์การยอมรับ: ค่าความไม่แน่นอนสูงสุด', input: 'number' as const },
+      { key: 'acceptanceNote', label: 'เกณฑ์การยอมรับ: หมายเหตุ' },
       ...STANDARD_DIVISOR_FIELDS.map(c=>({key:c.field,label:`Divisor — ${c.label}`,input:'number' as const})),
       { key: 'correctionA', label: 'A (x³)', input: 'number' as const },
       { key: 'correctionB', label: 'B (x²)', input: 'number' as const },
@@ -144,7 +150,31 @@ const STD_TABLE_COLUMNS = [
   { key: 'name', label: 'ชื่อเครื่อง' },
   { key: 'measurement', label: 'การวัด' },
   { key: 'unit', label: 'หน่วย' },
+  { key: 'calibratedBy', label: 'หน่วยงานที่สอบเทียบ' },
+  { key: 'calIntervalMonths', label: 'ความถี่ (เดือน)' },
+  { key: 'dueDate', label: 'ครบกำหนดถัดไป' },
 ]
+/** คีย์ของ acceptanceCriteria ที่แสดงเป็นช่องแยกในฟอร์ม/CSV */
+const ACCEPTANCE_FLAT_KEYS = { acceptanceMaxCorrection: 'maxCorrection', acceptanceMaxUncertainty: 'maxUncertainty', acceptanceNote: 'note' } as const
+function flattenStdRow(r: any) {
+  const criteria = r?.acceptanceCriteria || {}
+  return { ...r, acceptanceMaxCorrection: criteria.maxCorrection ?? '', acceptanceMaxUncertainty: criteria.maxUncertainty ?? '', acceptanceNote: criteria.note ?? '' }
+}
+function foldAcceptance(payload: Record<string, any>) {
+  const criteria: Record<string, any> = {}
+  for (const [flat, key] of Object.entries(ACCEPTANCE_FLAT_KEYS)) {
+    if (flat in payload) { if (payload[flat] !== '' && payload[flat] != null) criteria[key] = payload[flat]; delete payload[flat] }
+  }
+  payload.acceptanceCriteria = Object.keys(criteria).length ? criteria : null
+  return payload
+}
+type StandardAlertItem = { _id: string; no: string; name: string; nextCalDate: string | null; reason: 'overdue' | 'expiringSoon' | 'failingCriteria'; detail?: string }
+const thaiDate = (value: unknown) => {
+  const text = String(value ?? '').trim()
+  if (!text) return '—'
+  const d = new Date(text)
+  return Number.isNaN(d.getTime()) ? text : d.toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
+}
 
 function fieldLabel(f: { key: string; label?: string }) {
   return f.label || f.key
@@ -207,13 +237,25 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
   const [refBrands, setRefBrands] = useState<{ name: string; model: string }[]>([])
   const [refStdNos, setRefStdNos] = useState<{ no: string; name: string }[]>([])
   const [importing, setImporting] = useState(false)
+  // Standard instrument alerts (overdue / expiring / failing criteria) keyed by _id
+  const [stdAlerts, setStdAlerts] = useState<Record<string, StandardAlertItem[]>>({})
+  const loadStdAlerts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/alerts/standards', { cache: 'no-store' })
+      if (!res.ok) return
+      const j = await res.json()
+      const map: Record<string, StandardAlertItem[]> = {}
+      for (const item of (j.items || []) as StandardAlertItem[]) (map[item._id] ||= []).push(item)
+      setStdAlerts(map)
+    } catch { /* badge is advisory; table still renders */ }
+  }, [])
 
   // ---- Export CSV ----
   const exportCsv = () => {
     if (!rows.length) { toast.error('ไม่มีข้อมูลให้ export'); return }
     const fields = sub.fields
     const headers = ['_id', ...fields.map(f => f.key)]
-    const csvRows = rows.map(r =>
+    const csvRows = (sub.type === 'stdinstruments' ? rows.map(flattenStdRow) : rows).map(r =>
       headers.map(h => {
         const value = sub.key === 'ameddevices' && AMED_UC_KEYS.some(key => key === h)
           ? JSON.stringify(normalizeUcOptions(r[h]))
@@ -320,13 +362,14 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
       const j = await res.json()
       const data = Array.isArray(j.data) ? j.data : []
       setRows(data)
+      if (sub.type === 'stdinstruments') void loadStdAlerts()
     } catch {
       toast.error('โหลดข้อมูลอ้างอิงไม่สำเร็จ')
       setRows([])
     } finally {
       setLoading(false)
     }
-  }, [sub.type])
+  }, [sub.type, loadStdAlerts])
 
   useEffect(() => {
     load()
@@ -388,6 +431,7 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
   const openEdit = (r: any) => {
     setEditId(r._id)
     const o: Record<string, any> = {}
+    if (sub.type === 'stdinstruments') r = flattenStdRow(r)
     for (const f of sub.fields) {
       const v = sub.key === 'stdinstruments' && r.correctionModel !== 'polynomial-v1' && f.key.startsWith('correction')
         ? (f.key === 'correctionD' ? r.correction ?? 0 : 0) : r[f.key]
@@ -411,6 +455,7 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
         if (v !== undefined) payload[f.key] = v
       }
     }
+    if (sub.type === 'stdinstruments') foldAcceptance(payload)
     try {
       if (modal === 'add') {
         const res = await fetch('/api/admin/reference', {
@@ -516,7 +561,29 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
       if (!response.ok) return
       const data = await response.json()
       setRows(Array.isArray(data.data) ? data.data : [])
+      void loadStdAlerts()
     } catch { /* The annual editor retains the saved version if list refresh fails. */ }
+  }
+  const stdStatusBadges = (r: any) => {
+    const alerts = stdAlerts[r._id] || []
+    const due = alerts.find(a => a.reason === 'overdue' || a.reason === 'expiringSoon')
+    const criteria = r.criteriaResult as { pass: boolean; failures: string[] } | undefined
+    const hasCriteria = !!(r.acceptanceCriteria && (r.acceptanceCriteria.maxCorrection != null || r.acceptanceCriteria.maxUncertainty != null))
+    return <span className="inline-flex flex-wrap gap-1">
+      {due?.reason === 'overdue' && <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white">เกินกำหนด</span>}
+      {due?.reason === 'expiringSoon' && <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-semibold text-gray-900">ใกล้ครบกำหนด</span>}
+      {hasCriteria && criteria && (criteria.pass
+        ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">ผ่านเกณฑ์</span>
+        : <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-800" title={criteria.failures.join('; ')}>ไม่ผ่านเกณฑ์</span>)}
+      {!due && !(hasCriteria && criteria) && <span className="text-gray-400">—</span>}
+    </span>
+  }
+  const stdRowTone = (r: any) => {
+    const alerts = stdAlerts[r._id] || []
+    if (alerts.some(a => a.reason === 'overdue')) return 'bg-rose-50'
+    if (alerts.some(a => a.reason === 'failingCriteria')) return 'bg-rose-50/60'
+    if (alerts.some(a => a.reason === 'expiringSoon')) return 'bg-amber-50'
+    return ''
   }
   const renderStdDetail = (r: any) => <StandardInstrumentYears key={r._id} instrument={r} onChanged={refreshStandardRows} />
 
@@ -598,13 +665,14 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                     </th>
                     )
                   })}
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">สถานะ</th>
                   <th className="px-3 py-2 w-24 text-center font-medium">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
                 {displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={STD_TABLE_COLUMNS.length + 1} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={STD_TABLE_COLUMNS.length + 2} className="px-4 py-8 text-center text-gray-500">
                       {search ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีข้อมูล'}
                     </td>
                   </tr>
@@ -613,15 +681,16 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                     <Fragment key={r._id}>
                       <tr
                         className={`border-b border-gray-100 cursor-pointer transition-colors ${
-                          expandedId === r._id ? 'bg-military-50' : 'hover:bg-military-50/40'
+                          expandedId === r._id ? 'bg-military-50' : stdRowTone(r) || 'hover:bg-military-50/40'
                         }`}
                         onClick={() => toggleExpand(r._id)}
                       >
                         {STD_TABLE_COLUMNS.map((f) => (
                           <td key={f.key} className="px-3 py-2 text-gray-800 max-w-[200px] truncate" title={String(r[f.key] ?? '')}>
-                            {r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—'}
+                            {f.key === 'dueDate' ? thaiDate(r.dueDate) : r[f.key] != null && r[f.key] !== '' ? String(r[f.key]) : '—'}
                           </td>
                         ))}
+                        <td className="px-3 py-2">{stdStatusBadges(r)}</td>
                         <td className="px-3 py-2 text-center">
                           <span className={`inline-flex items-center text-xs text-military-600 ${expandedId === r._id ? 'rotate-180' : ''} transition-transform`}>
                             &#9660;
@@ -630,7 +699,7 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                       </tr>
                       {expandedId === r._id && (
                         <tr>
-                          <td colSpan={STD_TABLE_COLUMNS.length + 1} className="bg-gray-50/80 px-4 py-4 border-b border-gray-200">
+                          <td colSpan={STD_TABLE_COLUMNS.length + 2} className="bg-gray-50/80 px-4 py-4 border-b border-gray-200">
                             {renderStdDetail(r)}
                           </td>
                         </tr>
@@ -900,7 +969,7 @@ export default function ReferenceDataManager({ initialCategory }: { initialCateg
                   <div key={f.key}>
                     <label className="block text-xs text-gray-500 mb-0.5">{fieldLabel(f)}</label>
                     <input
-                      type={f.input === 'number' ? 'number' : 'text'}
+                      type={f.input === 'number' ? 'number' : f.input === 'date' ? 'date' : 'text'}
                       step="any"
                       className="input-field text-sm"
                       value={editing[f.key] ?? ''}

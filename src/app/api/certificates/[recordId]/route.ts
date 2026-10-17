@@ -10,6 +10,7 @@ import CertificateRevision from '@/models/CertificateRevision'
 import mongoose from 'mongoose'
 import { formatHospitalUnitLabel } from '@/lib/hospitalUnit'
 import { inlineContentDisposition } from '@/lib/contentDisposition'
+import { logActivity } from '@/lib/activityLog'
 
 export const maxDuration = 60
 
@@ -67,6 +68,7 @@ export async function GET(
         const fullRecord = await CalibrationRecord.findById(recordId).lean()
         if (!fullRecord) return NextResponse.json({ error: 'Not found' }, { status: 404 })
         const data = await renderCertificatePdf(fullRecord)
+        await logActivity(req, session.user as any, 'certificate_download', { targetType: 'record', targetId: recordId, detail: `${(record as any).certNo || ''} (render)` })
         return new NextResponse(new Uint8Array(data), { headers: {
           'Content-Type': 'application/pdf',
           'Content-Disposition': inlineContentDisposition(`calibration-${(record as any).certNo || recordId}.pdf`),
@@ -82,6 +84,7 @@ export async function GET(
   const fileName = String((archived as any).fileName || `calibration-${certNo}.pdf`)
   const contentType = String((archived as any).contentType || 'application/pdf')
   const dataBuffer = pdfBytes((archived as any).pdfData)
+  await logActivity(req, session.user as any, 'certificate_download', { targetType: 'record', targetId: recordId, detail: `${certNo}${revisionId ? ` (revision ${revisionId})` : ''}` })
 
   return new NextResponse(new Uint8Array(dataBuffer), {
     status: 200,

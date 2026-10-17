@@ -14,6 +14,8 @@ import { calcRecalibrationDates, getRecalibrationSettings } from '@/lib/recalibr
 import { formatPersonName } from '@/lib/personName'
 import { buildUnsavedDraftQuery, stripClientNumberFields } from '@/lib/recordLifecycle'
 import { resolveHospitalScope } from '@/lib/hospitalScope'
+import { verifyApprovalPin } from '@/lib/approvalPin'
+import { logActivity } from '@/lib/activityLog'
 
 async function normalizeHospitalUnit(inputRaw: unknown) {
   const variants = await getUnitVariants(inputRaw)
@@ -144,7 +146,7 @@ export async function GET(req: NextRequest) {
   const effectiveLimit = search ? Math.max(limit, 200) : limit
   const total   = await CalibrationRecord.countDocuments(query)
   const records = await CalibrationRecord.find(query)
-    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calibratedById approvedById calPrice approvalStatus requestedApproverName rejectionComment calibrationType isoMethodCode createdBy updatedAt')
+    .select('recordNo sbNo amedNo certNo deviceName brand model serialNo unitName section calDate select lapTemp lapHumid calibrate approve calibratedById approvedById calPrice approvalStatus requestedApproverName rejectionComment calibrationType isoMethodCode serviceType electricalSafetyTest overallVerdict createdBy updatedAt')
     .sort({ calDate: -1, recordNo: -1 })
     .skip((page - 1) * effectiveLimit)
     .limit(effectiveLimit)
@@ -171,6 +173,9 @@ export async function POST(req: NextRequest) {
     | 'request_approval'
   const role = (session.user as any).role as string
   const sessionId = (session.user as any).id as string | undefined
+  // TOR 1.2.1.14: PIN ยืนยันก่อนส่งขออนุมัติ — ไม่เก็บลง record
+  const approvalPin = rawBody.approvalPin
+  delete rawBody.approvalPin
 
   const actor = session.user as any
   requireOrderManager(actor)
@@ -219,6 +224,8 @@ export async function POST(req: NextRequest) {
     if (role !== 'admin' && role !== 'technician') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+    const pinCheck = await verifyApprovalPin(sessionId, approvalPin)
+    if (!pinCheck.ok) return NextResponse.json({ error: pinCheck.error }, { status: pinCheck.status })
     approvalStatus = 'pending_approval'
   }
 
@@ -262,6 +269,11 @@ export async function POST(req: NextRequest) {
     await releaseOrderDeviceIfUnused(order._id, orderDevice._id).catch(() => false)
     throw saveError
   }
+  await logActivity(req, session.user as any, action === 'request_approval' ? 'record_request_approval' : 'record_create', {
+    targetType: 'record',
+    targetId: record._id,
+    detail: [record.amedNo, record.deviceName, record.unitName].filter(Boolean).join(' · ') || undefined,
+  })
   return NextResponse.json({ record, reused: false }, { status: 201 })
   } catch (e) { return orderFailure(e) }
 }

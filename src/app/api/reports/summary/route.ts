@@ -7,6 +7,7 @@ import { getUnitVariants } from '@/lib/unitVariants'
 import { displayHospitalName, normalizeHospitalUnitFromRefs, type UnitRefLike } from '@/lib/hospitalUnit'
 import { ISO_METHODS } from '@/lib/isoMethods'
 import mongoose from 'mongoose'
+import { buildWorkbook, stampedFileName, xlsxResponse } from '@/lib/excel'
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'ฉบับร่าง',
@@ -45,6 +46,7 @@ export async function GET(req: NextRequest) {
   const fromRaw = String(searchParams.get('from') || '').trim()
   const toRaw = String(searchParams.get('to') || '').trim()
   const hospitalRaw = String(searchParams.get('hospital') || '').trim()
+  const format = searchParams.get('format') === 'xlsx' ? 'xlsx' : 'json'
 
   const now = new Date()
   const from = parseDayStart(fromRaw) || new Date(now.getFullYear(), 0, 1)
@@ -174,6 +176,87 @@ export async function GET(req: NextRequest) {
       }
     })
 
+  const byTechnician = Array.from(byTechMap.entries())
+    .map(([name, value]) => ({ name, ...value }))
+    .sort((a, b) => b.jobs - a.jobs)
+  const byDevice = Array.from(byDeviceMap.entries())
+    .map(([name, jobsCount]) => ({ name, jobs: jobsCount }))
+    .sort((a, b) => b.jobs - a.jobs)
+  const byMethod = Array.from(byMethodMap.entries())
+    .map(([name, jobsCount]) => ({ name, jobs: jobsCount }))
+    .sort((a, b) => b.jobs - a.jobs)
+
+  if (format === 'xlsx') {
+    const rangeLabel = `ช่วง ${from.toLocaleDateString('th-TH')} – ${to.toLocaleDateString('th-TH')} · ${hospitalRaw && hospitalRaw !== 'all' ? (displayHospitalName(hospitalRaw).title || hospitalRaw) : 'ทุกหน่วยงาน'}`
+    const printed = `พิมพ์เมื่อ ${new Date().toLocaleString('th-TH')}`
+    const buffer = await buildWorkbook([
+      {
+        name: 'ตามโรงพยาบาล',
+        title: ['รายงานผลงานสอบเทียบ — แยกตามโรงพยาบาล', rangeLabel, printed],
+        columns: [
+          { header: 'ลำดับ', key: 'no', width: 8 },
+          { header: 'โรงพยาบาล', key: 'title', width: 36 },
+          { header: 'งานทั้งหมด', key: 'jobs', width: 12 },
+          { header: 'อนุมัติแล้ว', key: 'approved', width: 12 },
+          { header: 'รออนุมัติ', key: 'pending', width: 12 },
+          { header: 'ฉบับร่าง', key: 'draft', width: 12 },
+          { header: 'ตีกลับ', key: 'rejected', width: 12 },
+          { header: 'ค่าสอบเทียบ (บาท)', key: 'calPrice', width: 18 },
+          { header: 'ค่าปรนนิบัติบำรุง (บาท)', key: 'mainPrice', width: 20 },
+        ],
+        rows: byHospital.map((h, i) => ({ no: i + 1, ...h })),
+        footer: { title: 'รวม', jobs, approved, pending, draft, rejected, calPrice, mainPrice },
+      },
+      {
+        name: 'รายเดือน',
+        title: ['รายงานผลงานสอบเทียบ — รายเดือน', rangeLabel, printed],
+        columns: [
+          { header: 'เดือน', key: 'label', width: 14 },
+          { header: 'งาน', key: 'jobs', width: 10 },
+          { header: 'ค่าสอบเทียบ (บาท)', key: 'calPrice', width: 18 },
+          { header: 'ค่าปรนนิบัติบำรุง (บาท)', key: 'mainPrice', width: 20 },
+        ],
+        rows: byMonth,
+        footer: { label: 'รวม', jobs, calPrice, mainPrice },
+      },
+      {
+        name: 'ตามเครื่องมือ',
+        title: ['รายงานผลงานสอบเทียบ — แยกตามเครื่องมือ', rangeLabel, printed],
+        columns: [
+          { header: 'ลำดับ', key: 'no', width: 8 },
+          { header: 'ชื่อเครื่องมือ', key: 'name', width: 36 },
+          { header: 'งาน', key: 'jobs', width: 10 },
+        ],
+        rows: byDevice.map((d, i) => ({ no: i + 1, ...d })),
+        footer: { name: 'รวม', jobs },
+      },
+      {
+        name: 'ตามวิธีสอบเทียบ',
+        title: ['รายงานผลงานสอบเทียบ — แยกตามวิธีสอบเทียบ', rangeLabel, printed],
+        columns: [
+          { header: 'ลำดับ', key: 'no', width: 8 },
+          { header: 'วิธีสอบเทียบ', key: 'name', width: 40 },
+          { header: 'งาน', key: 'jobs', width: 10 },
+        ],
+        rows: byMethod.map((m, i) => ({ no: i + 1, ...m })),
+        footer: { name: 'รวม', jobs },
+      },
+      {
+        name: 'ผู้สอบเทียบ',
+        title: ['รายงานผลงานสอบเทียบ — แยกตามผู้สอบเทียบ', rangeLabel, printed],
+        columns: [
+          { header: 'ลำดับ', key: 'no', width: 8 },
+          { header: 'ชื่อ', key: 'name', width: 32 },
+          { header: 'งาน', key: 'jobs', width: 10 },
+          { header: 'ค่าสอบเทียบ (บาท)', key: 'calPrice', width: 18 },
+        ],
+        rows: byTechnician.map((t, i) => ({ no: i + 1, ...t })),
+        footer: { name: 'รวม', jobs, calPrice },
+      },
+    ])
+    return xlsxResponse(buffer, stampedFileName('calibration-summary'))
+  }
+
   return NextResponse.json({
     from: fromRaw || `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`,
     to: toRaw || `${to.getFullYear()}-${String(to.getMonth() + 1).padStart(2, '0')}-${String(to.getDate()).padStart(2, '0')}`,
@@ -201,16 +284,8 @@ export async function GET(req: NextRequest) {
       { key: 'iso', label: 'ระบบ ISO', count: byTypeMap.get('iso') || 0 },
     ],
     byMonth,
-    byTechnician: Array.from(byTechMap.entries())
-      .map(([name, value]) => ({ name, ...value }))
-      .sort((a, b) => b.jobs - a.jobs)
-      .slice(0, 20),
-    byDevice: Array.from(byDeviceMap.entries())
-      .map(([name, jobsCount]) => ({ name, jobs: jobsCount }))
-      .sort((a, b) => b.jobs - a.jobs)
-      .slice(0, 15),
-    byMethod: Array.from(byMethodMap.entries())
-      .map(([name, jobsCount]) => ({ name, jobs: jobsCount }))
-      .sort((a, b) => b.jobs - a.jobs),
+    byTechnician: byTechnician.slice(0, 20),
+    byDevice: byDevice.slice(0, 15),
+    byMethod,
   })
 }

@@ -5,6 +5,7 @@ import StandardInstrumentYear from '../models/StandardInstrumentYear'
 import StdCalPointConfig from '../models/StdCalPointConfig'
 import StdInstrumentCert from '../models/StdInstrumentCert'
 import { StandardYearError, normalizeStandardYear, normalizeStandardFields, latestStandardYears, standardSnapshot } from './standardYears'
+import { STANDARD_REGISTRY_KEYS, computeNextCalDate, evaluateStandardAgainstCriteria, normalizeStandardRegistryFields, standardDueDate } from './standardCriteria'
 
 export function standardId(id: string) {
   if (!mongoose.isValidObjectId(id)) throw new StandardYearError('รหัสรายการไม่ถูกต้อง')
@@ -15,6 +16,37 @@ export async function getStandardRoot(id: string) {
   if (!root) throw new StandardYearError('ไม่พบเครื่องมือมาตรฐาน',404)
   return root
 }
+export async function latestStandardVersion(id: string) {
+  return StandardInstrumentYear.findOne({ instrumentRefId: id }).sort({ year: -1, revision: -1 }).lean() as Promise<any>
+}
+/**
+ * เตรียมค่า $set ของฟิลด์ทะเบียน (calIntervalMonths, nextCalDate, calibratedBy, acceptanceCriteria)
+ * nextCalDate ที่เว้นว่างจะคำนวณจากวันสอบเทียบล่าสุด + ความถี่ (เดือน) และติดธง nextCalDateAuto
+ */
+export async function resolveStandardRegistryUpdate(id: string | null, input: any, current: Record<string, any> | null = null) {
+  const registry = normalizeStandardRegistryFields(input)
+  const set: Record<string, any> = { ...registry }
+  const touchesSchedule = 'calIntervalMonths' in registry || 'nextCalDate' in registry || (!id && input?.calDate != null) || (id && 'calDate' in (input || {}))
+  if (!touchesSchedule) return set
+  const base = id ? (current || await getStandardRoot(id)) : {}
+  const merged = { ...base, ...input, ...registry }
+  if (registry.nextCalDate) { set.nextCalDateAuto = false; return set }
+  const latest = id ? await latestStandardVersion(id) : null
+  const calDate = latest?.fields?.calDate || merged.calDate
+  const next = computeNextCalDate(calDate, merged.calIntervalMonths)
+  if (next) { set.nextCalDate = next; set.nextCalDateAuto = true }
+  else if ('nextCalDate' in registry) { set.nextCalDate = null; set.nextCalDateAuto = false }
+  return set
+}
+/** หลังบันทึกข้อมูลรายปี: คำนวณ nextCalDate ใหม่ถ้าค่าเดิมเป็นค่าที่ระบบคำนวณให้หรือยังว่าง */
+export async function refreshAutoNextCalDate(id: string) {
+  const root = await mongoose.connection.db!.collection('stdinstrumentrefs').findOne({ _id: standardId(id) }) as any
+  if (!root?.calIntervalMonths || (root.nextCalDate && !root.nextCalDateAuto)) return
+  const latest = await latestStandardVersion(id)
+  const next = computeNextCalDate(latest?.fields?.calDate || root.calDate, root.calIntervalMonths)
+  if (next && next !== root.nextCalDate) await mongoose.connection.db!.collection('stdinstrumentrefs').updateOne({ _id: root._id }, { $set: { nextCalDate: next, nextCalDateAuto: true } })
+}
+export const isStandardRegistryKey = (key: string) => (STANDARD_REGISTRY_KEYS as readonly string[]).includes(key)
 export function publicStandardVersion(doc: any) {
   if (!doc) return null
   const { pdfData, __v, ...rest } = doc.toObject ? doc.toObject() : doc
@@ -79,9 +111,12 @@ export async function saveStandardYear(id: string, input: any, actorId: string, 
     if (expiryDate && Number.isNaN(new Date(expiryDate).getTime())) throw new StandardYearError('วันหมดอายุไม่ถูกต้อง')
     pdf = { fileName: file.name, certNo: String(fields.certNo || ''), expiryDate }
   }
+  let saved: any
   try {
-    return await appendVersion(id, year, previous?.revision || 0, { instrumentRefId:id, year, revision:(previous?.revision||0)+1, fields, calPoints, pdf, pdfData:attachment ?? (previous?.pdfData ? pdfBytes(previous.pdfData) : oldPdf?.pdfData ? pdfBytes(oldPdf.pdfData) : undefined), changedBy:actorId })
+    saved = await appendVersion(id, year, previous?.revision || 0, { instrumentRefId:id, year, revision:(previous?.revision||0)+1, fields, calPoints, pdf, pdfData:attachment ?? (previous?.pdfData ? pdfBytes(previous.pdfData) : oldPdf?.pdfData ? pdfBytes(oldPdf.pdfData) : undefined), changedBy:actorId })
   } catch (error:any) { if (error.code===11000) throw new StandardYearError('ข้อมูลปีนี้เปลี่ยนแล้ว กรุณาโหลดใหม่',409); throw error }
+  try { await refreshAutoNextCalDate(id) } catch (error) { console.error('nextCalDate refresh failed', error) }
+  return saved
 }
 export async function uploadStandardYearPdf(id:string,yearInput:unknown,file:File,expectedRevision:unknown,actorId:string,metadata: {certNo?:unknown;expiryDate?:unknown} = {}) {
   const year=normalizeStandardYear(yearInput)
@@ -101,5 +136,10 @@ export async function projectLatestStandards(roots:any[]) {
   const versions=await StandardInstrumentYear.find({instrumentRefId:{$in:roots.map(r=>String(r._id))}}).sort({year:-1,revision:-1}).lean() as any[]
   const latest=new Map<string,any>()
   for(const v of versions) if(!latest.has(v.instrumentRefId)) latest.set(v.instrumentRefId,v)
-  return roots.map(root=> { const v=latest.get(String(root._id)); return v ? {...root,...standardSnapshot(v),_id:root._id} : root })
+  return roots.map(root=> {
+    const v=latest.get(String(root._id))
+    const criteriaResult=evaluateStandardAgainstCriteria(v || (root.calDate || root.correction != null ? { fields: root, calPoints: [] } : null), root.acceptanceCriteria)
+    const extra={ criteriaResult, dueDate: standardDueDate(root, v), pdfExpiryDate: v?.pdf?.expiryDate || null }
+    return v ? {...root,...standardSnapshot(v),...extra,_id:root._id} : {...root,...extra}
+  })
 }

@@ -14,6 +14,10 @@ import { generateNextCertNo } from '@/lib/certNo'
 import { shouldAssignCertificateNumber, stripClientNumberFields } from '@/lib/recordLifecycle'
 import { resolveHospitalScope, scopeAllows } from '@/lib/hospitalScope'
 import { assertRecordStandardsInOrder, releaseOrderDeviceIfUnused } from '@/lib/workOrderService'
+import { environmentApprovalError } from '@/lib/environmentCheckServer'
+import { canEditRecord, OWNERSHIP_ERROR } from '@/lib/recordOwnership'
+import { verifyApprovalPin } from '@/lib/approvalPin'
+import { logActivity } from '@/lib/activityLog'
 
 async function getUnitVariants(inputRaw: unknown) {
   const input = String(inputRaw || '').trim()
@@ -76,6 +80,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const existing = await CalibrationRecord.findById(params.id)
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // TOR 1.2.1.15: เจ้าหน้าที่แก้ไขได้เฉพาะรายการของตนเอง (ผู้สร้าง หรือผู้สอบเทียบ) ผู้ดูแลระบบไม่จำกัด
+  if (!canEditRecord(session.user as any, existing)) {
+    return NextResponse.json({ error: OWNERSHIP_ERROR }, { status: 403 })
+  }
   // ใบรับรองที่อนุมัติแล้ว ล็อกไว้ ให้ผู้ดูแลระบบเท่านั้นที่แก้ (จะกลับเป็นร่างและต้องขออนุมัติใหม่)
   if (existing.approvalStatus === 'approved' && role !== 'admin') {
     return NextResponse.json(
@@ -101,6 +109,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 
   const sessionId = (session.user as any).id as string | undefined
+  // TOR 1.2.1.14: ส่งขออนุมัติต้องยืนยันด้วย PIN ส่วนตัวของผู้ใช้ใน session (admin ก็ต้องใส่) และห้ามเก็บ PIN ลง record
+  const approvalPin = rawBody.approvalPin
+  delete rawBody.approvalPin
+  if (action === 'request_approval') {
+    const pinCheck = await verifyApprovalPin(sessionId, approvalPin)
+    if (!pinCheck.ok) return NextResponse.json({ error: pinCheck.error }, { status: pinCheck.status })
+  }
   const approverId = rawBody?.requestedApproverId != null && String(rawBody.requestedApproverId)
     ? String(rawBody.requestedApproverId)
     : ''
@@ -118,6 +133,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
   const patch: Record<string, any> = stripClientNumberFields(rawBody)
   delete (patch as any).approve
+  delete (patch as any).approvalPin
 
   if (action === 'request_approval') {
     if (!approverId) {
@@ -126,6 +142,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         { status: 400 }
       )
     }
+    // สภาวะแวดล้อมต้องอยู่ในเกณฑ์ก่อนส่งขออนุมัติ (TOR 1.2.2.3) — ตรวจจากค่าที่จะบันทึกจริง
+    const envError = await environmentApprovalError({ ...existing.toObject(), ...rawBody })
+    if (envError) return NextResponse.json({ error: envError }, { status: 409 })
     patch.approvalStatus = 'pending_approval'
     patch.requestedApproverId = approverId
     patch.requestedApproverName = approverName
@@ -203,6 +222,11 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   if (String(record.amedNo || '').trim() && String(record.certNo || '').trim()) {
     await registerAmedCertForRecord(record.amedNo, record.certNo, String(record._id))
   }
+  await logActivity(req, session.user as any, action === 'request_approval' ? 'record_request_approval' : 'record_update', {
+    targetType: 'record',
+    targetId: record._id,
+    detail: [record.certNo, record.amedNo, record.deviceName].filter(Boolean).join(' · ') || undefined,
+  })
   return NextResponse.json({ record })
   } catch (err: any) {
     if (err instanceof OrderError) return NextResponse.json({error:err.message},{status:err.status})
@@ -231,5 +255,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (removed.workOrderId && removed.workOrderDeviceId) {
     await releaseOrderDeviceIfUnused(removed.workOrderId, removed.workOrderDeviceId).catch(() => false)
   }
+  await logActivity(req, session.user as any, 'record_delete', {
+    targetType: 'record',
+    targetId: params.id,
+    detail: [removed.certNo, removed.amedNo, removed.deviceName].filter(Boolean).join(' · ') || undefined,
+  })
   return NextResponse.json({ success: true })
 }

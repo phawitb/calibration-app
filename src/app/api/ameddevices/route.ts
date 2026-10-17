@@ -51,10 +51,13 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const amedNo = String(body?.amedNo || '').trim()
+  const requestedAmedNo = String(body?.amedNo || '').trim()
   const unitName = String(body?.unitName || '').trim()
-  if (!amedNo || !unitName) {
-    return NextResponse.json({ error: 'กรุณาระบุ AmedNo และโรงพยาบาล' }, { status: 400 })
+  if (!unitName) {
+    return NextResponse.json({ error: 'กรุณาระบุโรงพยาบาล' }, { status: 400 })
+  }
+  if (requestedAmedNo.length > 100) {
+    return NextResponse.json({ error: 'AmedNo ต้องไม่เกิน 100 ตัวอักษร' }, { status: 400 })
   }
 
   let ucFields: Record<string, unknown>
@@ -65,6 +68,10 @@ export async function POST(req: NextRequest) {
   }
 
   await connectDB()
+  // AmedNo ว่าง → สร้างรหัสอัตโนมัติ AUTO-<พ.ศ.>-NNNN (ลำดับถัดไปในปีนั้น) และลองใหม่เมื่อชนกัน (TOR 1.2.1.3)
+  const autoGenerate = !requestedAmedNo
+  for (let attempt = 0; attempt < 5; attempt++) {
+  const amedNo = autoGenerate ? await nextAutoAmedNo() : requestedAmedNo
   try {
     const created = await AmedDevice.create({
       ...ucFields,
@@ -79,11 +86,28 @@ export async function POST(req: NextRequest) {
       toSelect: true,
       isActive: true,
     })
-    return NextResponse.json({ data: JSON.parse(JSON.stringify(created)) }, { status: 201 })
+    return NextResponse.json({ data: JSON.parse(JSON.stringify(created)), generatedAmedNo: autoGenerate ? amedNo : undefined }, { status: 201 })
   } catch (err: any) {
     if (err?.code === 11000) {
+      if (autoGenerate) continue
       return NextResponse.json({ error: 'มี AmedNo นี้ในหน่วยงานนี้อยู่แล้ว' }, { status: 409 })
     }
     return NextResponse.json({ error: 'ไม่สามารถเพิ่มรายการได้' }, { status: 500 })
   }
+  }
+  return NextResponse.json({ error: 'สร้าง AmedNo อัตโนมัติไม่สำเร็จ กรุณาลองใหม่' }, { status: 409 })
+}
+
+const AUTO_AMED_PATTERN = /^AUTO-(\d{4})-(\d{4,})$/
+/** รหัสอัตโนมัติถัดไปของปี พ.ศ. ปัจจุบัน: AUTO-<พ.ศ.>-NNNN (นับต่อจากเลขสูงสุดที่มีในระบบ ไม่แยกตามหน่วยงาน) */
+async function nextAutoAmedNo() {
+  const beYear = new Date().getFullYear() + 543
+  const prefix = `AUTO-${beYear}-`
+  const rows = await AmedDevice.find({ amedNo: { $regex: `^${prefix}\\d{4,}$` } }).select('amedNo').lean() as { amedNo?: string }[]
+  let max = 0
+  for (const row of rows) {
+    const match = AUTO_AMED_PATTERN.exec(String(row.amedNo || ''))
+    if (match) max = Math.max(max, Number(match[2]))
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`
 }

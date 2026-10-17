@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import { formatApproverOption } from '@/lib/recordPersonnel'
+import { promptApprovalPin } from '@/components/ApprovalPinDialog'
 
 interface Approver {
   _id: string
@@ -68,6 +69,12 @@ export default function RecordApprovalPanel({
       return
     }
     if (submitting) return
+    // TOR 1.2.1.14: ส่งขออนุมัติครั้งแรกต้องยืนยันด้วย PIN ส่วนตัว (เปลี่ยนผู้อนุมัติระหว่างรอไม่ต้อง)
+    let approvalPin: string | null = null
+    if (!isPending) {
+      approvalPin = await promptApprovalPin()
+      if (approvalPin == null) return
+    }
     setSubmitting(true)
     try {
       const selectedApprover = approvers.find(
@@ -91,6 +98,7 @@ export default function RecordApprovalPanel({
             saveAction: 'request_approval',
             requestedApproverId: selectedApproverId,
             requestedApproverName: approverName,
+            ...(approvalPin ? { approvalPin } : {}),
           }),
         }
       )

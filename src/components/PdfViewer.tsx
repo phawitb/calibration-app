@@ -61,6 +61,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
   const [decimals, setDecimals] = useState(1)
   const [summaryRows, setSummaryRows] = useState<SummaryRow[] | null>(null)
   const [isoResult, setIsoResult] = useState<any>(null)
+  const [acceptanceResult, setAcceptanceResult] = useState<any>(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [summaryError, setSummaryError] = useState(false)
   const [calibratorSignature, setCalibratorSignature] = useState<string | null | undefined>(undefined)
@@ -97,6 +98,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
       .then((data) => {
         if (cancel) return
         setIsoResult(data.isoResult || null)
+        setAcceptanceResult(data.acceptanceResult || null)
         if (Array.isArray(data.summary) && data.summary.length > 0) {
           // SbCal: use summary directly
           setSummaryRows(data.summary)
@@ -186,6 +188,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
             record={record}
             summaryRows={summaryRows}
             isoResult={isoResult}
+            acceptance={acceptanceResult}
             calibratorSignature={calibratorSignature}
             approverSignature={approverSignature}
             decimals={decimals}
@@ -218,7 +221,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
     return () => {
       disposed = true
     }
-  }, [texts, mounted, recordId, archiveDone, record, summaryRows, isoResult, calibratorSignature, approverSignature, decimals, summaryLoading, summaryError, calculationReadyKey, signaturesReadyKey, requestKey])
+  }, [texts, mounted, recordId, archiveDone, record, summaryRows, isoResult, acceptanceResult, calibratorSignature, approverSignature, decimals, summaryLoading, summaryError, calculationReadyKey, signaturesReadyKey, requestKey])
 
   if (textError) return <div role="alert" className="card text-red-700">โหลดข้อความในใบรับรองไม่สำเร็จ กรุณารีเฟรชหน้า</div>
   if (!mounted || !texts) {
@@ -235,6 +238,7 @@ export default function PdfViewer({ record, recordId }: { record: any; recordId:
       record={record}
       summaryRows={summaryRows}
       isoResult={isoResult}
+      acceptance={acceptanceResult}
       calibratorSignature={calibratorSignature}
       approverSignature={approverSignature}
       decimals={decimals}

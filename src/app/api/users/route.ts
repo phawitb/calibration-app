@@ -6,6 +6,7 @@ import User from '@/models/User'
 import bcrypt from 'bcryptjs'
 import mongoose from 'mongoose'
 import { passwordPolicyError } from '@/lib/passwordPolicy'
+import { logActivity } from '@/lib/activityLog'
 
 const ALLOWED_ROLES = ['admin', 'hospital_user', 'technician', 'approver'] as const
 
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   await connectDB()
   const {
-    username, password, name, role, rank, fullName, hospitalUnit, signaturePng, fullNameEn, rankEn, amedNo,
+    username, password, name, role, rank, fullName, hospitalUnit, signaturePng, fullNameEn, rankEn, amedNo, position,
   } = await req.json()
   if (!ALLOWED_ROLES.includes(role)) {
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
@@ -74,6 +75,10 @@ export async function POST(req: NextRequest) {
   }
   const pwdError = passwordPolicyError(password)
   if (pwdError) return NextResponse.json({ error: pwdError }, { status: 400 })
+  const cleanPosition = position == null ? '' : String(position).trim()
+  if (cleanPosition.length > 200) {
+    return NextResponse.json({ error: 'ตำแหน่งต้องไม่เกิน 200 ตัวอักษร' }, { status: 400 })
+  }
 
   const existing = await User.findOne({ username: cleanUsername })
   if (existing) return NextResponse.json({ error: 'Username already exists' }, { status: 400 })
@@ -92,12 +97,14 @@ export async function POST(req: NextRequest) {
     rank: rank || '',
     fullNameEn: fullNameEn ? String(fullNameEn).trim() : '',
     rankEn: rankEn ? String(rankEn).trim() : '',
+    position: cleanPosition,
     hospitalUnit: normalizedHospitalUnit,
     amedNo: amedNo ? String(amedNo).trim() : '',
     signaturePng: signaturePng ? String(signaturePng) : undefined,
     isActive: true,
   })
   await user.save()
+  await logActivity(req, session.user as any, 'user_create', { targetType: 'user', targetId: user._id, detail: `${cleanUsername} (${role})` })
 
   return NextResponse.json({
     user: {
@@ -108,6 +115,7 @@ export async function POST(req: NextRequest) {
       rank: user.rank,
       fullNameEn: user.fullNameEn,
       rankEn: user.rankEn,
+      position: user.position,
       hospitalUnit: user.hospitalUnit,
       amedNo: user.amedNo,
       role,
@@ -132,6 +140,12 @@ export async function PATCH(req: NextRequest) {
   if (body.rank != null) update.rank = String(body.rank).trim()
   if (body.fullNameEn != null) update.fullNameEn = String(body.fullNameEn).trim()
   if (body.rankEn != null) update.rankEn = String(body.rankEn).trim()
+  if (body.position != null) {
+    update.position = String(body.position).trim()
+    if (update.position.length > 200) {
+      return NextResponse.json({ error: 'ตำแหน่งต้องไม่เกิน 200 ตัวอักษร' }, { status: 400 })
+    }
+  }
   if (body.hospitalUnit != null) update.hospitalUnit = await normalizeHospitalUnit(body.hospitalUnit)
   if (body.amedNo != null) update.amedNo = String(body.amedNo).trim()
   if (body.role != null) {
@@ -161,6 +175,11 @@ export async function PATCH(req: NextRequest) {
 
   const user = await User.findByIdAndUpdate(id, update, { new: true }).select('-password').lean()
   if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  await logActivity(req, session.user as any, 'user_update', {
+    targetType: 'user',
+    targetId: id,
+    detail: `${(user as any).username}: ${Object.keys(update).map((k) => (k === 'password' ? 'resetPassword' : k)).join(', ')}`,
+  })
   return NextResponse.json({ user })
 }
 
@@ -181,5 +200,6 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Cannot delete current login user' }, { status: 400 })
   }
   await User.findByIdAndDelete(id)
+  await logActivity(req, session.user as any, 'user_delete', { targetType: 'user', targetId: id, detail: String((target as any).username || '') })
   return NextResponse.json({ success: true })
 }

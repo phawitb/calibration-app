@@ -5,6 +5,7 @@ import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
 import { calculateRecord } from '@/lib/calculateRecord'
 import { getUnitVariants } from '@/lib/unitVariants'
+import { buildVerdictPatch } from '@/lib/recordAcceptance'
 
 export async function GET(
   _req: NextRequest,
@@ -28,7 +29,13 @@ export async function GET(
   }
 
   try {
-    return NextResponse.json({ recordId: params.id, ...await calculateRecord(record) })
+    const calculation = await calculateRecord(record)
+    // บันทึกผลการตัดสิน (ผ่าน/ไม่ผ่าน/N/A) ลง record โดยไม่แตะ updatedAt — ค่าที่ผู้ใช้กำหนดเองยังคงอยู่
+    const patch = buildVerdictPatch(record, calculation.acceptanceResult)
+    if (Object.keys(patch).length) {
+      await CalibrationRecord.updateOne({ _id: params.id }, { $set: patch }, { timestamps: false }).catch(() => null)
+    }
+    return NextResponse.json({ recordId: params.id, ...calculation })
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message || 'คำนวณไม่สำเร็จ' }, { status: 422 })
   }

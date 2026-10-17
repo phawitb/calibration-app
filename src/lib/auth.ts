@@ -5,6 +5,7 @@ import { connectDB } from './mongodb'
 import User from '@/models/User'
 import { cookies } from 'next/headers'
 import { clearLoginFailures, loginLockedSeconds, recordLoginFailure } from './loginRateLimit'
+import { currentRequestHeaders, logActivity } from './activityLog'
 
 /** รีเฟรช role/หน่วยงาน/สถานะบัญชี จาก DB ลง JWT ทุก ๆ ช่วงเวลานี้ */
 const TOKEN_REFRESH_MS = 60 * 1000
@@ -22,6 +23,7 @@ function userToTokenFields(user: any) {
     rank: user.rank || '',
     fullNameEn: user.fullNameEn || '',
     rankEn: user.rankEn || '',
+    position: user.position || '',
     hospitalUnit: user.hospitalUnit || '',
     amedNo: user.amedNo || '',
   }
@@ -50,18 +52,21 @@ export const authOptions: NextAuthOptions = {
         const user = await User.findOne({ username })
         if (!user) {
           recordLoginFailure(username)
+          await logActivity(currentRequestHeaders(), { username }, 'login_failure', { detail: 'ไม่พบชื่อผู้ใช้' })
           return null
         }
 
         const isValid = await bcrypt.compare(credentials.password, user.password)
         if (!isValid) {
           recordLoginFailure(username)
+          await logActivity(currentRequestHeaders(), { id: String(user._id), username, role: normalizeRole(user.role) }, 'login_failure', { detail: 'รหัสผ่านไม่ถูกต้อง' })
           return null
         }
         if (user.isActive === false) {
           throw new Error('บัญชีนี้ถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ')
         }
         clearLoginFailures(username)
+        await logActivity(currentRequestHeaders(), { id: String(user._id), username, role: normalizeRole(user.role) }, 'login_success')
 
         const fields = userToTokenFields(user)
         return {
@@ -86,7 +91,7 @@ export const authOptions: NextAuthOptions = {
         try {
           await connectDB()
           const fresh = await User.findById(token.id as string)
-            .select('username name fullName rank fullNameEn rankEn role hospitalUnit amedNo isActive')
+            .select('username name fullName rank fullNameEn rankEn position role hospitalUnit amedNo isActive')
             .lean()
           if (!fresh || (fresh as any).isActive === false) {
             token.disabled = true

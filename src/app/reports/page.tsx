@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useHospitalWorkspace } from '@/components/HospitalWorkspace'
 import { displayHospitalName } from '@/lib/hospitalUnit'
 
@@ -139,6 +140,12 @@ export default function ReportsPage() {
     color: statusColors[s.key as keyof typeof statusColors] || 'bg-gray-400',
   }))
 
+  const summaryQuery = useMemo(() => {
+    const params = new URLSearchParams({ from, to })
+    if (hospital && hospital !== 'all') params.set('hospital', hospital)
+    return params.toString()
+  }, [from, to, hospital])
+
   const hospitalOptions = useMemo(
     () => hospitals.slice().sort((a, b) => displayHospitalName(a).title.localeCompare(displayHospitalName(b).title, 'th')),
     [hospitals],
@@ -158,6 +165,8 @@ export default function ReportsPage() {
           <button type="button" className="btn-secondary text-sm" onClick={() => applyPreset(monthStart())}>เดือนนี้</button>
           <button type="button" className="btn-secondary text-sm" onClick={() => applyPreset(yearStart())}>ปีนี้</button>
           <button type="button" className="btn-secondary text-sm" onClick={() => applyPreset(monthsAgo(12))}>12 เดือน</button>
+          <Link href="/reports/tables" className="btn-secondary text-sm">รายงานตามแบบฟอร์ม</Link>
+          <a href={`/api/reports/summary?${summaryQuery}&format=xlsx`} className="btn-secondary text-sm" download>ส่งออก Excel</a>
           <button type="button" className="btn-primary text-sm" onClick={() => window.print()}>พิมพ์รายงาน</button>
         </div>
       </div>

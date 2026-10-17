@@ -13,6 +13,8 @@ import { decodeWorkspaceHospital, WORKSPACE_HOSPITAL_COOKIE } from '@/lib/worksp
 import { displayHospitalName } from '@/lib/hospitalUnit'
 import SelectHospitalHint from '@/components/SelectHospitalHint'
 import { withSavedRecords } from '@/lib/recordLifecycle'
+import AmedDevice from '@/models/AmedDevice'
+import { getIsoMethod } from '@/lib/isoMethods'
 
 function getDateRanges() {
   const now = new Date()
@@ -41,6 +43,37 @@ function StatusLabel({ status }: { status?: string }) {
   }
   const tones: Record<string,string> = {draft:'bg-slate-100 text-slate-700',rejected:'bg-rose-50 text-rose-700',pending_approval:'bg-amber-50 text-amber-800',approved:'bg-emerald-50 text-emerald-700'}
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs whitespace-nowrap ${tones[status || ''] || 'bg-gray-100 text-gray-600'}`}>{labels[status || ''] || '-'}</span>
+}
+
+type BreakdownItem = { label: string; count: number; hint?: string }
+
+/** แถบแนวนอนแบบ Tailwind ล้วน ใช้สไตล์เดียวกับกราฟรายเดือน */
+function BarList({ title, subtitle, items, unit = 'รายการ', color = 'bg-military-600' }: { title: string; subtitle?: string; items: BreakdownItem[]; unit?: string; color?: string }) {
+  const max = Math.max(1, ...items.map((i) => i.count))
+  const fmt = (v: number) => new Intl.NumberFormat('th-TH').format(v)
+  return (
+    <section className="card">
+      <h2 className="font-semibold text-military-900">{title}</h2>
+      {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-400 mt-4">ไม่มีข้อมูลในขอบเขตที่เลือก</p>
+      ) : (
+        <ul className="mt-4 space-y-2.5">
+          {items.map((item) => (
+            <li key={item.label}>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="truncate text-gray-700" title={item.hint || item.label}>{item.label}</span>
+                <span className="shrink-0 font-semibold text-military-900 tabular-nums">{fmt(item.count)} <span className="text-xs font-normal text-gray-500">{unit}</span></span>
+              </div>
+              <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+                <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(2, (item.count / max) * 100)}%` }} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
 }
 
 function WorkList({
@@ -378,6 +411,66 @@ async function getStats(orderId?: string) {
     return { key, label: `${m}/${String(Number(y)+543).slice(-2)}`, count: monthMap.get(key) || 0 }
   })
 
+  // ---------- สรุปแยกกลุ่ม (ตามขอบเขต/คำสั่งที่เลือก) ----------
+  const deviceScope: Record<string, unknown> = { isActive: { $ne: false } }
+  if (scopeHospital) deviceScope.unitName = { $in: unitVariants.length ? unitVariants : [scopeHospital] }
+  if (selectedOrder) {
+    const ids = ((selectedOrder as any).hospitals || []).flatMap((h: any) => (h?.deviceIds || []).map((id: any) => String(id)))
+    deviceScope._id = { $in: ids }
+  }
+  const calDateYear = { $year: { $convert: { input: '$calDate', to: 'date', onError: null, onNull: null } } }
+  const [byHospitalRows, byDeviceRows, byYearRows, byMethodRows, devicesPerUnitRows] = await Promise.all([
+    CalibrationRecord.aggregate([
+      { $match: scope },
+      { $group: { _id: '$unitName', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 10 },
+    ]),
+    CalibrationRecord.aggregate([
+      { $match: scope },
+      { $group: { _id: { $ifNull: ['$deviceName', ''] }, count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 10 },
+    ]),
+    CalibrationRecord.aggregate([
+      { $match: scope },
+      { $project: { y: calDateYear } },
+      { $match: { y: { $ne: null } } },
+      { $group: { _id: '$y', count: { $sum: 1 } } },
+      { $sort: { _id: -1 } },
+      { $limit: 12 },
+    ]),
+    CalibrationRecord.aggregate([
+      { $match: scope },
+      { $group: { _id: { type: { $ifNull: ['$calibrationType', 'sbcal'] }, code: { $ifNull: ['$isoMethodCode', ''] } }, count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 20 },
+    ]),
+    AmedDevice.aggregate([
+      { $match: deviceScope },
+      { $group: { _id: '$unitName', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+      { $limit: 10 },
+    ]),
+  ])
+  const unitLabel = (raw: unknown) => {
+    const name = String(raw || '').trim()
+    return name ? (displayHospitalName(name).title || name) : 'ไม่ระบุหน่วยงาน'
+  }
+  const byHospital: BreakdownItem[] = byHospitalRows.map((r: any) => ({ label: unitLabel(r._id), hint: String(r._id || ''), count: Number(r.count || 0) }))
+  const byDevice: BreakdownItem[] = byDeviceRows.map((r: any) => ({ label: String(r._id || '').trim() || 'ไม่ระบุเครื่องมือ', count: Number(r.count || 0) }))
+  const byYear: BreakdownItem[] = byYearRows
+    .map((r: any) => ({ label: `พ.ศ. ${Number(r._id) + 543}`, count: Number(r.count || 0) }))
+  const methodMap = new Map<string, number>()
+  for (const r of byMethodRows as any[]) {
+    const isIso = r?._id?.type === 'iso'
+    const code = String(r?._id?.code || '').trim()
+    const label = isIso ? (code ? `${code} ${getIsoMethod(code)?.nameTh || ''}`.trim() : 'ISO') : 'ระบบทั่วไป'
+    methodMap.set(label, (methodMap.get(label) || 0) + Number(r.count || 0))
+  }
+  const byMethod: BreakdownItem[] = Array.from(methodMap.entries()).map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count)
+  const devicesPerUnit: BreakdownItem[] = devicesPerUnitRows.map((r: any) => ({ label: unitLabel(r._id), hint: String(r._id || ''), count: Number(r.count || 0) }))
+
   const usernames = topCreatedBy.map((x: any) => String(x._id || '')).filter(Boolean)
   const userRows = usernames.length
     ? await User.find({ username: { $in: usernames } })
@@ -434,6 +527,11 @@ async function getStats(orderId?: string) {
     alertBeforeDays,
     calPriceTotal,
     mainPriceTotal,
+    byHospital,
+    byDevice,
+    byYear,
+    byMethod,
+    devicesPerUnit,
     session,
     role,
     needsHospital: false as const,
@@ -505,6 +603,16 @@ export default async function DashboardPage({searchParams}:{searchParams?:{order
       </section>
       <section className="card"><h2 className="font-semibold text-military-900">มูลค่างานที่อนุมัติแล้ว</h2><p className="text-xs text-gray-500 mt-1">เฉพาะขอบเขตที่เลือก</p><p className="text-3xl font-semibold text-military-900 mt-6">{number(stats.calPriceTotal+stats.mainPriceTotal)} <span className="text-sm font-normal">บาท</span></p><dl className="space-y-3 mt-6 text-sm"><div className="flex justify-between"><dt className="text-gray-500">ค่าสอบเทียบ</dt><dd>{number(stats.calPriceTotal)}</dd></div><div className="flex justify-between"><dt className="text-gray-500">ค่าปบ.</dt><dd>{number(stats.mainPriceTotal)}</dd></div></dl></section>
     </div>
+    <section aria-label="สรุปแยกกลุ่ม" className="space-y-3">
+      <div><h2 className="text-lg font-semibold text-military-900">สรุปแยกกลุ่ม</h2><p className="text-xs text-gray-500">{stats.selectedOrder ? `คำสั่ง ${stats.selectedOrder.orderNo}` : 'ทุกคำสั่ง'} · {hospitalTitle} · นับเฉพาะรายการที่บันทึกแล้ว</p></div>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <BarList title="งานแยกตามโรงพยาบาล" subtitle="10 อันดับแรก" items={stats.byHospital} unit="งาน" />
+        <BarList title="แยกตามประเภทเครื่องมือ" subtitle="10 อันดับแรก ตามชื่อเครื่องมือ" items={stats.byDevice} unit="งาน" color="bg-military-500" />
+        <BarList title="แยกตามปี พ.ศ." subtitle="นับตามวันที่สอบเทียบ" items={stats.byYear} unit="งาน" color="bg-gold-600" />
+        <BarList title="แยกตามวิธีสอบเทียบ" subtitle="ระบบทั่วไป / วิธี ISO" items={stats.byMethod} unit="งาน" color="bg-emerald-600" />
+        <BarList title="จำนวนเครื่องของแต่ละหน่วยงาน" subtitle="จากทะเบียนเครื่องมือแพทย์ (10 อันดับแรก)" items={stats.devicesPerUnit} unit="เครื่อง" color="bg-sky-600" />
+      </div>
+    </section>
     <WorkList title="รายการอัปเดตล่าสุด" rows={stats.recent} emptyText="ยังไม่มีรายการที่บันทึกในขอบเขตนี้" actionHref="/records" actionText="เปิดประวัติทั้งหมด" />
   </div>
 }

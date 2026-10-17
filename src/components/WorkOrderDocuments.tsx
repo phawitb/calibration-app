@@ -1,12 +1,14 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
+import { ATTACHMENT_ACCEPT, ATTACHMENT_MAX_BYTES, ATTACHMENT_SNIFF_BYTES, isImageAttachment } from '@/lib/attachmentTypes'
+import { validateOrderFile } from '@/lib/workOrderValidation'
 export default function WorkOrderDocuments({
   orderId,
   editable = false,
   allowUpload = true,
   disabled = false,
-  title = 'เอกสารคำสั่ง PDF',
+  title = 'เอกสารคำสั่ง (PDF / รูปภาพ)',
 }: {
   orderId: string
   editable?: boolean
@@ -37,8 +39,12 @@ export default function WorkOrderDocuments({
     setBusy(true)
     for (const file of Array.from(selected)) {
       try {
-        if (file.type !== 'application/pdf' || file.size > 8 * 1024 * 1024)
-          throw Error('เลือก PDF ขนาดไม่เกิน 8 MB ต่อไฟล์')
+        if (file.size > ATTACHMENT_MAX_BYTES)
+          throw Error('เลือกไฟล์ขนาดไม่เกิน 8 MB ต่อไฟล์')
+        validateOrderFile(
+          file,
+          new Uint8Array(await file.slice(0, ATTACHMENT_SNIFF_BYTES).arrayBuffer())
+        )
         const form = new FormData()
         form.append('file', file)
         const r = await fetch(`/api/orders/${orderId}/documents`, {
@@ -56,7 +62,7 @@ export default function WorkOrderDocuments({
     setBusy(false)
   }
   async function remove(id: string) {
-    if (!confirm('ลบไฟล์ PDF นี้?')) return
+    if (!confirm('ลบไฟล์นี้?')) return
     setBusy(true)
     try {
       const r = await fetch(`/api/orders/${orderId}/documents/${id}`, {
@@ -76,12 +82,12 @@ export default function WorkOrderDocuments({
       <h3 className="font-semibold text-military-900">{title}</h3>
       {editable && allowUpload && (
         <label className="block rounded-lg border border-dashed border-military-300 p-4 text-sm">
-          แนบ PDF ได้หลายไฟล์ · ไม่เกิน 8 MB ต่อไฟล์
+          แนบ PDF, PNG หรือ JPEG ได้หลายไฟล์ · ไม่เกิน 8 MB ต่อไฟล์
           <input
-            aria-label="อัปโหลด PDF คำสั่ง"
+            aria-label="อัปโหลดเอกสารคำสั่ง (PDF หรือรูปภาพ)"
             className="mt-2 block w-full"
             type="file"
-            accept="application/pdf,.pdf"
+            accept={ATTACHMENT_ACCEPT}
             multiple
             disabled={busy || disabled}
             onChange={(e) => {
@@ -112,12 +118,23 @@ export default function WorkOrderDocuments({
           key={file._id}
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-military-50 p-3"
         >
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
+            {isImageAttachment(file.contentType) && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/orders/${orderId}/documents/${file._id}`}
+                alt=""
+                className="h-12 w-12 flex-none rounded border border-military-200 object-cover"
+              />
+            )}
+            <div className="min-w-0">
             <p className="break-all text-sm font-medium">{file.fileName}</p>
             <p className="text-xs text-gray-500">
               {new Date(file.uploadedAt).toLocaleDateString('th-TH')} ·{' '}
               {Math.ceil(file.size / 1024)} KB
+              {isImageAttachment(file.contentType) ? ' · รูปภาพ' : ' · PDF'}
             </p>
+            </div>
           </div>
           <div className="flex gap-3 text-sm">
             <a

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CertNumberConfig from '@/models/CertNumberConfig'
+import { ENVIRONMENT_DEFAULTS } from '@/lib/environmentCheck'
 
 function isValidPattern(pattern: string) {
   return pattern.includes('{num}')
@@ -26,7 +27,7 @@ export async function GET() {
       certValidityMonths: 12,
       alertBeforeDays: 30,
     }
-  return NextResponse.json({ config: cfg })
+  return NextResponse.json({ config: { ...ENVIRONMENT_DEFAULTS, ...(cfg as object) } })
 }
 
 export async function PATCH(req: NextRequest) {
@@ -43,6 +44,13 @@ export async function PATCH(req: NextRequest) {
   const resetByYear = !!body?.resetByYear
   const certValidityMonths = Number(body?.certValidityMonths)
   const alertBeforeDays = Number(body?.alertBeforeDays)
+  const requireEnvironment = body?.requireEnvironment == null ? ENVIRONMENT_DEFAULTS.requireEnvironment : !!body.requireEnvironment
+  const envNum = (key: 'envTempMin' | 'envTempMax' | 'envHumidMin' | 'envHumidMax') =>
+    body?.[key] == null || body?.[key] === '' ? ENVIRONMENT_DEFAULTS[key] : Number(body[key])
+  const envTempMin = envNum('envTempMin')
+  const envTempMax = envNum('envTempMax')
+  const envHumidMin = envNum('envHumidMin')
+  const envHumidMax = envNum('envHumidMax')
 
   if (!isValidPattern(pattern)) {
     return NextResponse.json({ error: 'pattern ต้องมี {num}' }, { status: 400 })
@@ -60,6 +68,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'alertBeforeDays ต้องอยู่ระหว่าง 1-365' }, { status: 400 })
   }
 
+  if (![envTempMin, envTempMax, envHumidMin, envHumidMax].every(Number.isFinite)) {
+    return NextResponse.json({ error: 'ช่วงอุณหภูมิ/ความชื้นต้องเป็นตัวเลข' }, { status: 400 })
+  }
+  if (envTempMin > envTempMax) {
+    return NextResponse.json({ error: 'อุณหภูมิต่ำสุดต้องไม่เกินอุณหภูมิสูงสุด' }, { status: 400 })
+  }
+  if (envHumidMin > envHumidMax || envHumidMin < 0 || envHumidMax > 100) {
+    return NextResponse.json({ error: 'ความชื้นต้องอยู่ระหว่าง 0-100 และต่ำสุดไม่เกินสูงสุด' }, { status: 400 })
+  }
+
   await connectDB()
   const config = await CertNumberConfig.findOneAndUpdate(
     { key: 'default' },
@@ -71,6 +89,11 @@ export async function PATCH(req: NextRequest) {
         resetByYear,
         certValidityMonths,
         alertBeforeDays,
+        requireEnvironment,
+        envTempMin,
+        envTempMax,
+        envHumidMin,
+        envHumidMax,
       },
     },
     { upsert: true, new: true }

@@ -1,6 +1,7 @@
 'use client'
 
 import { STANDARD_DIVISOR_FIELDS, standardDivisorFields } from '../lib/formulaDivisors'
+import { evaluateStandardAgainstCriteria, type AcceptanceCriteria } from '../lib/standardCriteria'
 import { useEffect, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 
@@ -26,6 +27,27 @@ const ceYear = (year: number) => year > 2400 ? year - 543 : year
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'ดำเนินการไม่สำเร็จ'
 const buttonClass = 'rounded border border-military-300 bg-white px-3 py-1.5 text-sm text-military-800 disabled:opacity-40'
 const primaryClass = 'rounded bg-military-800 px-3 py-1.5 text-sm text-white disabled:opacity-40'
+type RegistryDraft = { calIntervalMonths: string; nextCalDate: string; calibratedBy: string; maxCorrection: string; maxUncertainty: string; note: string }
+function registryFromInstrument(instrument: any): RegistryDraft {
+  const criteria: AcceptanceCriteria = instrument?.acceptanceCriteria || {}
+  return {
+    calIntervalMonths: instrument?.calIntervalMonths != null ? String(instrument.calIntervalMonths) : '',
+    nextCalDate: String(instrument?.nextCalDate || '').slice(0, 10),
+    calibratedBy: String(instrument?.calibratedBy || ''),
+    maxCorrection: criteria.maxCorrection != null ? String(criteria.maxCorrection) : '',
+    maxUncertainty: criteria.maxUncertainty != null ? String(criteria.maxUncertainty) : '',
+    note: String(criteria.note || ''),
+  }
+}
+const hasAcceptanceCriteria = (criteria: AcceptanceCriteria | null | undefined) => !!criteria && (criteria.maxCorrection != null || criteria.maxUncertainty != null)
+/** ป้ายผลการเทียบรุ่นข้อมูลกับเกณฑ์การยอมรับของทะเบียน */
+export function CriteriaBadge({ version, criteria }: { version: { fields: Fields; calPoints: CalPointTable[] } | null | undefined; criteria: AcceptanceCriteria | null | undefined }) {
+  if (!version || !hasAcceptanceCriteria(criteria)) return null
+  const result = evaluateStandardAgainstCriteria(version, criteria)
+  return result.pass
+    ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">ผ่านเกณฑ์การยอมรับ</span>
+    : <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-800" title={result.failures.join('; ')}>ไม่ผ่านเกณฑ์การยอมรับ ({result.failures.length})</span>
+}
 
 function toTables(tables: CalPointTable[] = []): TableDraft[] {
   return [...tables].sort((a, b) => (a.order || 0) - (b.order || 0)).map(table => ({
@@ -86,6 +108,9 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
   const [pdfCertNo, setPdfCertNo] = useState('')
   const [pdfExpiry, setPdfExpiry] = useState('')
   const [reload, setReload] = useState(0)
+  const [registry, setRegistry] = useState<RegistryDraft>(() => registryFromInstrument(instrument))
+  const [registryOpen, setRegistryOpen] = useState(false)
+  useEffect(() => { setRegistry(registryFromInstrument(instrument)) }, [instrument])
   const selected = versions.find(version => version.year === selectedYear)
   const clearPreview = () => { setPreview(null); setResults({}); setAttempted(false) }
 
@@ -167,6 +192,30 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
       setDraft(null)
       clearPreview()
       toast.success('บันทึกข้อมูลรายปีแล้ว')
+      onChanged()
+    })
+  }
+
+  async function saveRegistry() {
+    await run('กำลังบันทึกข้อมูลทะเบียน…', async () => {
+      for (const [key, label] of [['calIntervalMonths', 'ความถี่ในการสอบเทียบ'], ['maxCorrection', 'เกณฑ์ค่าแก้สูงสุด'], ['maxUncertainty', 'เกณฑ์ค่าความไม่แน่นอนสูงสุด']] as const) {
+        if (registry[key] !== '' && !Number.isFinite(Number(registry[key]))) throw new Error(`${label}: ต้องเป็นตัวเลข`)
+      }
+      if (registry.calIntervalMonths !== '' && (!Number.isInteger(Number(registry.calIntervalMonths)) || Number(registry.calIntervalMonths) < 1)) throw new Error('ความถี่ในการสอบเทียบต้องเป็นจำนวนเดือนเต็มตั้งแต่ 1 ขึ้นไป')
+      const criteria: AcceptanceCriteria = {}
+      if (registry.maxCorrection !== '') criteria.maxCorrection = Number(registry.maxCorrection)
+      if (registry.maxUncertainty !== '') criteria.maxUncertainty = Number(registry.maxUncertainty)
+      if (registry.note.trim()) criteria.note = registry.note.trim()
+      const data = await request('/api/admin/reference', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        type: 'stdinstruments', _id: instrument._id,
+        calIntervalMonths: registry.calIntervalMonths === '' ? null : Number(registry.calIntervalMonths),
+        nextCalDate: registry.nextCalDate || null,
+        calibratedBy: registry.calibratedBy.trim(),
+        acceptanceCriteria: Object.keys(criteria).length ? criteria : null,
+      }) })
+      setRegistry(registryFromInstrument(data.data || {}))
+      setRegistryOpen(false)
+      toast.success('บันทึกข้อมูลทะเบียนแล้ว')
       onChanged()
     })
   }
@@ -269,6 +318,29 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
     <p className="text-sm text-gray-600">ข้อมูลเครื่องมือและตารางสอบเทียบแยกตามปี งานสอบเทียบใหม่ใช้ข้อมูลปีล่าสุด การบันทึกข้อมูลจะยังไม่เปลี่ยนใบรับรองเดิม</p>
     {error && <div role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error} <button type="button" disabled={!!busy} className="underline" onClick={() => { clearPreview(); setDraft(null); setReload(value => value + 1) }}>โหลดข้อมูลล่าสุด</button></div>}
     {busy && <p role="status" className="text-sm text-military-700">{busy}</p>}
+    <section className="rounded border border-military-200 bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold">ข้อมูลทะเบียนเครื่องมือมาตรฐาน</h4>
+        <button type="button" disabled={!!busy} className={buttonClass} onClick={() => { setRegistry(registryFromInstrument(instrument)); setRegistryOpen(open => !open) }}>{registryOpen ? 'ยกเลิก' : 'แก้ไขทะเบียน'}</button>
+      </div>
+      {registryOpen ? <fieldset disabled={!!busy} className="mt-3 space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="block text-xs text-gray-600">ความถี่ในการสอบเทียบ (เดือน)<input type="number" min={1} step={1} className="input-field mt-1 text-sm" value={registry.calIntervalMonths} onChange={event => setRegistry({ ...registry, calIntervalMonths: event.target.value })} /></label>
+          <label className="block text-xs text-gray-600">วันที่ครบกำหนดสอบเทียบครั้งถัดไป<input type="date" className="input-field mt-1 text-sm" value={registry.nextCalDate} onChange={event => setRegistry({ ...registry, nextCalDate: event.target.value })} /><span className="mt-0.5 block text-[11px] text-gray-500">เว้นว่างเพื่อให้ระบบคำนวณจากวันสอบเทียบปีล่าสุด + ความถี่</span></label>
+          <label className="block text-xs text-gray-600">หน่วยงานที่สอบเทียบ<input className="input-field mt-1 text-sm" maxLength={250} value={registry.calibratedBy} onChange={event => setRegistry({ ...registry, calibratedBy: event.target.value })} /></label>
+          <label className="block text-xs text-gray-600">เกณฑ์การยอมรับ: ค่าแก้สูงสุด (±)<input type="number" step="any" className="input-field mt-1 text-sm" value={registry.maxCorrection} onChange={event => setRegistry({ ...registry, maxCorrection: event.target.value })} /></label>
+          <label className="block text-xs text-gray-600">เกณฑ์การยอมรับ: ค่าความไม่แน่นอนสูงสุด<input type="number" step="any" className="input-field mt-1 text-sm" value={registry.maxUncertainty} onChange={event => setRegistry({ ...registry, maxUncertainty: event.target.value })} /></label>
+          <label className="block text-xs text-gray-600">เกณฑ์การยอมรับ: หมายเหตุ<input className="input-field mt-1 text-sm" maxLength={1000} value={registry.note} onChange={event => setRegistry({ ...registry, note: event.target.value })} /></label>
+        </div>
+        <p className="text-xs text-gray-500">เกณฑ์ใช้เทียบค่าแก้รายจุด (ค่า STD − จุดสอบเทียบ) หรือค่า D ของสมการ และค่า expandedU ของปีล่าสุด</p>
+        <button type="button" className={primaryClass} onClick={saveRegistry}>บันทึกข้อมูลทะเบียน</button>
+      </fieldset> : <dl className="mt-3 grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
+        <div><dt className="text-xs text-gray-500">ความถี่ในการสอบเทียบ</dt><dd>{instrument?.calIntervalMonths ? `${instrument.calIntervalMonths} เดือน` : '—'}</dd></div>
+        <div><dt className="text-xs text-gray-500">ครบกำหนดสอบเทียบครั้งถัดไป</dt><dd>{instrument?.nextCalDate ? `${new Date(instrument.nextCalDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}${instrument.nextCalDateAuto ? ' (คำนวณอัตโนมัติ)' : ''}` : '—'}</dd></div>
+        <div><dt className="text-xs text-gray-500">หน่วยงานที่สอบเทียบ</dt><dd className="break-words">{instrument?.calibratedBy || '—'}</dd></div>
+        <div><dt className="text-xs text-gray-500">เกณฑ์การยอมรับ</dt><dd className="break-words">{hasAcceptanceCriteria(instrument?.acceptanceCriteria) ? [instrument.acceptanceCriteria.maxCorrection != null && `ค่าแก้ ≤ ±${instrument.acceptanceCriteria.maxCorrection}`, instrument.acceptanceCriteria.maxUncertainty != null && `U ≤ ${instrument.acceptanceCriteria.maxUncertainty}`, instrument.acceptanceCriteria.note].filter(Boolean).join(' · ') : '—'} <CriteriaBadge version={versions[0]} criteria={instrument?.acceptanceCriteria} /></dd></div>
+      </dl>}
+    </section>
     <fieldset disabled={!!busy} className="space-y-4 min-w-0">
       {!!versions.length && <div className="flex items-center justify-between gap-3">
         <h4 className="text-sm font-semibold">ข้อมูลรายปี</h4>
@@ -279,7 +351,7 @@ export default function StandardInstrumentYears({ instrument, onChanged }: { ins
         <button type="button" aria-expanded={selectedYear === version.year} aria-controls={`standard-year-${instrument._id}-${version.year}`} disabled={!!draft}
           className={`flex w-full items-center justify-between px-4 py-3 text-left font-medium ${index === 0 ? 'bg-green-100 text-green-900' : 'bg-gray-50 text-gray-700'}`}
           onClick={() => { setSelectedYear(previous => previous === version.year ? null : version.year); clearPreview() }}>
-          <span>พ.ศ. {beYear(version.year)}{index === 0 && <span className="ml-2 text-sm">ใช้งานปัจจุบัน</span>}</span>
+          <span className="flex flex-wrap items-center gap-2">พ.ศ. {beYear(version.year)}{index === 0 && <span className="text-sm">ใช้งานปัจจุบัน</span>}{index === 0 && <CriteriaBadge version={version} criteria={instrument?.acceptanceCriteria} />}</span>
           <span aria-hidden="true">{selectedYear === version.year ? '▲' : '▼'}</span>
         </button>
         {selectedYear === version.year && <div id={`standard-year-${instrument._id}-${version.year}`} className="space-y-4 border-t p-4">{yearContent}</div>}

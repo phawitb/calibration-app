@@ -4,6 +4,7 @@ export const DOCUMENT_GROUPS = [
   {key: 'calibrator', label: 'เซอร์ผู้สอบ'},
   {key: 'approver', label: 'เซอร์ผู้อนุมัติ'},
   {key: 'standard', label: 'ใบเซอร์เครื่องมือมาตรฐาน'},
+  {key: 'attachment', label: 'ผลสอบเทียบภายนอก / ไฟล์แนบ'},
 ] as const
 export type DocumentGroup = typeof DOCUMENT_GROUPS[number]['key']
 export type DownloadDocument = { id: string; recordId: string; recordLabel: string; label: string; url?: string; path: string; unavailable?: string; loadError?: boolean; group?: DocumentGroup; documentKey?: string; usedBy?: string[]; usedAs?: string[] }
@@ -24,10 +25,10 @@ export async function collectRecordDocuments(records: DownloadRecord[], getJson:
       const index = cursor++, record = records[index]
       const recordLabel = [record.certNo || record.amedNo || record._id, record.deviceName].filter(Boolean).join(' · ')
       const docs: DownloadDocument[] = []
-      const add = (key: string, label: string, url?: string, unavailable?: string, loadError = false, documentKey?: string) => {
-        const group = key.startsWith('standard') ? 'standard' : key.startsWith('calibrator') ? 'calibrator' : key.startsWith('approver') ? 'approver' : 'certificate'
+      const add = (key: string, label: string, url?: string, unavailable?: string, loadError = false, documentKey?: string, ext = 'pdf') => {
+        const group = key.startsWith('standard') ? 'standard' : key.startsWith('calibrator') ? 'calibrator' : key.startsWith('approver') ? 'approver' : key.startsWith('attachment') ? 'attachment' : 'certificate'
         const groupLabel = DOCUMENT_GROUPS.find(item => item.key === group)!.label
-        docs.push({id: `${record._id}:${key}`, recordId: record._id, recordLabel, label, url, unavailable, loadError, group, documentKey, usedBy: [recordLabel], usedAs: [groupLabel], path: `${groupLabel}/${record._id}_${safeZipName(key)}_${safeZipName(label)}.pdf`})
+        docs.push({id: `${record._id}:${key}`, recordId: record._id, recordLabel, label, url, unavailable, loadError, group, documentKey, usedBy: [recordLabel], usedAs: [groupLabel], path: `${groupLabel}/${record._id}_${safeZipName(key)}_${safeZipName(label)}.${ext}`})
       }
       add('certificate', `ใบรับรอง · ${recordLabel}`,  `/api/certificates/${record._id}?download=1`)
       for (const [key, label, userId] of [['calibrator','เซอร์ผู้สอบ',record.calibratedById], ['approver','เซอร์ผู้อนุมัติ',record.approvedById]]) {
@@ -44,6 +45,11 @@ export async function collectRecordDocuments(records: DownloadRecord[], getJson:
         if (!Array.isArray(data)) throw Error('Invalid metadata')
         for (const standard of data) add(`standard-${standard.slot}`, `มาตรฐาน ${standard.slot.toUpperCase()} · ${standard.no || standard.name || ''} · ${standard.certNo || 'ไม่มีเลขเซอร์'}`, standard.hasPdf ? `/api/records/${record._id}/standard-certificates?slot=${standard.slot}` : undefined, standard.hasPdf ? undefined : 'ไม่มี PDF ที่ตรงกัน', false, standard.documentKey)
       } catch { add('standards-unavailable', 'เซอร์เครื่องมือมาตรฐาน', undefined, 'โหลดรายการไม่สำเร็จ กรุณาลองใหม่', true) }
+      try {
+        const {data} = await getJson(`/api/records/${record._id}/attachments`)
+        if (!Array.isArray(data)) throw Error('Invalid metadata')
+        for (const att of data) add(`attachment-${att._id}`, `${att.kind === 'other' ? 'ไฟล์แนบ' : 'ผลสอบเทียบภายนอก'} · ${att.fileName || ''}`, `/api/records/${record._id}/attachments/${att._id}`, undefined, false, undefined, att.contentType === 'image/png' ? 'png' : att.contentType === 'image/jpeg' ? 'jpg' : 'pdf')
+      } catch { add('attachments-unavailable', 'ผลสอบเทียบภายนอก / ไฟล์แนบ', undefined, 'โหลดรายการไม่สำเร็จ กรุณาลองใหม่', true) }
       result[index] = docs
     }
   }))
@@ -69,7 +75,7 @@ export async function downloadDocumentFiles(documents: DownloadDocument[], getBy
     const doc = documents[index]
     if (!doc.url) throw new Error(`ไม่มีไฟล์: ${doc.label}`)
     const bytes = await getBytes(doc.url)
-    if (new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') throw new Error(`ไฟล์ไม่ใช่ PDF: ${doc.label} (${doc.recordLabel})`)
+    if (doc.path.endsWith('.pdf') && new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') throw new Error(`ไฟล์ไม่ใช่ PDF: ${doc.label} (${doc.recordLabel})`)
     totalBytes += bytes.byteLength
     if (totalBytes > 250 * 1024 * 1024) throw new Error('ไฟล์ที่เลือกรวมกันเกิน 250 MB กรุณาเลือกดาวน์โหลดทีละชุด')
     files[doc.path] = bytes

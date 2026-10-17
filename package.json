@@ -31,7 +31,8 @@
     "seed": "node scripts/seed.js",
     "vercel:prod": "vercel --prod",
     "test:work-orders": "node scripts/run-work-order-tests.cjs",
-    "test:work-orders:http": "node -r sucrase/register -r ./scripts/register-test-alias.cjs --test scripts/test-work-order-http.ts"
+    "test:work-orders:http": "node -r sucrase/register -r ./scripts/register-test-alias.cjs --test scripts/test-work-order-http.ts",
+    "test:acceptance": "node -r sucrase/register --test scripts/test-acceptance.ts"
   },
   "dependencies": {
     "@react-pdf/renderer": "^3.4.0",

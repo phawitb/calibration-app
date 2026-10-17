@@ -1,6 +1,8 @@
 import StandardInstrumentYear from '@/models/StandardInstrumentYear'
 import AmedDevice from '@/models/AmedDevice'
 import { normalizeAmedUcFields } from '@/lib/amedUcOptions'
+import { resolveStandardRegistryUpdate } from '@/lib/standardYearService'
+import { StandardYearError } from '@/lib/standardYears'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -66,23 +68,31 @@ export async function POST(req: NextRequest) {
   let updated = 0
   let created = 0
 
+  try {
   for (const row of normalizedRows) {
     const { _id, ...data } = row
     if (_id) {
-      try {
-        const oid = new mongoose.Types.ObjectId(String(_id))
+      let oid: mongoose.Types.ObjectId | null = null
+      try { oid = new mongoose.Types.ObjectId(String(_id)) } catch { /* Invalid _id format, treat as new */ }
+      if (oid) {
         const existing = await M.findById(oid)
         if (existing) {
+          if (type === 'stdinstruments') Object.assign(data, await resolveStandardRegistryUpdate(String(oid), data))
           await M.findByIdAndUpdate(oid, { $set: data }, { runValidators: false })
           updated++
           continue
         }
-      } catch {
-        // Invalid _id format, treat as new
       }
     }
+    if (type === 'stdinstruments') Object.assign(data, await resolveStandardRegistryUpdate(null, data))
     await M.create(data)
     created++
+  }
+  } catch (error) {
+    if (error instanceof StandardYearError) {
+      return NextResponse.json({ error: `${error.message} (นำเข้าแล้ว เพิ่ม ${created} / อัพเดท ${updated})`, created, updated }, { status: error.status })
+    }
+    throw error
   }
 
   return NextResponse.json({ ok: true, updated, created, total: rows.length })

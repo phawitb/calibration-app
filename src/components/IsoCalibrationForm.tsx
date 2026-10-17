@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import toast from 'react-hot-toast'
+import { promptApprovalPin } from '@/components/ApprovalPinDialog'
 import { buildHospitalUnitOptions, normalizeHospitalUnitFromRefs } from '@/lib/hospitalUnit'
 import { getIsoMethod, type IsoMethodConfig } from '@/lib/isoMethods'
 import { useStepNav } from '@/lib/stepNavContext'
@@ -724,6 +725,12 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
     if (saveAction === 'request_approval' && mode === 'edit' && !canRequestApprovalNow) {
       toast.error('กรุณากดอัพเดทค่า ก่อน'); return
     }
+    // TOR 1.2.1.14: ต้องกรอก PIN ส่วนตัวก่อนส่งขออนุมัติ
+    let approvalPin: string | null = null
+    if (saveAction === 'request_approval') {
+      approvalPin = await promptApprovalPin()
+      if (approvalPin == null) return
+    }
     setSaving(true)
 
     const selectedApprover = approvers.find((a) => String(a._id) === String(data.requestedApproverId || ''))
@@ -735,6 +742,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
           ? `${selectedApprover.rankEn || selectedApprover.rank || ''} ${selectedApprover.fullNameEn || selectedApprover.fullName || selectedApprover.name || ''}`.trim()
           : data.requestedApproverName || '',
     }
+    if (approvalPin) payload.approvalPin = approvalPin
 
     const url = mode === 'create' ? '/api/records' : `/api/records/${recordId}`
     const httpMethod = mode === 'create' ? 'POST' : 'PUT'

@@ -51,6 +51,7 @@ export async function renderCertificatePdf(record: any, textOverrides?: Certific
     record={record}
     summaryRows={calculation.summary || null}
     isoResult={calculation.isoResult}
+    acceptance={calculation.acceptanceResult}
     {...signatures}
     decimals={1}
     logoSrc={path.join(process.cwd(), 'public/logo.jpg')}

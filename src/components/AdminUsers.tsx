@@ -15,6 +15,7 @@ interface User {
   rank?: string
   fullNameEn?: string
   rankEn?: string
+  position?: string
   role: string
   hospitalUnit?: string
   createdAt: string
@@ -45,6 +46,7 @@ export default function AdminUsers() {
     rank: '',
     fullNameEn: '',
     rankEn: '',
+    position: '',
     hospitalUnit: '',
     role: 'hospital_user',
   })
@@ -56,6 +58,7 @@ export default function AdminUsers() {
     rank: '',
     fullNameEn: '',
     rankEn: '',
+    position: '',
     hospitalUnit: '',
     role: 'hospital_user',
     isActive: true,
@@ -173,8 +176,8 @@ export default function AdminUsers() {
   }, [])
 
   const handleCertUpload = async (userId: string, file: File) => {
-    if (file.type !== 'application/pdf') {
-      toast.error('รองรับเฉพาะไฟล์ PDF')
+    if (!['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'].includes(file.type)) {
+      toast.error('รองรับเฉพาะไฟล์ PDF, PNG หรือ JPEG')
       return
     }
     if (file.size > 8 * 1024 * 1024) {
@@ -221,7 +224,7 @@ export default function AdminUsers() {
     if (res.ok) {
       toast.success('เพิ่มผู้ใช้สำเร็จ')
       setShowForm(false)
-      setForm({ username: '', password: '', name: '', fullName: '', rank: '', fullNameEn: '', rankEn: '', hospitalUnit: '', role: 'hospital_user' })
+      setForm({ username: '', password: '', name: '', fullName: '', rank: '', fullNameEn: '', rankEn: '', position: '', hospitalUnit: '', role: 'hospital_user' })
       setCreateSignaturePng(null)
       await fetchUsers()
     } else {
@@ -240,6 +243,7 @@ export default function AdminUsers() {
       rank: u.rank || '',
       fullNameEn: u.fullNameEn || '',
       rankEn: u.rankEn || '',
+      position: u.position || '',
       hospitalUnit: u.hospitalUnit || '',
       role: u.role || 'hospital_user',
       isActive: true,
@@ -363,6 +367,11 @@ export default function AdminUsers() {
               <label className="block text-sm font-medium text-gray-700 mb-1">ยศ (English)</label>
               <input type="text" className="input-field"
                 value={form.rankEn} onChange={e => setForm(f => ({ ...f, rankEn: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ตำแหน่ง</label>
+              <input type="text" className="input-field" maxLength={200} placeholder="เช่น นักฟิสิกส์การแพทย์"
+                value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} />
             </div>
             <div className="sm:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">โรงพยาบาล / หน่วย</label>
@@ -491,6 +500,11 @@ export default function AdminUsers() {
                 value={editForm.rankEn} onChange={e => setEditForm(f => ({ ...f, rankEn: e.target.value }))} />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ตำแหน่ง</label>
+              <input type="text" className="input-field" maxLength={200}
+                value={editForm.position} onChange={e => setEditForm(f => ({ ...f, position: e.target.value }))} />
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">สิทธิ์</label>
               <select className="input-field" value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}>
                 <option value="hospital_user">ผู้ใช้ รพ.</option>
@@ -559,10 +573,10 @@ export default function AdminUsers() {
               </div>
             {/* Certificate PDF Upload Section */}
             <div className="sm:col-span-2 border-t border-gray-200 pt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">ใบเซอร์ (PDF) — อัปโหลดได้หลายไฟล์</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">ใบเซอร์ (PDF / PNG / JPEG) — อัปโหลดได้หลายไฟล์</label>
               <input
                 type="file"
-                accept="application/pdf"
+                accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg"
                 className="text-sm w-full mb-2"
                 disabled={certUploading}
                 onChange={async (e) => {
@@ -664,7 +678,7 @@ export default function AdminUsers() {
             ) : sortedUsers.map(u => (
               <tr key={u._id} className="border-b border-gray-50 hover:bg-military-50">
                 <td className="py-3 px-4 font-medium text-military-800">{u.username}</td>
-                <td className="py-3 px-4 text-gray-600">{u.fullName || u.name}{u.rank ? ` (${u.rank})` : ''}</td>
+                <td className="py-3 px-4 text-gray-600">{u.fullName || u.name}{u.rank ? ` (${u.rank})` : ''}{u.position && <span className="block text-xs text-gray-400">{u.position}</span>}</td>
                 <td className="py-3 px-4">
                   <div className="flex flex-col gap-0.5">
                     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium w-fit ${

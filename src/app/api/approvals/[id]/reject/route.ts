@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import CalibrationRecord from '@/models/CalibrationRecord'
 import User from '@/models/User'
+import { logActivity } from '@/lib/activityLog'
 
 export async function POST(
   req: NextRequest,
@@ -47,6 +48,11 @@ export async function POST(
   record.approve = ''
   record.certificateRevision = Number(record.certificateRevision || 0) + 1
   await record.save()
+  await logActivity(req, session.user as any, 'record_reject', {
+    targetType: 'record',
+    targetId: record._id,
+    detail: `${[record.certNo, record.amedNo, record.deviceName].filter(Boolean).join(' · ')} — ${comment}`.slice(0, 500),
+  })
 
   return NextResponse.json({ record })
 }

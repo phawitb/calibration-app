@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import UserCertificate from '@/models/UserCertificate'
 import { canViewUserCertificates } from '@/lib/userCertificateAccess'
+import { ATTACHMENT_LABEL, ATTACHMENT_MAX_BYTES, declaredTypeMatches, sniffAttachmentType } from '@/lib/attachmentTypes'
 
 async function requireAdmin() {
   const s = await getServerSession(authOptions)
@@ -31,7 +32,7 @@ export async function GET(
   return NextResponse.json({ data: certs })
 }
 
-/** Upload a certificate PDF */
+/** Upload a certificate file (PDF / PNG / JPEG) */
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -45,25 +46,24 @@ export async function POST(
   const file = formData.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
 
-  if (file.type !== 'application/pdf') {
-    return NextResponse.json({ error: 'Only PDF files are allowed' }, { status: 400 })
-  }
-
-  const MAX_SIZE = 8 * 1024 * 1024 // 8MB
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: 'File too large (max 8MB)' }, { status: 400 })
+  if (file.size > ATTACHMENT_MAX_BYTES) {
+    return NextResponse.json({ error: 'ไฟล์ต้องไม่เกิน 8 MB' }, { status: 400 })
   }
 
   const buffer = Buffer.from(await file.arrayBuffer())
+  const contentType = sniffAttachmentType(buffer)
+  if (!contentType || !declaredTypeMatches(file.type, contentType)) {
+    return NextResponse.json({ error: `รองรับเฉพาะไฟล์ ${ATTACHMENT_LABEL}` }, { status: 400 })
+  }
   const cert = await UserCertificate.create({
     userId: params.id,
-    fileName: file.name,
-    contentType: file.type,
+    fileName: String(file.name || 'certificate').slice(0, 250),
+    contentType,
     pdfData: buffer,
   })
 
   return NextResponse.json(
-    { data: { _id: cert._id, fileName: cert.fileName, uploadedAt: cert.uploadedAt } },
+    { data: { _id: cert._id, fileName: cert.fileName, contentType: cert.contentType, uploadedAt: cert.uploadedAt } },
     { status: 201 }
   )
 }

@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { cookies } from 'next/headers'
 import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
+import { logActivity } from '@/lib/activityLog'
 
 /** POST: start impersonating a user (admin only) */
 export async function POST(req: NextRequest) {
@@ -35,6 +36,11 @@ export async function POST(req: NextRequest) {
   console.info(
     `[impersonate] admin ${(session!.user as any).username} (${(session!.user as any).id}) -> ${(target as any).username} (${userId})`
   )
+  await logActivity(req, session!.user as any, 'impersonate_start', {
+    targetType: 'user',
+    targetId: userId,
+    detail: `สวมสิทธิ์ผู้ใช้ ${(target as any).username}`,
+  })
 
   const role = (target as any).role === 'user' ? 'hospital_user' : (target as any).role
   return NextResponse.json({
@@ -54,7 +60,7 @@ export async function POST(req: NextRequest) {
 }
 
 /** DELETE: stop impersonating */
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -62,5 +68,13 @@ export async function DELETE() {
 
   const cookieStore = await cookies()
   cookieStore.delete('impersonate_user_id')
+  const u = session.user as any
+  if (u?._isImpersonating) {
+    await logActivity(req, { id: u._realAdminId, username: u._realAdminUsername, role: 'admin' }, 'impersonate_stop', {
+      targetType: 'user',
+      targetId: u.id,
+      detail: `เลิกสวมสิทธิ์ผู้ใช้ ${u.username}`,
+    })
+  }
   return NextResponse.json({ ok: true })
 }

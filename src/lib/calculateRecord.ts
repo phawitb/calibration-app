@@ -8,8 +8,15 @@ import {
 import IsoMethodTemplate from '@/models/IsoMethodTemplate'
 import { applyIsoMethodSeedOverlay } from '@/lib/isoMethodSeeds'
 import { calculateIsoUncertainty, type IsoCalcInput } from '@/lib/isoUncertainty'
+import { buildAcceptanceResult } from '@/lib/recordAcceptance'
 
+/** ผลคำนวณพร้อมผลการตัดสิน ผ่าน/ไม่ผ่าน/N/A ตามเกณฑ์ MPE ของ record */
 export async function calculateRecord(record: any): Promise<any> {
+  const calculation = await calculateRecordCore(record)
+  return { ...calculation, acceptanceResult: buildAcceptanceResult(record, calculation) }
+}
+
+async function calculateRecordCore(record: any): Promise<any> {
   const ucKeys = ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT'] as const
   const formulaMap: Partial<Record<string, FormulaConfig>> = {}
 

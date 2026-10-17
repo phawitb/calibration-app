@@ -4,6 +4,7 @@ import { getOrder, requireOrderManager } from '@/lib/workOrderService'
 import { OrderError, orderId } from '@/lib/workOrderValidation'
 import { inlineContentDisposition } from '@/lib/contentDisposition'
 import WorkOrderDocument from '@/models/WorkOrderDocument'
+import { ATTACHMENT_TYPES } from '@/lib/attachmentTypes'
 type Context = { params: { id: string; documentId: string } }
 export async function GET(req: NextRequest, { params }: Context) {
   try {
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest, { params }: Context) {
     const disposition = inlineContentDisposition(doc.fileName)
     return new NextResponse(new Uint8Array(doc.pdfData), {
       headers: {
-        'Content-Type': 'application/pdf',
+        'Content-Type': (ATTACHMENT_TYPES as readonly string[]).includes(doc.contentType) ? doc.contentType : 'application/pdf',
         'Content-Disposition': req.nextUrl.searchParams.has('download')
           ? disposition.replace(/^inline/, 'attachment')
           : disposition,
