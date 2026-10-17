@@ -191,6 +191,7 @@ export function UcSection({
   onChange: onValueChange,
   stdRefs = [],
   instrumentNos,
+  allowedNos = null,
   stdFieldOptions,
   formulaOptions = [],
   isTimeUnit = false,
@@ -198,6 +199,8 @@ export function UcSection({
 }: {
   label: string
   value: any
+  /** รหัสเครื่องมือมาตรฐานที่นำไปตามคำสั่ง (null = ไม่จำกัด) */
+  allowedNos?: string[] | null
   onChange: (v: any) => void
   stdRefs?: StdRef[]
   instrumentNos?: string[]
@@ -215,7 +218,11 @@ export function UcSection({
   }
   useEffect(() => () => { configRequestSequence.current += 1 }, [])
   const configuredNos = instrumentNos?.length ? instrumentNos : undefined
-  const availableNos = configuredNos || Array.from(new Set(stdRefs.map(ref => String(ref.no ?? '').trim()).filter(Boolean)))
+  // ทะเบียน AmedNo กำหนดรหัสที่ใช้ได้ต่อช่อง และคำสั่งกำหนดรหัสที่นำไป → ใช้ได้เฉพาะที่ตรงกันทั้งสองอย่าง
+  const notCarriedNos = configuredNos && allowedNos ? configuredNos.filter(no => !allowedNos.includes(no)) : []
+  const availableNos = configuredNos
+    ? (allowedNos ? configuredNos.filter(no => allowedNos.includes(no)) : configuredNos)
+    : Array.from(new Set(stdRefs.map(ref => String(ref.no ?? '').trim()).filter(Boolean)))
   const selectedNo = String(uc.std?.no ?? '')
   // Track if std fields came from reference (lock non-key fields)
   const [fromRef, setFromRef] = useState(() => {
@@ -369,7 +376,7 @@ export function UcSection({
           return (
           <div key={f.field}>
             <label className="block text-xs text-gray-500 mb-1">{f.label}</label>
-            {f.field === 'no' ? (
+            {f.field === 'no' ? (<>
               <select className="input-field text-xs py-1.5" aria-label={`${label} รหัสเครื่องมือ`}
                 value={selectedNo}
                 onChange={event => {
@@ -387,6 +394,14 @@ export function UcSection({
                 {selectedNo && !availableNos.includes(selectedNo) && <option value={selectedNo}>{selectedNo} (ค่าที่บันทึกไว้)</option>}
                 {availableNos.map(no => <option key={no} value={no}>{no}</option>)}
               </select>
+              {notCarriedNos.length > 0 && (
+                <p className={`mt-1 text-[11px] ${availableNos.length ? 'text-gray-500' : 'text-red-600'}`}>
+                  {availableNos.length ? 'ไม่ได้นำไปตามคำสั่ง: ' : 'เครื่องนี้ต้องใช้ '}
+                  {notCarriedNos.join(', ')}
+                  {availableNos.length ? '' : ' แต่ไม่ได้นำไปตามคำสั่ง กรุณาแก้รายการเครื่องมือมาตรฐานในคำสั่ง'}
+                </p>
+              )}
+            </>
             ) : isLocked ? (
               <input type="text" className="input-field text-xs py-1.5 bg-gray-100 text-gray-500 cursor-not-allowed"
                 value={fieldValue ?? ''} readOnly />
@@ -784,6 +799,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
       .catch(() => { if (mounted) setOrderStandards(null) })
     return () => { mounted = false }
   }, [orderIdForStandards])
+  const orderAllowedNos = useMemo(() => (orderStandards ? orderStandards.map((s) => s.no) : null), [orderStandards])
   // แสดงเฉพาะเครื่องมือมาตรฐานของคำสั่ง (คงรายการที่ record นี้ใช้อยู่แล้วไว้ด้วย)
   const stdInstruments = useMemo(() => {
     if (!orderStandards) return allStdInstruments
@@ -1588,6 +1604,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
             stdFieldOptions={ucStdFieldOptions}
             formulaOptions={formulaOptions}
             instrumentNos={normalizeUcOptions(registryUcOptions?.uc1)}
+            allowedNos={orderAllowedNos}
             label="เครื่องมือสอบเทียบ UC1"
             value={data.uc1}
             onChange={(v) => set('uc1', v)}
@@ -1610,6 +1627,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
                     stdFieldOptions={ucStdFieldOptions}
                     formulaOptions={formulaOptions}
                     instrumentNos={normalizeUcOptions(registryUcOptions?.[uc])}
+                    allowedNos={orderAllowedNos}
                     label={`เครื่องมือสอบเทียบ ${uc.toUpperCase()}`}
                     value={data[uc]}
                     onChange={(v) => set(uc, v)}
@@ -1635,6 +1653,7 @@ export default function CalibrationForm({ initialData, mode, id, registryUcOptio
                   stdFieldOptions={timeUcStdFieldOptions}
                   formulaOptions={formulaOptions}
                   instrumentNos={normalizeUcOptions(registryUcOptions?.ucT)}
+                  allowedNos={orderAllowedNos}
                   label="เครื่องมือสอบเทียบเวลา (UcT)"
                   value={data.ucT}
                   onChange={(v) => set('ucT', v)}

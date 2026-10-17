@@ -61,6 +61,7 @@ function SuggestInput({
   extraOptions = [],
   onBlur,
   restrictToList = false,
+  onlyExtra = false,
 }: {
   field: string
   value: string
@@ -69,6 +70,8 @@ function SuggestInput({
   placeholder?: string
   extraOptions?: string[]
   onBlur?: () => void
+  /** ใช้เฉพาะ extraOptions ไม่ดึงคำแนะนำจากประวัติ (เช่น เมื่อคำสั่งจำกัดเครื่องมือมาตรฐาน) */
+  onlyExtra?: boolean
   /** จำกัดให้เลือกได้เฉพาะค่าใน list — blur แล้วค่าไม่ตรงจะล้าง */
   restrictToList?: boolean
 }) {
@@ -81,6 +84,7 @@ function SuggestInput({
   )
 
   useEffect(() => {
+    if (onlyExtra) { setOptions([]); return }
     const controller = new AbortController()
     const timeout = setTimeout(async () => {
       try {
@@ -92,7 +96,7 @@ function SuggestInput({
       } catch { /* ignore */ }
     }, 250)
     return () => { controller.abort(); clearTimeout(timeout) }
-  }, [field, value])
+  }, [field, value, onlyExtra])
 
   const filtered = useMemo(() => {
     if (!safeValue.trim()) return mergedOptions.slice(0, 40)
@@ -1777,6 +1781,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 value={data.std1?.no || ''}
                 onChange={(v) => { setStd1('no', v); if (v.trim()) setFieldErrors((p) => { const n = { ...p }; delete n['std1.no']; return n }) }}
                 onBlur={tryApplyStd1FromRef}
+                onlyExtra={!!orderStandards}
                 extraOptions={std1FieldOptions.no || []} />
             </div>
             <div>
@@ -1786,6 +1791,7 @@ export default function IsoCalibrationForm({ mode, methodCode, recordId, initial
                 value={data.std1?.name || ''}
                 onChange={(v) => setStd1('name', v)}
                 onBlur={tryApplyStd1FromRef}
+                onlyExtra={!!orderStandards}
                 extraOptions={std1FieldOptions.name || []} />
             </div>
             <div>
