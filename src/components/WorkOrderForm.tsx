@@ -71,25 +71,30 @@ export default function WorkOrderForm({
       live = false
     }
   }, [])
+  const selectedUnitsKey = form.hospitals.map((h) => h.unitName).join('\u0000')
   useEffect(() => {
-    if (!active || devices[active]) return
+    const units = Array.from(
+      new Set([active, ...selectedUnitsKey.split('\u0000')].filter(Boolean))
+    ).filter((unit) => !devices[unit])
+    if (!units.length) return
     const controller = new AbortController()
-    const unit = active
-    fetch(`/api/ameddevices?unitName=${encodeURIComponent(unit)}`, {
-      signal: controller.signal,
-    })
-      .then(async (r) => {
-        const j = await r.json()
-        if (!r.ok) throw Error(j.error)
-        setDevices((prev) => ({ ...prev, [unit]: j.data }))
-        setDeviceErrors((prev) => ({ ...prev, [unit]: '' }))
+    for (const unit of units) {
+      fetch(`/api/ameddevices?unitName=${encodeURIComponent(unit)}`, {
+        signal: controller.signal,
       })
-      .catch((e) => {
-        if (e.name !== 'AbortError')
-          setDeviceErrors((prev) => ({ ...prev, [unit]: e.message }))
-      })
+        .then(async (r) => {
+          const j = await r.json()
+          if (!r.ok) throw Error(j.error)
+          setDevices((prev) => ({ ...prev, [unit]: j.data }))
+          setDeviceErrors((prev) => ({ ...prev, [unit]: '' }))
+        })
+        .catch((e) => {
+          if (e.name !== 'AbortError')
+            setDeviceErrors((prev) => ({ ...prev, [unit]: e.message }))
+        })
+    }
     return () => controller.abort()
-  }, [active, devices])
+  }, [active, selectedUnitsKey, devices])
   const patch = (key: keyof WorkOrderInput, value: any) =>
     setForm((prev) => ({ ...prev, [key]: value }))
   const toggleHospital = (unitName: string) => {
@@ -210,12 +215,78 @@ export default function WorkOrderForm({
       (u) => !users.some((x) => x._id === u._id)
     ),
   ]
+  /** รหัสเครื่องมือมาตรฐานที่เครื่องมือ AmedNo ที่เลือกไว้ต้องใช้ (ตาม Uc1–UcT ในทะเบียน) */
+  const requiredStdNos = (() => {
+    const nos = new Map<string, Set<string>>()
+    for (const h of form.hospitals) {
+      for (const id of h.deviceIds) {
+        const device: any = devices[h.unitName]?.find((d) => d._id === id)
+        if (!device) continue
+        for (const key of ['uc1', 'uc2', 'uc3', 'uc4', 'uc5', 'uc6', 'ucT']) {
+          const list = Array.isArray(device[key]) ? device[key] : device[key] ? [device[key]] : []
+          for (const raw of list) {
+            const no = String(raw ?? '').trim()
+            if (!no) continue
+            if (!nos.has(no)) nos.set(no, new Set())
+            nos.get(no)!.add(String(device.amedNo || ''))
+          }
+        }
+      }
+    }
+    return nos
+  })()
   const availableStandards = [
     ...standards,
     ...(saved?.standards || []).filter(
       (s) => !standards.some((x) => x._id === s._id)
     ),
   ]
+  const requiredStandards = availableStandards.filter((s) => requiredStdNos.has(s.no))
+  const otherStandards = availableStandards.filter((s) => !requiredStdNos.has(s.no))
+  const unknownRequiredNos = Array.from(requiredStdNos.keys()).filter(
+    (no) => !availableStandards.some((s) => s.no === no)
+  )
+  const missingRequired = requiredStandards.filter((s) => !form.standardIds.includes(s._id))
+  const toggleStandard = (id: string) =>
+    patch(
+      'standardIds',
+      form.standardIds.includes(id)
+        ? form.standardIds.filter((x) => x !== id)
+        : [...form.standardIds, id]
+    )
+  const matchesStandardQuery = (s: OrderStandard) =>
+    `${s.no} ${s.name} ${s.model || ''} ${s.serialNo || ''} ${s.measurement || ''}`
+      .toLowerCase()
+      .includes(standardQuery.toLowerCase())
+  const renderStandard = (s: OrderStandard) => (
+    <label
+      key={s._id}
+      className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${
+        requiredStdNos.has(s.no) ? 'border-military-300 bg-military-50' : ''
+      }`}
+    >
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={form.standardIds.includes(s._id)}
+        onChange={() => toggleStandard(s._id)}
+      />
+      <span>
+        <span className="font-medium">{s.no}</span> {s.name}
+        <span className="block text-xs text-gray-500">
+          {[s.manufacture, s.model, s.serialNo && `S/N ${s.serialNo}`, s.measurement]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+        {requiredStdNos.has(s.no) && (
+          <span className="block text-xs text-military-700">
+            ใช้กับ AmedNo {Array.from(requiredStdNos.get(s.no) || []).filter(Boolean).slice(0, 6).join(', ')}
+            {(requiredStdNos.get(s.no)?.size || 0) > 6 && ' …'}
+          </span>
+        )}
+      </span>
+    </label>
+  )
   const availableHospitals = Array.from(
     new Set([...hospitals, ...form.hospitals.map((h) => h.unitName)])
   )
@@ -470,45 +541,66 @@ export default function WorkOrderForm({
               value={standardQuery}
               onChange={(e) => setStandardQuery(e.target.value)}
             />
-            <div className="grid gap-2 sm:grid-cols-2 max-h-72 overflow-auto">
-              {availableStandards
-                .filter((s) =>
-                  `${s.no} ${s.name} ${s.model || ''} ${s.serialNo || ''} ${s.measurement || ''}`
-                    .toLowerCase()
-                    .includes(standardQuery.toLowerCase())
-                )
-                .map((s) => (
-                  <label
-                    key={s._id}
-                    className="flex items-start gap-3 rounded-lg border p-3 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={form.standardIds.includes(s._id)}
-                      onChange={() =>
-                        patch(
-                          'standardIds',
-                          form.standardIds.includes(s._id)
-                            ? form.standardIds.filter((id) => id !== s._id)
-                            : [...form.standardIds, s._id]
-                        )
+            {requiredStdNos.size > 0 && (
+              <div className="rounded-lg border border-military-200 bg-military-50/60 p-3 text-sm space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    เครื่องมือ AmedNo ที่เลือกต้องใช้เครื่องมือมาตรฐาน{' '}
+                    <span className="font-medium">{requiredStdNos.size} รหัส</span>
+                    {missingRequired.length > 0 && (
+                      <span className="text-amber-700"> · ยังไม่ได้เลือก {missingRequired.length} ชิ้น</span>
+                    )}
+                    {missingRequired.length === 0 && requiredStandards.length > 0 && (
+                      <span className="text-green-700"> · เลือกครบแล้ว</span>
+                    )}
+                  </span>
+                  {missingRequired.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-sm font-medium text-military-700 underline"
+                      onClick={() =>
+                        patch('standardIds', [
+                          ...form.standardIds,
+                          ...missingRequired.map((s) => s._id),
+                        ])
                       }
-                    />
-                    <span>
-                      <span className="font-medium">{s.no}</span> {s.name}
-                      <span className="block text-xs text-gray-500">
-                        {[s.manufacture, s.model, s.serialNo && `S/N ${s.serialNo}`, s.measurement]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
-                    </span>
-                  </label>
-                ))}
+                    >
+                      เลือกทั้งหมดที่ต้องใช้
+                    </button>
+                  )}
+                </div>
+                {unknownRequiredNos.length > 0 && (
+                  <p className="text-xs text-amber-700">
+                    รหัสในทะเบียน AmedNo ที่ไม่พบในทะเบียนเครื่องมือมาตรฐาน: {unknownRequiredNos.join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="max-h-80 overflow-auto space-y-3">
+              {requiredStandards.filter(matchesStandardQuery).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-military-800">
+                    ตามเครื่องมือที่เลือก ({requiredStandards.length})
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {requiredStandards.filter(matchesStandardQuery).map(renderStandard)}
+                  </div>
+                </div>
+              )}
+              {otherStandards.filter(matchesStandardQuery).length > 0 && (
+                <div className="space-y-2">
+                  {requiredStdNos.size > 0 && (
+                    <p className="text-xs font-medium text-gray-500">
+                      เครื่องมือมาตรฐานอื่นในทะเบียน ({otherStandards.length})
+                    </p>
+                  )}
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {otherStandards.filter(matchesStandardQuery).map(renderStandard)}
+                  </div>
+                </div>
+              )}
               {!availableStandards.length && !optionsLoading && (
-                <p className="text-sm text-gray-500 sm:col-span-2">
-                  ยังไม่มีเครื่องมือมาตรฐานในทะเบียน
-                </p>
+                <p className="text-sm text-gray-500">ยังไม่มีเครื่องมือมาตรฐานในทะเบียน</p>
               )}
             </div>
           </section>

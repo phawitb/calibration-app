@@ -6,7 +6,11 @@ import { buildHospitalUnitOptions } from '@/lib/hospitalUnit'
 export const GET = () =>
   orderResponse(async () => {
     requireOrderManager(await orderActor())
-    const users = await User.find({ isActive: { $ne: false } })
+    // ทีมผู้ปฏิบัติงานเลือกได้เฉพาะเจ้าหน้าที่ ไม่รวมผู้ใช้โรงพยาบาล
+    const users = await User.find({
+      isActive: { $ne: false },
+      role: { $in: ['admin', 'technician', 'approver'] },
+    })
       .select('name fullName username isActive')
       .sort({ name: 1 })
       .lean()

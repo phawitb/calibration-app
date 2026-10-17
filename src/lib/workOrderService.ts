@@ -69,13 +69,16 @@ async function checkedInput(body: unknown, previous?: any) {
   const members = []
   for (const id of input.memberIds) {
     const user: any = await User.findById(id)
-      .select('name fullName username isActive')
+      .select('name fullName username isActive role')
       .lean()
     const old = previous?.members?.find((m: any) => String(m._id) === id)
     if (!user && old) {
       members.push({ ...old, isActive: false })
       continue
     }
+    const staffRole = user?.role === 'user' ? 'hospital_user' : user?.role
+    if (user && staffRole === 'hospital_user' && !old)
+      throw new OrderError('ทีมผู้ปฏิบัติงานต้องเป็นเจ้าหน้าที่ ไม่ใช่ผู้ใช้โรงพยาบาล')
     if (
       !user ||
       (user.isActive === false && !previous?.memberIds?.includes(id))
